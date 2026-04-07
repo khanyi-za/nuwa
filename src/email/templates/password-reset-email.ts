@@ -1,0 +1,76 @@
+export function passwordResetEmailTemplate(
+  firstName: string,
+  resetUrl: string,
+): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reset your YIIVA password</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f5f5f5;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f5f5f5;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="560" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:8px;overflow:hidden;">
+
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#0a0a0a;padding:32px 48px;text-align:center;">
+              <span style="font-size:26px;font-weight:bold;letter-spacing:6px;color:#ffffff;">YIIVA</span>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:48px;">
+              <p style="margin:0 0 16px 0;font-size:16px;color:#111111;">Hi ${firstName},</p>
+              <p style="margin:0 0 28px 0;font-size:16px;color:#333333;line-height:1.7;">
+                We received a request to reset your YIIVA password. Click the button below to choose a new password.
+              </p>
+
+              <!-- CTA Button -->
+              <table cellpadding="0" cellspacing="0" border="0" style="margin:0 0 32px 0;">
+                <tr>
+                  <td style="background-color:#0a0a0a;border-radius:4px;">
+                    <a href="${resetUrl}"
+                       style="display:inline-block;padding:14px 36px;color:#ffffff;text-decoration:none;font-size:15px;font-weight:bold;">
+                      Reset my password
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Fallback URL -->
+              <p style="margin:0 0 6px 0;font-size:13px;color:#777777;">
+                If the button doesn't work, copy and paste this link into your browser:
+              </p>
+              <p style="margin:0 0 28px 0;font-size:13px;color:#0a0a0a;word-break:break-all;">
+                ${resetUrl}
+              </p>
+
+              <p style="margin:0 0 12px 0;font-size:13px;color:#777777;">This link expires in 1 hour.</p>
+              <p style="margin:0;font-size:13px;color:#777777;">
+                If you didn't request a password reset, no action is needed — your password won't change.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:24px 48px;border-top:1px solid #eeeeee;">
+              <p style="margin:0;font-size:12px;color:#aaaaaa;text-align:center;">
+                For your security, this link can only be used once. Need help? Contact
+                <a href="mailto:support@yiiva.co.za" style="color:#aaaaaa;">support@yiiva.co.za</a>
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}

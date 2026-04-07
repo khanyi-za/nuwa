@@ -1,0 +1,695 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2800 2850" font-family="'Courier New', monospace">
+  <defs>
+    <style>
+      .table-header { fill: #1a1a2e; }
+      .table-header-users { fill: #0f3460; }
+      .table-header-store { fill: #533483; }
+      .table-header-product { fill: #e94560; }
+      .table-header-order { fill: #0a8754; }
+      .table-header-payment { fill: #c74b16; }
+      .table-header-shipping { fill: #16697a; }
+      .table-header-content { fill: #a3216a; }
+      .table-header-support { fill: #5c636a; }
+      .table-header-misc { fill: #495057; }
+      .table-body { fill: #f8f9fa; stroke: #dee2e6; stroke-width: 1.5; }
+      .header-text { fill: white; font-size: 13px; font-weight: bold; }
+      .field-text { fill: #212529; font-size: 10.5px; }
+      .pk-text { fill: #e94560; font-size: 10.5px; font-weight: bold; }
+      .fk-text { fill: #0f3460; font-size: 10.5px; }
+      .type-text { fill: #6c757d; font-size: 9.5px; }
+      .rel-line { stroke: #adb5bd; stroke-width: 1.5; fill: none; }
+      .rel-line-strong { stroke: #495057; stroke-width: 2; fill: none; }
+      .group-label { fill: #212529; font-size: 16px; font-weight: bold; font-family: 'Helvetica Neue', sans-serif; }
+      .group-sublabel { fill: #6c757d; font-size: 11px; font-family: 'Helvetica Neue', sans-serif; }
+      .group-box { fill: none; stroke: #dee2e6; stroke-width: 1; stroke-dasharray: 6,4; rx: 12; }
+      .legend-text { fill: #495057; font-size: 11px; font-family: 'Helvetica Neue', sans-serif; }
+      .title-text { fill: #1a1a2e; font-size: 28px; font-weight: bold; font-family: 'Helvetica Neue', sans-serif; }
+      .subtitle-text { fill: #6c757d; font-size: 14px; font-family: 'Helvetica Neue', sans-serif; }
+      .new-badge { fill: #0a8754; font-size: 9px; font-weight: bold; font-family: 'Helvetica Neue', sans-serif; }
+      .changed-badge { fill: #c74b16; font-size: 9px; font-weight: bold; font-family: 'Helvetica Neue', sans-serif; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="2800" height="2850" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="1400" y="45" text-anchor="middle" class="title-text">YIIVA — Entity Relationship Diagram (Updated)</text>
+  <text x="1400" y="68" text-anchor="middle" class="subtitle-text">Mobile Commerce Infrastructure for South African Creative Brands  •  NestJS + Prisma + PostgreSQL  •  34 Models</text>
+
+  <!-- Legend -->
+  <rect x="30" y="30" width="320" height="120" rx="8" fill="#f8f9fa" stroke="#dee2e6" stroke-width="1"/>
+  <text x="50" y="52" class="legend-text" font-weight="bold">Legend</text>
+  <line x1="50" y1="68" x2="90" y2="68" stroke="#495057" stroke-width="2"/>
+  <text x="96" y="72" class="legend-text">→  One-to-Many (1:N)</text>
+  <line x1="50" y1="88" x2="90" y2="88" stroke="#495057" stroke-width="2" stroke-dasharray="5,3"/>
+  <text x="96" y="92" class="legend-text">- -  One-to-One (1:1)</text>
+  <circle cx="55" cy="108" r="6" fill="#e94560" opacity="0.8"/>
+  <text x="68" y="112" class="legend-text">PK = Primary Key</text>
+  <circle cx="180" cy="108" r="6" fill="#0f3460" opacity="0.8"/>
+  <text x="193" y="112" class="legend-text">FK = Foreign Key</text>
+  <rect x="50" y="122" width="32" height="14" rx="3" fill="#0a8754"/>
+  <text x="58" y="133" fill="white" font-size="8px" font-weight="bold" font-family="Helvetica">NEW</text>
+  <text x="90" y="133" class="legend-text">= New model/field</text>
+  <rect x="180" y="122" width="56" height="14" rx="3" fill="#c74b16"/>
+  <text x="184" y="133" fill="white" font-size="8px" font-weight="bold" font-family="Helvetica">CHANGED</text>
+  <text x="244" y="133" class="legend-text">= Modified</text>
+
+  <!-- ==================== GROUP: USERS & AUTH (top-left) ==================== -->
+  <rect x="20" y="155" width="590" height="580" class="group-box"/>
+  <text x="40" y="180" class="group-label">Users &amp; Authentication</text>
+  <text x="40" y="196" class="group-sublabel">Identity, addresses, and session management</text>
+
+  <!-- User Table (CHANGED - auth token fields added) -->
+  <rect x="40" y="210" width="260" height="355" class="table-body" rx="6"/>
+  <rect x="40" y="210" width="260" height="28" class="table-header-users" rx="6"/>
+  <rect x="40" y="232" width="260" height="6" class="table-header-users"/>
+  <text x="165" y="230" text-anchor="middle" class="header-text">User</text>
+  <rect x="218" y="215" width="56" height="14" rx="3" fill="#c74b16"/>
+  <text x="222" y="226" fill="white" font-size="8px" font-weight="bold" font-family="Helvetica">CHANGED</text>
+  <text x="52" y="258" class="pk-text">PK  id</text><text x="210" y="258" class="type-text">String</text>
+  <text x="52" y="274" class="field-text">    email</text><text x="210" y="274" class="type-text">String !</text>
+  <text x="52" y="290" class="field-text">    phone</text><text x="210" y="290" class="type-text">String?</text>
+  <text x="52" y="306" class="field-text">    passwordHash</text><text x="210" y="306" class="type-text">String</text>
+  <text x="52" y="322" class="field-text">    firstName</text><text x="210" y="322" class="type-text">String</text>
+  <text x="52" y="338" class="field-text">    lastName</text><text x="210" y="338" class="type-text">String</text>
+  <text x="52" y="354" class="field-text">    avatarUrl</text><text x="210" y="354" class="type-text">String?</text>
+  <text x="52" y="370" class="field-text">    role</text><text x="210" y="370" class="type-text">UserRole</text>
+  <text x="52" y="386" class="field-text">    accountStatus</text><text x="210" y="386" class="type-text">AccountStatus</text>
+  <text x="52" y="402" class="field-text">    emailVerified</text><text x="210" y="402" class="type-text">Boolean</text>
+  <text x="52" y="418" class="field-text">    lastLoginAt</text><text x="210" y="418" class="type-text">DateTime?</text>
+  <line x1="40" y1="426" x2="300" y2="426" stroke="#dee2e6" stroke-width="1"/>
+  <text x="52" y="442" class="new-badge">NEW  Auth token fields:</text>
+  <text x="52" y="458" class="field-text">    verificationToken</text><text x="210" y="458" class="type-text">String?</text>
+  <text x="52" y="474" class="field-text">    verificationExpiry</text><text x="210" y="474" class="type-text">DateTime?</text>
+  <text x="52" y="490" class="field-text">    resetToken</text><text x="210" y="490" class="type-text">String?</text>
+  <text x="52" y="506" class="field-text">    resetExpiry</text><text x="210" y="506" class="type-text">DateTime?</text>
+  <line x1="40" y1="514" x2="300" y2="514" stroke="#dee2e6" stroke-width="1"/>
+  <text x="52" y="530" class="type-text" font-style="italic">→ store, addresses, orders, cart,</text>
+  <text x="52" y="546" class="type-text" font-style="italic">   wishlist, reviews, notifications,</text>
+  <text x="52" y="558" class="type-text" font-style="italic">   storeEmployments</text>
+
+  <!-- RefreshToken Table -->
+  <rect x="340" y="210" width="250" height="170" class="table-body" rx="6"/>
+  <rect x="340" y="210" width="250" height="28" class="table-header-users" rx="6"/>
+  <rect x="340" y="232" width="250" height="6" class="table-header-users"/>
+  <text x="465" y="230" text-anchor="middle" class="header-text">RefreshToken</text>
+  <text x="352" y="258" class="pk-text">PK  id</text><text x="500" y="258" class="type-text">String</text>
+  <text x="352" y="274" class="field-text">    token</text><text x="500" y="274" class="type-text">String !</text>
+  <text x="352" y="290" class="fk-text">FK  userId</text><text x="500" y="290" class="type-text">String</text>
+  <text x="352" y="306" class="field-text">    expiresAt</text><text x="500" y="306" class="type-text">DateTime</text>
+  <text x="352" y="322" class="field-text">    revoked</text><text x="500" y="322" class="type-text">Boolean</text>
+  <text x="352" y="338" class="field-text">    createdAt</text><text x="500" y="338" class="type-text">DateTime</text>
+
+  <!-- Address Table -->
+  <rect x="340" y="410" width="250" height="250" class="table-body" rx="6"/>
+  <rect x="340" y="410" width="250" height="28" class="table-header-users" rx="6"/>
+  <rect x="340" y="432" width="250" height="6" class="table-header-users"/>
+  <text x="465" y="430" text-anchor="middle" class="header-text">Address</text>
+  <text x="352" y="458" class="pk-text">PK  id</text><text x="500" y="458" class="type-text">String</text>
+  <text x="352" y="474" class="fk-text">FK  userId</text><text x="500" y="474" class="type-text">String</text>
+  <text x="352" y="490" class="field-text">    label</text><text x="500" y="490" class="type-text">String?</text>
+  <text x="352" y="506" class="field-text">    recipientName</text><text x="500" y="506" class="type-text">String</text>
+  <text x="352" y="522" class="field-text">    phone</text><text x="500" y="522" class="type-text">String</text>
+  <text x="352" y="538" class="field-text">    addressLine1</text><text x="500" y="538" class="type-text">String</text>
+  <text x="352" y="554" class="field-text">    city</text><text x="500" y="554" class="type-text">String</text>
+  <text x="352" y="570" class="field-text">    province</text><text x="500" y="570" class="type-text">String</text>
+  <text x="352" y="586" class="field-text">    postalCode</text><text x="500" y="586" class="type-text">String</text>
+  <text x="352" y="602" class="field-text">    country</text><text x="500" y="602" class="type-text">String</text>
+  <text x="352" y="618" class="field-text">    isDefault</text><text x="500" y="618" class="type-text">Boolean</text>
+
+  <!-- User → RefreshToken (1:N) -->
+  <path d="M300,270 L340,270" class="rel-line-strong" marker-end="url(#arrow)"/>
+  <!-- User → Address (1:N) -->
+  <path d="M300,450 L340,450" class="rel-line-strong"/>
+
+  <!-- ==================== GROUP: STORES / BRANDS (top-center) ==================== -->
+  <rect x="640" y="155" width="880" height="610" class="group-box"/>
+  <text x="660" y="180" class="group-label">Stores &amp; Brands</text>
+  <text x="660" y="196" class="group-sublabel">Merchant stores, employees, addresses, followers, and categories</text>
+
+  <!-- Store Table (CHANGED) -->
+  <rect x="660" y="210" width="280" height="440" class="table-body" rx="6"/>
+  <rect x="660" y="210" width="280" height="28" class="table-header-store" rx="6"/>
+  <rect x="660" y="232" width="280" height="6" class="table-header-store"/>
+  <text x="800" y="230" text-anchor="middle" class="header-text">Store</text>
+  <rect x="838" y="215" width="56" height="14" rx="3" fill="#c74b16"/>
+  <text x="842" y="226" fill="white" font-size="8px" font-weight="bold" font-family="Helvetica">CHANGED</text>
+  <text x="672" y="258" class="pk-text">PK  id</text><text x="840" y="258" class="type-text">String</text>
+  <text x="672" y="274" class="fk-text">FK  ownerId</text><text x="840" y="274" class="type-text">String !</text>
+  <text x="672" y="290" class="changed-badge">CHG companyName</text><text x="840" y="290" class="type-text">String !</text>
+  <text x="672" y="306" class="changed-badge">CHG displayName</text><text x="840" y="306" class="type-text">String !</text>
+  <text x="672" y="322" class="field-text">    slug</text><text x="840" y="322" class="type-text">String !</text>
+  <text x="672" y="338" class="field-text">    description</text><text x="840" y="338" class="type-text">String?</text>
+  <text x="672" y="354" class="field-text">    story</text><text x="840" y="354" class="type-text">String?</text>
+  <text x="672" y="370" class="field-text">    logoUrl</text><text x="840" y="370" class="type-text">String?</text>
+  <text x="672" y="386" class="field-text">    bannerUrl</text><text x="840" y="386" class="type-text">String?</text>
+  <text x="672" y="402" class="field-text">    status</text><text x="840" y="402" class="type-text">StoreStatus</text>
+  <text x="672" y="418" class="field-text">    contactEmail</text><text x="840" y="418" class="type-text">String?</text>
+  <text x="672" y="434" class="field-text">    contactPhone</text><text x="840" y="434" class="type-text">String?</text>
+  <text x="672" y="450" class="field-text">    businessRegNo</text><text x="840" y="450" class="type-text">String?</text>
+  <text x="672" y="466" class="new-badge">NEW rejectionReason</text><text x="840" y="466" class="type-text">String?</text>
+  <text x="672" y="482" class="field-text">    bankName</text><text x="840" y="482" class="type-text">String?</text>
+  <text x="672" y="498" class="field-text">    bankAccountNo</text><text x="840" y="498" class="type-text">String?</text>
+  <text x="672" y="514" class="field-text">    totalSales</text><text x="840" y="514" class="type-text">Int</text>
+  <text x="672" y="530" class="field-text">    totalRevenue</text><text x="840" y="530" class="type-text">Decimal</text>
+  <text x="672" y="546" class="field-text">    averageRating</text><text x="840" y="546" class="type-text">Float</text>
+  <text x="672" y="562" class="field-text">    followerCount</text><text x="840" y="562" class="type-text">Int</text>
+  <line x1="660" y1="570" x2="940" y2="570" stroke="#dee2e6" stroke-width="1"/>
+  <text x="672" y="586" class="type-text" font-style="italic">→ products, orders, payouts,</text>
+  <text x="672" y="600" class="type-text" font-style="italic">   addresses, employees, followers</text>
+  <text x="672" y="614" class="type-text" font-style="italic">   contentPosts, promotions</text>
+  <text x="672" y="630" class="type-text" font-style="italic">   Removed: city, province, name</text>
+
+  <!-- StoreAddress Table (NEW) -->
+  <rect x="970" y="210" width="240" height="210" class="table-body" rx="6"/>
+  <rect x="970" y="210" width="240" height="28" class="table-header-store" rx="6"/>
+  <rect x="970" y="232" width="240" height="6" class="table-header-store"/>
+  <text x="1090" y="230" text-anchor="middle" class="header-text">StoreAddress</text>
+  <rect x="1150" y="215" width="32" height="14" rx="3" fill="#0a8754"/>
+  <text x="1155" y="226" fill="white" font-size="8px" font-weight="bold" font-family="Helvetica">NEW</text>
+  <text x="982" y="258" class="pk-text">PK  id</text><text x="1130" y="258" class="type-text">String</text>
+  <text x="982" y="274" class="fk-text">FK  storeId</text><text x="1130" y="274" class="type-text">String</text>
+  <text x="982" y="290" class="field-text">    streetNumber</text><text x="1130" y="290" class="type-text">String</text>
+  <text x="982" y="306" class="field-text">    streetName</text><text x="1130" y="306" class="type-text">String</text>
+  <text x="982" y="322" class="field-text">    buildingName</text><text x="1130" y="322" class="type-text">String?</text>
+  <text x="982" y="338" class="field-text">    city</text><text x="1130" y="338" class="type-text">String</text>
+  <text x="982" y="354" class="field-text">    postalCode</text><text x="1130" y="354" class="type-text">String</text>
+  <text x="982" y="370" class="field-text">    createdAt</text><text x="1130" y="370" class="type-text">DateTime</text>
+  <text x="982" y="386" class="field-text">    updatedAt</text><text x="1130" y="386" class="type-text">DateTime</text>
+
+  <!-- StoreEmployee Table (NEW) -->
+  <rect x="970" y="450" width="240" height="280" class="table-body" rx="6"/>
+  <rect x="970" y="450" width="240" height="28" class="table-header-store" rx="6"/>
+  <rect x="970" y="472" width="240" height="6" class="table-header-store"/>
+  <text x="1090" y="470" text-anchor="middle" class="header-text">StoreEmployee</text>
+  <rect x="1150" y="455" width="32" height="14" rx="3" fill="#0a8754"/>
+  <text x="1155" y="466" fill="white" font-size="8px" font-weight="bold" font-family="Helvetica">NEW</text>
+  <text x="982" y="498" class="pk-text">PK  id</text><text x="1130" y="498" class="type-text">String</text>
+  <text x="982" y="514" class="fk-text">FK  storeId</text><text x="1130" y="514" class="type-text">String</text>
+  <text x="982" y="530" class="fk-text">FK  userId</text><text x="1130" y="530" class="type-text">String?</text>
+  <text x="982" y="546" class="field-text">    email</text><text x="1130" y="546" class="type-text">String</text>
+  <text x="982" y="562" class="field-text">    employeeNumber</text><text x="1130" y="562" class="type-text">String?</text>
+  <text x="982" y="578" class="field-text">    inviteToken</text><text x="1130" y="578" class="type-text">String?</text>
+  <text x="982" y="594" class="field-text">    inviteExpiry</text><text x="1130" y="594" class="type-text">DateTime?</text>
+  <text x="982" y="610" class="field-text">    acceptedAt</text><text x="1130" y="610" class="type-text">DateTime?</text>
+  <text x="982" y="626" class="field-text">    isActive</text><text x="1130" y="626" class="type-text">Boolean</text>
+  <text x="982" y="642" class="field-text">    createdAt</text><text x="1130" y="642" class="type-text">DateTime</text>
+  <text x="982" y="658" class="field-text">    updatedAt</text><text x="1130" y="658" class="type-text">DateTime</text>
+
+  <!-- StoreFollower Table -->
+  <rect x="1250" y="210" width="240" height="130" class="table-body" rx="6"/>
+  <rect x="1250" y="210" width="240" height="28" class="table-header-store" rx="6"/>
+  <rect x="1250" y="232" width="240" height="6" class="table-header-store"/>
+  <text x="1370" y="230" text-anchor="middle" class="header-text">StoreFollower</text>
+  <text x="1262" y="258" class="pk-text">PK  id</text><text x="1410" y="258" class="type-text">String</text>
+  <text x="1262" y="274" class="fk-text">FK  userId</text><text x="1410" y="274" class="type-text">String</text>
+  <text x="1262" y="290" class="fk-text">FK  storeId</text><text x="1410" y="290" class="type-text">String</text>
+  <text x="1262" y="306" class="field-text">    createdAt</text><text x="1410" y="306" class="type-text">DateTime</text>
+
+  <!-- StoreCategory & Category -->
+  <rect x="1250" y="370" width="240" height="115" class="table-body" rx="6"/>
+  <rect x="1250" y="370" width="240" height="28" class="table-header-store" rx="6"/>
+  <rect x="1250" y="392" width="240" height="6" class="table-header-store"/>
+  <text x="1370" y="390" text-anchor="middle" class="header-text">StoreCategory</text>
+  <text x="1262" y="418" class="pk-text">PK  id</text><text x="1410" y="418" class="type-text">String</text>
+  <text x="1262" y="434" class="fk-text">FK  storeId</text><text x="1410" y="434" class="type-text">String</text>
+  <text x="1262" y="450" class="fk-text">FK  categoryId</text><text x="1410" y="450" class="type-text">String</text>
+
+  <rect x="1250" y="515" width="240" height="170" class="table-body" rx="6"/>
+  <rect x="1250" y="515" width="240" height="28" class="table-header-store" rx="6"/>
+  <rect x="1250" y="537" width="240" height="6" class="table-header-store"/>
+  <text x="1370" y="535" text-anchor="middle" class="header-text">Category</text>
+  <text x="1262" y="563" class="pk-text">PK  id</text><text x="1410" y="563" class="type-text">String</text>
+  <text x="1262" y="579" class="field-text">    name</text><text x="1410" y="579" class="type-text">String</text>
+  <text x="1262" y="595" class="field-text">    slug</text><text x="1410" y="595" class="type-text">String !</text>
+  <text x="1262" y="611" class="field-text">    description</text><text x="1410" y="611" class="type-text">String?</text>
+  <text x="1262" y="627" class="field-text">    imageUrl</text><text x="1410" y="627" class="type-text">String?</text>
+  <text x="1262" y="643" class="fk-text">FK  parentId</text><text x="1410" y="643" class="type-text">String?</text>
+  <text x="1262" y="659" class="field-text">    sortOrder</text><text x="1410" y="659" class="type-text">Int</text>
+
+  <!-- Store relationships -->
+  <!-- User → Store (1:1) -->
+  <path d="M300,274 L660,274" class="rel-line-strong" stroke-dasharray="5,3"/>
+  <!-- Store → StoreAddress (1:N) -->
+  <path d="M940,300 L970,300" class="rel-line-strong"/>
+  <!-- Store → StoreEmployee (1:N) -->
+  <path d="M940,500 L970,500" class="rel-line-strong"/>
+  <!-- Store → StoreFollower (1:N) -->
+  <path d="M940,260 L1060,260 L1060,230 L1250,230" class="rel-line"/>
+  <!-- Store → StoreCategory (1:N) -->
+  <path d="M940,430 L1060,430 L1060,430 L1250,430" class="rel-line"/>
+  <!-- Category → StoreCategory (1:N) -->
+  <path d="M1370,515 L1370,485" class="rel-line"/>
+  <!-- Category self-ref -->
+  <path d="M1490,643 L1510,643 L1510,563 L1490,563" class="rel-line"/>
+  <!-- User → StoreEmployee (1:N) -->
+  <path d="M170,565 L170,760 L970,760 L970,530" class="rel-line" stroke-dasharray="4,3"/>
+
+  <!-- ==================== GROUP: PRODUCTS (center-right) ==================== -->
+  <rect x="1530" y="155" width="760" height="560" class="group-box"/>
+  <text x="1550" y="180" class="group-label">Products &amp; Catalog</text>
+  <text x="1550" y="196" class="group-sublabel">Products, variants, images, categories, and AI tags</text>
+
+  <!-- Product Table -->
+  <rect x="1550" y="210" width="280" height="420" class="table-body" rx="6"/>
+  <rect x="1550" y="210" width="280" height="28" class="table-header-product" rx="6"/>
+  <rect x="1550" y="232" width="280" height="6" class="table-header-product"/>
+  <text x="1690" y="230" text-anchor="middle" class="header-text">Product</text>
+  <text x="1562" y="258" class="pk-text">PK  id</text><text x="1730" y="258" class="type-text">String</text>
+  <text x="1562" y="274" class="fk-text">FK  storeId</text><text x="1730" y="274" class="type-text">String</text>
+  <text x="1562" y="290" class="field-text">    title</text><text x="1730" y="290" class="type-text">String</text>
+  <text x="1562" y="306" class="field-text">    slug</text><text x="1730" y="306" class="type-text">String</text>
+  <text x="1562" y="322" class="field-text">    description</text><text x="1730" y="322" class="type-text">String?</text>
+  <text x="1562" y="338" class="field-text">    status</text><text x="1730" y="338" class="type-text">ProductStatus</text>
+  <text x="1562" y="354" class="field-text">    priceInCents</text><text x="1730" y="354" class="type-text">Int</text>
+  <text x="1562" y="370" class="field-text">    comparePriceInCents</text><text x="1730" y="370" class="type-text">Int?</text>
+  <text x="1562" y="386" class="field-text">    sku</text><text x="1730" y="386" class="type-text">String?</text>
+  <text x="1562" y="402" class="field-text">    totalStock</text><text x="1730" y="402" class="type-text">Int</text>
+  <text x="1562" y="418" class="field-text">    weightInGrams</text><text x="1730" y="418" class="type-text">Int?</text>
+  <text x="1562" y="434" class="field-text">    totalSold</text><text x="1730" y="434" class="type-text">Int</text>
+  <text x="1562" y="450" class="field-text">    viewCount</text><text x="1730" y="450" class="type-text">Int</text>
+  <text x="1562" y="466" class="field-text">    averageRating</text><text x="1730" y="466" class="type-text">Float</text>
+  <text x="1562" y="482" class="field-text">    reviewCount</text><text x="1730" y="482" class="type-text">Int</text>
+  <text x="1562" y="498" class="field-text">    isFeatured</text><text x="1730" y="498" class="type-text">Boolean</text>
+  <text x="1562" y="514" class="field-text">    publishedAt</text><text x="1730" y="514" class="type-text">DateTime?</text>
+  <text x="1562" y="530" class="field-text">    createdAt</text><text x="1730" y="530" class="type-text">DateTime</text>
+  <text x="1562" y="546" class="field-text">    updatedAt</text><text x="1730" y="546" class="type-text">DateTime</text>
+  <line x1="1550" y1="556" x2="1830" y2="556" stroke="#dee2e6" stroke-width="1"/>
+  <text x="1562" y="572" class="type-text" font-style="italic">→ variants, images, categories,</text>
+  <text x="1562" y="586" class="type-text" font-style="italic">   tags, reviews, cart, orders</text>
+
+  <!-- ProductVariant -->
+  <rect x="1860" y="210" width="220" height="200" class="table-body" rx="6"/>
+  <rect x="1860" y="210" width="220" height="28" class="table-header-product" rx="6"/>
+  <rect x="1860" y="232" width="220" height="6" class="table-header-product"/>
+  <text x="1970" y="230" text-anchor="middle" class="header-text">ProductVariant</text>
+  <text x="1872" y="258" class="pk-text">PK  id</text><text x="2010" y="258" class="type-text">String</text>
+  <text x="1872" y="274" class="fk-text">FK  productId</text><text x="2010" y="274" class="type-text">String</text>
+  <text x="1872" y="290" class="field-text">    name</text><text x="2010" y="290" class="type-text">String</text>
+  <text x="1872" y="306" class="field-text">    sku</text><text x="2010" y="306" class="type-text">String? !</text>
+  <text x="1872" y="322" class="field-text">    priceInCents</text><text x="2010" y="322" class="type-text">Int?</text>
+  <text x="1872" y="338" class="field-text">    stock</text><text x="2010" y="338" class="type-text">Int</text>
+  <text x="1872" y="354" class="field-text">    color</text><text x="2010" y="354" class="type-text">String?</text>
+  <text x="1872" y="370" class="field-text">    size</text><text x="2010" y="370" class="type-text">String?</text>
+  <text x="1872" y="386" class="field-text">    material</text><text x="2010" y="386" class="type-text">String?</text>
+
+  <!-- ProductImage -->
+  <rect x="1860" y="440" width="220" height="150" class="table-body" rx="6"/>
+  <rect x="1860" y="440" width="220" height="28" class="table-header-product" rx="6"/>
+  <rect x="1860" y="462" width="220" height="6" class="table-header-product"/>
+  <text x="1970" y="460" text-anchor="middle" class="header-text">ProductImage</text>
+  <text x="1872" y="488" class="pk-text">PK  id</text><text x="2010" y="488" class="type-text">String</text>
+  <text x="1872" y="504" class="fk-text">FK  productId</text><text x="2010" y="504" class="type-text">String</text>
+  <text x="1872" y="520" class="field-text">    url</text><text x="2010" y="520" class="type-text">String</text>
+  <text x="1872" y="536" class="field-text">    altText</text><text x="2010" y="536" class="type-text">String?</text>
+  <text x="1872" y="552" class="field-text">    sortOrder</text><text x="2010" y="552" class="type-text">Int</text>
+  <text x="1872" y="568" class="field-text">    isPrimary</text><text x="2010" y="568" class="type-text">Boolean</text>
+
+  <!-- ProductCategory + Tag + ProductTag (compact) -->
+  <rect x="2110" y="210" width="170" height="100" class="table-body" rx="6"/>
+  <rect x="2110" y="210" width="170" height="28" class="table-header-product" rx="6"/>
+  <rect x="2110" y="232" width="170" height="6" class="table-header-product"/>
+  <text x="2195" y="230" text-anchor="middle" class="header-text">ProductCategory</text>
+  <text x="2122" y="258" class="pk-text">PK  id</text><text x="2220" y="258" class="type-text">String</text>
+  <text x="2122" y="274" class="fk-text">FK  productId</text><text x="2220" y="274" class="type-text">String</text>
+  <text x="2122" y="290" class="fk-text">FK  categoryId</text><text x="2220" y="290" class="type-text">String</text>
+
+  <rect x="2110" y="340" width="170" height="130" class="table-body" rx="6"/>
+  <rect x="2110" y="340" width="170" height="28" class="table-header-product" rx="6"/>
+  <rect x="2110" y="362" width="170" height="6" class="table-header-product"/>
+  <text x="2195" y="360" text-anchor="middle" class="header-text">Tag</text>
+  <text x="2122" y="388" class="pk-text">PK  id</text><text x="2220" y="388" class="type-text">String</text>
+  <text x="2122" y="404" class="field-text">    name</text><text x="2220" y="404" class="type-text">String !</text>
+  <text x="2122" y="420" class="field-text">    slug</text><text x="2220" y="420" class="type-text">String !</text>
+  <text x="2122" y="436" class="field-text">    isAiGenerated</text><text x="2220" y="436" class="type-text">Boolean</text>
+  <text x="2122" y="452" class="field-text">    usageCount</text><text x="2220" y="452" class="type-text">Int</text>
+
+  <rect x="2110" y="500" width="170" height="130" class="table-body" rx="6"/>
+  <rect x="2110" y="500" width="170" height="28" class="table-header-product" rx="6"/>
+  <rect x="2110" y="522" width="170" height="6" class="table-header-product"/>
+  <text x="2195" y="520" text-anchor="middle" class="header-text">ProductTag</text>
+  <text x="2122" y="548" class="pk-text">PK  id</text><text x="2220" y="548" class="type-text">String</text>
+  <text x="2122" y="564" class="fk-text">FK  productId</text><text x="2220" y="564" class="type-text">String</text>
+  <text x="2122" y="580" class="fk-text">FK  tagId</text><text x="2220" y="580" class="type-text">String</text>
+  <text x="2122" y="596" class="field-text">    confidence</text><text x="2220" y="596" class="type-text">Float?</text>
+  <text x="2122" y="612" class="field-text">    isAiGenerated</text><text x="2220" y="612" class="type-text">Boolean</text>
+
+  <!-- Product relationships -->
+  <path d="M1830,300 L1860,300" class="rel-line-strong"/>
+  <path d="M1830,500 L1860,500" class="rel-line-strong"/>
+  <path d="M1830,260 L1900,260 L1900,230 L2110,230" class="rel-line"/>
+  <path d="M1830,560 L1900,560 L1900,564 L2110,564" class="rel-line"/>
+  <path d="M2195,470 L2195,500" class="rel-line"/>
+  <!-- Store → Product (1:N) -->
+  <path d="M940,340 L1550,274" class="rel-line-strong"/>
+
+  <!-- ==================== GROUP: CONTENT (far right) ==================== -->
+  <rect x="2310" y="155" width="290" height="420" class="group-box"/>
+  <text x="2330" y="180" class="group-label">Shoppable Content</text>
+
+  <rect x="2330" y="210" width="250" height="170" class="table-body" rx="6"/>
+  <rect x="2330" y="210" width="250" height="28" class="table-header-content" rx="6"/>
+  <rect x="2330" y="232" width="250" height="6" class="table-header-content"/>
+  <text x="2455" y="230" text-anchor="middle" class="header-text">ContentPost</text>
+  <text x="2342" y="258" class="pk-text">PK  id</text><text x="2490" y="258" class="type-text">String</text>
+  <text x="2342" y="274" class="fk-text">FK  storeId</text><text x="2490" y="274" class="type-text">String</text>
+  <text x="2342" y="290" class="field-text">    caption</text><text x="2490" y="290" class="type-text">String?</text>
+  <text x="2342" y="306" class="field-text">    contentType</text><text x="2490" y="306" class="type-text">ContentType</text>
+  <text x="2342" y="322" class="field-text">    mediaUrl</text><text x="2490" y="322" class="type-text">String</text>
+  <text x="2342" y="338" class="field-text">    viewCount</text><text x="2490" y="338" class="type-text">Int</text>
+  <text x="2342" y="354" class="field-text">    isPublished</text><text x="2490" y="354" class="type-text">Boolean</text>
+
+  <rect x="2330" y="410" width="250" height="145" class="table-body" rx="6"/>
+  <rect x="2330" y="410" width="250" height="28" class="table-header-content" rx="6"/>
+  <rect x="2330" y="432" width="250" height="6" class="table-header-content"/>
+  <text x="2455" y="430" text-anchor="middle" class="header-text">ContentPostProduct</text>
+  <text x="2342" y="458" class="pk-text">PK  id</text><text x="2490" y="458" class="type-text">String</text>
+  <text x="2342" y="474" class="fk-text">FK  contentPostId</text><text x="2490" y="474" class="type-text">String</text>
+  <text x="2342" y="490" class="fk-text">FK  productId</text><text x="2490" y="490" class="type-text">String</text>
+  <text x="2342" y="506" class="field-text">    positionX</text><text x="2490" y="506" class="type-text">Float?</text>
+  <text x="2342" y="522" class="field-text">    positionY</text><text x="2490" y="522" class="type-text">Float?</text>
+
+  <path d="M2455,380 L2455,410" class="rel-line-strong"/>
+
+  <!-- ==================== GROUP: ORDERS (middle-left) ==================== -->
+  <rect x="20" y="780" width="620" height="520" class="group-box"/>
+  <text x="40" y="805" class="group-label">Orders</text>
+
+  <rect x="40" y="825" width="280" height="430" class="table-body" rx="6"/>
+  <rect x="40" y="825" width="280" height="28" class="table-header-order" rx="6"/>
+  <rect x="40" y="847" width="280" height="6" class="table-header-order"/>
+  <text x="180" y="845" text-anchor="middle" class="header-text">Order</text>
+  <text x="52" y="873" class="pk-text">PK  id</text><text x="220" y="873" class="type-text">String</text>
+  <text x="52" y="889" class="field-text">    orderNumber</text><text x="220" y="889" class="type-text">String !</text>
+  <text x="52" y="905" class="fk-text">FK  userId</text><text x="220" y="905" class="type-text">String</text>
+  <text x="52" y="921" class="fk-text">FK  storeId</text><text x="220" y="921" class="type-text">String</text>
+  <text x="52" y="937" class="fk-text">FK  addressId</text><text x="220" y="937" class="type-text">String</text>
+  <text x="52" y="953" class="field-text">    status</text><text x="220" y="953" class="type-text">OrderStatus</text>
+  <text x="52" y="969" class="field-text">    subtotalInCents</text><text x="220" y="969" class="type-text">Int</text>
+  <text x="52" y="985" class="field-text">    shippingInCents</text><text x="220" y="985" class="type-text">Int</text>
+  <text x="52" y="1001" class="field-text">    discountInCents</text><text x="220" y="1001" class="type-text">Int</text>
+  <text x="52" y="1017" class="field-text">    totalInCents</text><text x="220" y="1017" class="type-text">Int</text>
+  <text x="52" y="1033" class="field-text">    shippingName</text><text x="220" y="1033" class="type-text">String</text>
+  <text x="52" y="1049" class="field-text">    shippingCity</text><text x="220" y="1049" class="type-text">String</text>
+  <text x="52" y="1065" class="field-text">    shippingProvince</text><text x="220" y="1065" class="type-text">String</text>
+  <text x="52" y="1081" class="field-text">    notes</text><text x="220" y="1081" class="type-text">String?</text>
+  <text x="52" y="1097" class="field-text">    placedAt</text><text x="220" y="1097" class="type-text">DateTime</text>
+  <text x="52" y="1113" class="field-text">    confirmedAt</text><text x="220" y="1113" class="type-text">DateTime?</text>
+  <text x="52" y="1129" class="field-text">    deliveredAt</text><text x="220" y="1129" class="type-text">DateTime?</text>
+  <line x1="40" y1="1139" x2="320" y2="1139" stroke="#dee2e6" stroke-width="1"/>
+  <text x="52" y="1155" class="type-text" font-style="italic">→ items, payment, shipment</text>
+
+  <!-- OrderItem -->
+  <rect x="360" y="825" width="260" height="250" class="table-body" rx="6"/>
+  <rect x="360" y="825" width="260" height="28" class="table-header-order" rx="6"/>
+  <rect x="360" y="847" width="260" height="6" class="table-header-order"/>
+  <text x="490" y="845" text-anchor="middle" class="header-text">OrderItem</text>
+  <text x="372" y="873" class="pk-text">PK  id</text><text x="530" y="873" class="type-text">String</text>
+  <text x="372" y="889" class="fk-text">FK  orderId</text><text x="530" y="889" class="type-text">String</text>
+  <text x="372" y="905" class="fk-text">FK  productId</text><text x="530" y="905" class="type-text">String</text>
+  <text x="372" y="921" class="fk-text">FK  variantId</text><text x="530" y="921" class="type-text">String?</text>
+  <text x="372" y="937" class="field-text">    quantity</text><text x="530" y="937" class="type-text">Int</text>
+  <text x="372" y="953" class="field-text">    unitPriceInCents</text><text x="530" y="953" class="type-text">Int</text>
+  <text x="372" y="969" class="field-text">    totalInCents</text><text x="530" y="969" class="type-text">Int</text>
+  <text x="372" y="985" class="field-text">    productTitle</text><text x="530" y="985" class="type-text">String</text>
+  <text x="372" y="1001" class="field-text">    variantName</text><text x="530" y="1001" class="type-text">String?</text>
+  <text x="372" y="1017" class="field-text">    productImageUrl</text><text x="530" y="1017" class="type-text">String?</text>
+
+  <path d="M320,890 L360,890" class="rel-line-strong"/>
+
+  <!-- ==================== GROUP: PAYMENTS (middle-center) ==================== -->
+  <rect x="660" y="780" width="560" height="520" class="group-box"/>
+  <text x="680" y="805" class="group-label">Payments &amp; Payouts</text>
+
+  <!-- Payment (PayFast) -->
+  <rect x="680" y="825" width="280" height="430" class="table-body" rx="6"/>
+  <rect x="680" y="825" width="280" height="28" class="table-header-payment" rx="6"/>
+  <rect x="680" y="847" width="280" height="6" class="table-header-payment"/>
+  <text x="820" y="845" text-anchor="middle" class="header-text">Payment (PayFast)</text>
+  <text x="692" y="873" class="pk-text">PK  id</text><text x="860" y="873" class="type-text">String</text>
+  <text x="692" y="889" class="fk-text">FK  orderId</text><text x="860" y="889" class="type-text">String !</text>
+  <text x="692" y="905" class="field-text">    status</text><text x="860" y="905" class="type-text">PaymentStatus</text>
+  <text x="692" y="921" class="field-text">    method</text><text x="860" y="921" class="type-text">PaymentMethod?</text>
+  <text x="692" y="937" class="field-text">    amountGrossInCents</text><text x="860" y="937" class="type-text">Int</text>
+  <text x="692" y="953" class="field-text">    amountFeeInCents</text><text x="860" y="953" class="type-text">Int</text>
+  <text x="692" y="969" class="field-text">    amountNetInCents</text><text x="860" y="969" class="type-text">Int</text>
+  <text x="692" y="985" class="field-text">    mPaymentId</text><text x="860" y="985" class="type-text">String !</text>
+  <text x="692" y="1001" class="field-text">    pfPaymentId</text><text x="860" y="1001" class="type-text">String?</text>
+  <text x="692" y="1017" class="field-text">    paymentStatus</text><text x="860" y="1017" class="type-text">String?</text>
+  <text x="692" y="1033" class="field-text">    pfSignature</text><text x="860" y="1033" class="type-text">String?</text>
+  <text x="692" y="1049" class="field-text">    customStr1</text><text x="860" y="1049" class="type-text">String?</text>
+  <text x="692" y="1065" class="field-text">    itnPayload</text><text x="860" y="1065" class="type-text">Json?</text>
+  <text x="692" y="1081" class="field-text">    paidAt</text><text x="860" y="1081" class="type-text">DateTime?</text>
+  <text x="692" y="1097" class="field-text">    failedAt</text><text x="860" y="1097" class="type-text">DateTime?</text>
+  <text x="692" y="1113" class="field-text">    refundedAt</text><text x="860" y="1113" class="type-text">DateTime?</text>
+
+  <!-- Payout -->
+  <rect x="980" y="825" width="220" height="250" class="table-body" rx="6"/>
+  <rect x="980" y="825" width="220" height="28" class="table-header-payment" rx="6"/>
+  <rect x="980" y="847" width="220" height="6" class="table-header-payment"/>
+  <text x="1090" y="845" text-anchor="middle" class="header-text">Payout</text>
+  <text x="992" y="873" class="pk-text">PK  id</text><text x="1120" y="873" class="type-text">String</text>
+  <text x="992" y="889" class="fk-text">FK  storeId</text><text x="1120" y="889" class="type-text">String</text>
+  <text x="992" y="905" class="field-text">    amountInCents</text><text x="1120" y="905" class="type-text">Int</text>
+  <text x="992" y="921" class="field-text">    feeInCents</text><text x="1120" y="921" class="type-text">Int</text>
+  <text x="992" y="937" class="field-text">    netAmountInCents</text><text x="1120" y="937" class="type-text">Int</text>
+  <text x="992" y="953" class="field-text">    status</text><text x="1120" y="953" class="type-text">PayoutStatus</text>
+  <text x="992" y="969" class="field-text">    reference</text><text x="1120" y="969" class="type-text">String?</text>
+  <text x="992" y="985" class="field-text">    periodStart</text><text x="1120" y="985" class="type-text">DateTime</text>
+  <text x="992" y="1001" class="field-text">    periodEnd</text><text x="1120" y="1001" class="type-text">DateTime</text>
+
+  <!-- Order → Payment (1:1) -->
+  <path d="M320,950 L680,889" class="rel-line-strong" stroke-dasharray="5,3"/>
+
+  <!-- ==================== GROUP: SHIPPING (middle-right) ==================== -->
+  <rect x="1250" y="780" width="550" height="520" class="group-box"/>
+  <text x="1270" y="805" class="group-label">Shipping &amp; Delivery</text>
+
+  <!-- Shipment -->
+  <rect x="1270" y="825" width="280" height="420" class="table-body" rx="6"/>
+  <rect x="1270" y="825" width="280" height="28" class="table-header-shipping" rx="6"/>
+  <rect x="1270" y="847" width="280" height="6" class="table-header-shipping"/>
+  <text x="1410" y="845" text-anchor="middle" class="header-text">Shipment (TCG)</text>
+  <text x="1282" y="873" class="pk-text">PK  id</text><text x="1450" y="873" class="type-text">String</text>
+  <text x="1282" y="889" class="fk-text">FK  orderId</text><text x="1450" y="889" class="type-text">String !</text>
+  <text x="1282" y="905" class="field-text">    status</text><text x="1450" y="905" class="type-text">ShipmentStatus</text>
+  <text x="1282" y="921" class="field-text">    shiplogicShipmentId</text><text x="1450" y="921" class="type-text">String? !</text>
+  <text x="1282" y="937" class="field-text">    waybillNumber</text><text x="1450" y="937" class="type-text">String? !</text>
+  <text x="1282" y="953" class="field-text">    trackingUrl</text><text x="1450" y="953" class="type-text">String?</text>
+  <text x="1282" y="969" class="field-text">    serviceType</text><text x="1450" y="969" class="type-text">String?</text>
+  <text x="1282" y="985" class="field-text">    shiplogicStatus</text><text x="1450" y="985" class="type-text">String?</text>
+  <text x="1282" y="1001" class="field-text">    rateInCents</text><text x="1450" y="1001" class="type-text">Int?</text>
+  <text x="1282" y="1017" class="field-text">    parcelCount</text><text x="1450" y="1017" class="type-text">Int</text>
+  <text x="1282" y="1033" class="field-text">    estimatedDelivery</text><text x="1450" y="1033" class="type-text">DateTime?</text>
+  <text x="1282" y="1049" class="field-text">    collectedAt</text><text x="1450" y="1049" class="type-text">DateTime?</text>
+  <text x="1282" y="1065" class="field-text">    deliveredAt</text><text x="1450" y="1065" class="type-text">DateTime?</text>
+  <text x="1282" y="1081" class="field-text">    deliveryOtp</text><text x="1450" y="1081" class="type-text">String?</text>
+  <text x="1282" y="1097" class="field-text">    podUrl</text><text x="1450" y="1097" class="type-text">String?</text>
+  <text x="1282" y="1113" class="field-text">    shiplogicPayload</text><text x="1450" y="1113" class="type-text">Json?</text>
+
+  <!-- ShipmentTrackingEvent -->
+  <rect x="1580" y="825" width="200" height="180" class="table-body" rx="6"/>
+  <rect x="1580" y="825" width="200" height="28" class="table-header-shipping" rx="6"/>
+  <rect x="1580" y="847" width="200" height="6" class="table-header-shipping"/>
+  <text x="1680" y="845" text-anchor="middle" class="header-text">TrackingEvent</text>
+  <text x="1592" y="873" class="pk-text">PK  id</text><text x="1720" y="873" class="type-text">String</text>
+  <text x="1592" y="889" class="fk-text">FK  shipmentId</text><text x="1720" y="889" class="type-text">String</text>
+  <text x="1592" y="905" class="field-text">    status</text><text x="1720" y="905" class="type-text">String</text>
+  <text x="1592" y="921" class="field-text">    description</text><text x="1720" y="921" class="type-text">String?</text>
+  <text x="1592" y="937" class="field-text">    location</text><text x="1720" y="937" class="type-text">String?</text>
+  <text x="1592" y="953" class="field-text">    timestamp</text><text x="1720" y="953" class="type-text">DateTime</text>
+
+  <!-- Order → Shipment (1:1) -->
+  <path d="M320,1010 L640,1010 L640,889 L1270,889" class="rel-line-strong" stroke-dasharray="5,3"/>
+  <!-- Shipment → TrackingEvent (1:N) -->
+  <path d="M1550,895 L1580,895" class="rel-line-strong"/>
+
+  <!-- ==================== GROUP: CART & WISHLIST (bottom-left) ==================== -->
+  <rect x="20" y="1340" width="440" height="460" class="group-box"/>
+  <text x="40" y="1365" class="group-label">Cart &amp; Wishlist</text>
+
+  <!-- Cart -->
+  <rect x="40" y="1390" width="200" height="100" class="table-body" rx="6"/>
+  <rect x="40" y="1390" width="200" height="28" class="table-header-order" rx="6"/>
+  <rect x="40" y="1412" width="200" height="6" class="table-header-order"/>
+  <text x="140" y="1410" text-anchor="middle" class="header-text">Cart</text>
+  <text x="52" y="1438" class="pk-text">PK  id</text><text x="170" y="1438" class="type-text">String</text>
+  <text x="52" y="1454" class="fk-text">FK  userId</text><text x="170" y="1454" class="type-text">String !</text>
+  <text x="52" y="1470" class="field-text">    createdAt</text><text x="170" y="1470" class="type-text">DateTime</text>
+
+  <!-- CartItem -->
+  <rect x="40" y="1520" width="200" height="150" class="table-body" rx="6"/>
+  <rect x="40" y="1520" width="200" height="28" class="table-header-order" rx="6"/>
+  <rect x="40" y="1542" width="200" height="6" class="table-header-order"/>
+  <text x="140" y="1540" text-anchor="middle" class="header-text">CartItem</text>
+  <text x="52" y="1568" class="pk-text">PK  id</text><text x="170" y="1568" class="type-text">String</text>
+  <text x="52" y="1584" class="fk-text">FK  cartId</text><text x="170" y="1584" class="type-text">String</text>
+  <text x="52" y="1600" class="fk-text">FK  productId</text><text x="170" y="1600" class="type-text">String</text>
+  <text x="52" y="1616" class="fk-text">FK  variantId</text><text x="170" y="1616" class="type-text">String?</text>
+  <text x="52" y="1632" class="field-text">    quantity</text><text x="170" y="1632" class="type-text">Int</text>
+
+  <!-- WishlistItem -->
+  <rect x="270" y="1390" width="170" height="130" class="table-body" rx="6"/>
+  <rect x="270" y="1390" width="170" height="28" class="table-header-order" rx="6"/>
+  <rect x="270" y="1412" width="170" height="6" class="table-header-order"/>
+  <text x="355" y="1410" text-anchor="middle" class="header-text">WishlistItem</text>
+  <text x="282" y="1438" class="pk-text">PK  id</text><text x="380" y="1438" class="type-text">String</text>
+  <text x="282" y="1454" class="fk-text">FK  userId</text><text x="380" y="1454" class="type-text">String</text>
+  <text x="282" y="1470" class="fk-text">FK  productId</text><text x="380" y="1470" class="type-text">String</text>
+  <text x="282" y="1486" class="field-text">    createdAt</text><text x="380" y="1486" class="type-text">DateTime</text>
+
+  <path d="M140,1490 L140,1520" class="rel-line-strong"/>
+
+  <!-- ==================== GROUP: REVIEWS ==================== -->
+  <rect x="480" y="1340" width="280" height="250" class="group-box"/>
+  <text x="500" y="1365" class="group-label">Reviews</text>
+
+  <rect x="500" y="1390" width="240" height="180" class="table-body" rx="6"/>
+  <rect x="500" y="1390" width="240" height="28" class="table-header-misc" rx="6"/>
+  <rect x="500" y="1412" width="240" height="6" class="table-header-misc"/>
+  <text x="620" y="1410" text-anchor="middle" class="header-text">Review</text>
+  <text x="512" y="1438" class="pk-text">PK  id</text><text x="660" y="1438" class="type-text">String</text>
+  <text x="512" y="1454" class="fk-text">FK  userId</text><text x="660" y="1454" class="type-text">String</text>
+  <text x="512" y="1470" class="fk-text">FK  productId</text><text x="660" y="1470" class="type-text">String</text>
+  <text x="512" y="1486" class="field-text">    rating</text><text x="660" y="1486" class="type-text">Int (1-5)</text>
+  <text x="512" y="1502" class="field-text">    title</text><text x="660" y="1502" class="type-text">String?</text>
+  <text x="512" y="1518" class="field-text">    body</text><text x="660" y="1518" class="type-text">String?</text>
+  <text x="512" y="1534" class="field-text">    isVerified</text><text x="660" y="1534" class="type-text">Boolean</text>
+  <text x="512" y="1550" class="field-text">    isPublished</text><text x="660" y="1550" class="type-text">Boolean</text>
+
+  <!-- ==================== GROUP: PROMOTIONS ==================== -->
+  <rect x="780" y="1340" width="440" height="460" class="group-box"/>
+  <text x="800" y="1365" class="group-label">Promotions &amp; Discounts</text>
+
+  <rect x="800" y="1390" width="240" height="270" class="table-body" rx="6"/>
+  <rect x="800" y="1390" width="240" height="28" class="table-header-payment" rx="6"/>
+  <rect x="800" y="1412" width="240" height="6" class="table-header-payment"/>
+  <text x="920" y="1410" text-anchor="middle" class="header-text">Promotion</text>
+  <text x="812" y="1438" class="pk-text">PK  id</text><text x="960" y="1438" class="type-text">String</text>
+  <text x="812" y="1454" class="fk-text">FK  storeId</text><text x="960" y="1454" class="type-text">String</text>
+  <text x="812" y="1470" class="field-text">    code</text><text x="960" y="1470" class="type-text">String</text>
+  <text x="812" y="1486" class="field-text">    discountType</text><text x="960" y="1486" class="type-text">DiscountType</text>
+  <text x="812" y="1502" class="field-text">    discountValue</text><text x="960" y="1502" class="type-text">Decimal</text>
+  <text x="812" y="1518" class="field-text">    minOrderInCents</text><text x="960" y="1518" class="type-text">Int?</text>
+  <text x="812" y="1534" class="field-text">    maxUsage</text><text x="960" y="1534" class="type-text">Int?</text>
+  <text x="812" y="1550" class="field-text">    usageCount</text><text x="960" y="1550" class="type-text">Int</text>
+  <text x="812" y="1566" class="field-text">    isActive</text><text x="960" y="1566" class="type-text">Boolean</text>
+  <text x="812" y="1582" class="field-text">    startsAt</text><text x="960" y="1582" class="type-text">DateTime</text>
+  <text x="812" y="1598" class="field-text">    expiresAt</text><text x="960" y="1598" class="type-text">DateTime?</text>
+
+  <!-- PromotionUsage -->
+  <rect x="800" y="1690" width="240" height="100" class="table-body" rx="6"/>
+  <rect x="800" y="1690" width="240" height="28" class="table-header-payment" rx="6"/>
+  <rect x="800" y="1712" width="240" height="6" class="table-header-payment"/>
+  <text x="920" y="1710" text-anchor="middle" class="header-text">PromotionUsage</text>
+  <text x="812" y="1738" class="pk-text">PK  id</text><text x="960" y="1738" class="type-text">String</text>
+  <text x="812" y="1754" class="fk-text">FK  promotionId</text><text x="960" y="1754" class="type-text">String</text>
+  <text x="812" y="1770" class="fk-text">FK  orderId</text><text x="960" y="1770" class="type-text">String !</text>
+
+  <path d="M920,1660 L920,1690" class="rel-line-strong"/>
+
+  <!-- ==================== GROUP: NOTIFICATIONS ==================== -->
+  <rect x="1250" y="1340" width="280" height="240" class="group-box"/>
+  <text x="1270" y="1365" class="group-label">Notifications</text>
+
+  <rect x="1270" y="1390" width="240" height="180" class="table-body" rx="6"/>
+  <rect x="1270" y="1390" width="240" height="28" class="table-header-misc" rx="6"/>
+  <rect x="1270" y="1412" width="240" height="6" class="table-header-misc"/>
+  <text x="1390" y="1410" text-anchor="middle" class="header-text">Notification</text>
+  <text x="1282" y="1438" class="pk-text">PK  id</text><text x="1430" y="1438" class="type-text">String</text>
+  <text x="1282" y="1454" class="fk-text">FK  userId</text><text x="1430" y="1454" class="type-text">String</text>
+  <text x="1282" y="1470" class="field-text">    type</text><text x="1430" y="1470" class="type-text">NotificationType</text>
+  <text x="1282" y="1486" class="field-text">    title</text><text x="1430" y="1486" class="type-text">String</text>
+  <text x="1282" y="1502" class="field-text">    body</text><text x="1430" y="1502" class="type-text">String</text>
+  <text x="1282" y="1518" class="field-text">    data</text><text x="1430" y="1518" class="type-text">Json?</text>
+  <text x="1282" y="1534" class="field-text">    isRead</text><text x="1430" y="1534" class="type-text">Boolean</text>
+
+  <!-- ==================== GROUP: SUPPORT ==================== -->
+  <rect x="1560" y="1340" width="450" height="460" class="group-box"/>
+  <text x="1580" y="1365" class="group-label">Customer Support</text>
+
+  <rect x="1580" y="1390" width="240" height="210" class="table-body" rx="6"/>
+  <rect x="1580" y="1390" width="240" height="28" class="table-header-support" rx="6"/>
+  <rect x="1580" y="1412" width="240" height="6" class="table-header-support"/>
+  <text x="1700" y="1410" text-anchor="middle" class="header-text">SupportTicket</text>
+  <text x="1592" y="1438" class="pk-text">PK  id</text><text x="1740" y="1438" class="type-text">String</text>
+  <text x="1592" y="1454" class="fk-text">FK  userId</text><text x="1740" y="1454" class="type-text">String</text>
+  <text x="1592" y="1470" class="field-text">    orderId</text><text x="1740" y="1470" class="type-text">String?</text>
+  <text x="1592" y="1486" class="field-text">    subject</text><text x="1740" y="1486" class="type-text">String</text>
+  <text x="1592" y="1502" class="field-text">    description</text><text x="1740" y="1502" class="type-text">String</text>
+  <text x="1592" y="1518" class="field-text">    status</text><text x="1740" y="1518" class="type-text">TicketStatus</text>
+  <text x="1592" y="1534" class="field-text">    priority</text><text x="1740" y="1534" class="type-text">TicketPriority</text>
+  <text x="1592" y="1550" class="field-text">    resolvedAt</text><text x="1740" y="1550" class="type-text">DateTime?</text>
+
+  <!-- SupportMessage -->
+  <rect x="1580" y="1630" width="240" height="165" class="table-body" rx="6"/>
+  <rect x="1580" y="1630" width="240" height="28" class="table-header-support" rx="6"/>
+  <rect x="1580" y="1652" width="240" height="6" class="table-header-support"/>
+  <text x="1700" y="1650" text-anchor="middle" class="header-text">SupportMessage</text>
+  <text x="1592" y="1678" class="pk-text">PK  id</text><text x="1740" y="1678" class="type-text">String</text>
+  <text x="1592" y="1694" class="fk-text">FK  ticketId</text><text x="1740" y="1694" class="type-text">String</text>
+  <text x="1592" y="1710" class="field-text">    senderType</text><text x="1740" y="1710" class="type-text">String</text>
+  <text x="1592" y="1726" class="field-text">    senderId</text><text x="1740" y="1726" class="type-text">String</text>
+  <text x="1592" y="1742" class="field-text">    body</text><text x="1740" y="1742" class="type-text">String</text>
+  <text x="1592" y="1758" class="field-text">    attachments</text><text x="1740" y="1758" class="type-text">Json?</text>
+
+  <path d="M1700,1600 L1700,1630" class="rel-line-strong"/>
+
+  <!-- ==================== GROUP: STANDALONE ==================== -->
+  <rect x="20" y="1840" width="740" height="210" class="group-box"/>
+  <text x="40" y="1865" class="group-label">Standalone / Utility</text>
+
+  <!-- WaitlistEntry -->
+  <rect x="40" y="1890" width="200" height="100" class="table-body" rx="6"/>
+  <rect x="40" y="1890" width="200" height="28" class="table-header-misc" rx="6"/>
+  <rect x="40" y="1912" width="200" height="6" class="table-header-misc"/>
+  <text x="140" y="1910" text-anchor="middle" class="header-text">WaitlistEntry</text>
+  <text x="52" y="1938" class="pk-text">PK  id</text><text x="170" y="1938" class="type-text">String</text>
+  <text x="52" y="1954" class="field-text">    email</text><text x="170" y="1954" class="type-text">String !</text>
+  <text x="52" y="1970" class="field-text">    source</text><text x="170" y="1970" class="type-text">String?</text>
+
+  <!-- AnalyticsEvent -->
+  <rect x="280" y="1890" width="240" height="150" class="table-body" rx="6"/>
+  <rect x="280" y="1890" width="240" height="28" class="table-header-misc" rx="6"/>
+  <rect x="280" y="1912" width="240" height="6" class="table-header-misc"/>
+  <text x="400" y="1910" text-anchor="middle" class="header-text">AnalyticsEvent</text>
+  <text x="292" y="1938" class="pk-text">PK  id</text><text x="440" y="1938" class="type-text">String</text>
+  <text x="292" y="1954" class="field-text">    eventType</text><text x="440" y="1954" class="type-text">String</text>
+  <text x="292" y="1970" class="field-text">    userId</text><text x="440" y="1970" class="type-text">String?</text>
+  <text x="292" y="1986" class="field-text">    storeId</text><text x="440" y="1986" class="type-text">String?</text>
+  <text x="292" y="2002" class="field-text">    productId</text><text x="440" y="2002" class="type-text">String?</text>
+  <text x="292" y="2018" class="field-text">    metadata</text><text x="440" y="2018" class="type-text">Json?</text>
+
+  <!-- ==================== RELATIONSHIP SUMMARY ==================== -->
+  <rect x="780" y="1840" width="730" height="210" rx="8" fill="#f8f9fa" stroke="#dee2e6" stroke-width="1.5"/>
+  <text x="800" y="1868" class="group-label">Relationship Summary</text>
+
+  <text x="800" y="1895" class="field-text" font-weight="bold" font-size="11">One-to-One (1:1)</text>
+  <text x="800" y="1912" class="type-text">User ↔ Store  •  User ↔ Cart  •  Order ↔ Payment  •  Order ↔ Shipment  •  Order ↔ PromotionUsage</text>
+
+  <text x="800" y="1935" class="field-text" font-weight="bold" font-size="11">One-to-Many (1:N)</text>
+  <text x="800" y="1952" class="type-text">User → Addresses, Orders, Reviews, Notifications, SupportTickets, RefreshTokens, WishlistItems, StoreFollowers, StoreEmployments</text>
+  <text x="800" y="1967" class="type-text">Store → Products, Orders, Payouts, ContentPosts, Promotions, StoreCategories, StoreFollowers, StoreAddresses, StoreEmployees</text>
+  <text x="800" y="1982" class="type-text">Product → Variants, Images, ProductCategories, ProductTags, Reviews, CartItems, OrderItems, WishlistItems</text>
+  <text x="800" y="1997" class="type-text">Order → OrderItems  •  Shipment → TrackingEvents  •  SupportTicket → Messages  •  Promotion → Usages</text>
+  <text x="800" y="2012" class="type-text">ContentPost → ContentPostProducts  •  Cart → CartItems  •  Category → Children (self-ref)</text>
+
+  <text x="800" y="2035" class="field-text" font-weight="bold" font-size="11">Many-to-Many (via join tables)</text>
+  <text x="800" y="2048" class="type-text">Product ↔ Category (ProductCategory) • Product ↔ Tag (ProductTag) • Store ↔ Category (StoreCategory) • Product ↔ ContentPost (ContentPostProduct)</text>
+
+  <!-- Color Legend -->
+  <rect x="1540" y="1840" width="220" height="210" rx="8" fill="#f8f9fa" stroke="#dee2e6" stroke-width="1.5"/>
+  <text x="1560" y="1868" class="group-label" font-size="13">Domain Colors</text>
+  <rect x="1560" y="1880" width="14" height="14" rx="3" class="table-header-users"/><text x="1582" y="1892" class="legend-text">Users &amp; Auth</text>
+  <rect x="1560" y="1900" width="14" height="14" rx="3" class="table-header-store"/><text x="1582" y="1912" class="legend-text">Stores &amp; Brands</text>
+  <rect x="1560" y="1920" width="14" height="14" rx="3" class="table-header-product"/><text x="1582" y="1932" class="legend-text">Products &amp; Catalog</text>
+  <rect x="1560" y="1940" width="14" height="14" rx="3" class="table-header-order"/><text x="1582" y="1952" class="legend-text">Orders &amp; Cart</text>
+  <rect x="1560" y="1960" width="14" height="14" rx="3" class="table-header-payment"/><text x="1582" y="1972" class="legend-text">Payments &amp; Payouts</text>
+  <rect x="1560" y="1980" width="14" height="14" rx="3" class="table-header-shipping"/><text x="1582" y="1992" class="legend-text">Shipping (TCG)</text>
+  <rect x="1560" y="2000" width="14" height="14" rx="3" class="table-header-content"/><text x="1582" y="2012" class="legend-text">Shoppable Content</text>
+  <rect x="1560" y="2020" width="14" height="14" rx="3" class="table-header-support"/><text x="1582" y="2032" class="legend-text">Customer Support</text>
+
+  <!-- Footer -->
+  <text x="1400" y="2080" text-anchor="middle" class="subtitle-text">YIIVA Database Schema (Updated)  •  34 Models  •  NestJS + Prisma + PostgreSQL  •  2025</text>
+</svg>

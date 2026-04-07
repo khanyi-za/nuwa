@@ -1,0 +1,1003 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum UserRole {
+  BUYER
+  MERCHANT
+  ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+  PENDING_VERIFICATION
+}
+
+enum StoreStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED           // Legitimate — merchant can add products; not yet visible to buyers
+  PENDING_GO_LIVE    // 2nd review gate — admin verifies launch readiness
+  ACTIVE             // Live and visible to buyers
+  SUSPENDED
+  CLOSED
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  OUT_OF_STOCK
+  ARCHIVED
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  READY_FOR_DISPATCH
+  DISPATCHED
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+  REFUND_REQUESTED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentMethod {
+  CREDIT_CARD    // cc
+  DEBIT_CARD     // dc
+  INSTANT_EFT    // ef
+  DELAYED_EFT    // Delayed EFT
+  MOBICRED       // mc
+  SNAPSCAN       // ss
+  MASTERPASS     // mp
+  STORE_CREDIT   // sc (PayFast store credit / wallet)
+  ZAPPER         // zp
+  PAYPAL         // pp
+  RCS            // rc
+  APPLE_PAY      // ap
+  SAMSUNG_PAY    // sp
+}
+
+enum ShipmentStatus {
+  PENDING
+  COLLECTED
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED_DELIVERY
+  RETURNED
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum NotificationType {
+  ORDER_PLACED
+  ORDER_CONFIRMED
+  ORDER_SHIPPED
+  ORDER_DELIVERED
+  ORDER_CANCELLED
+  PAYMENT_RECEIVED
+  PAYMENT_FAILED
+  PAYOUT_COMPLETED
+  NEW_REVIEW
+  NEW_FOLLOWER
+  PROMOTION
+  SYSTEM
+}
+
+enum ContentType {
+  IMAGE
+  VIDEO
+}
+
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  AWAITING_CUSTOMER
+  AWAITING_MERCHANT
+  RESOLVED
+  CLOSED
+}
+
+enum SupportTicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  FREE_SHIPPING
+}
+
+// ============================================================================
+// USERS & AUTH
+// ============================================================================
+
+model User {
+  id              String        @id @default(cuid())
+  email           String        @unique
+  phone           String?       @unique
+  passwordHash    String
+  firstName       String
+  lastName        String
+  avatarUrl       String?
+  role            UserRole      @default(BUYER)
+  accountStatus   AccountStatus @default(PENDING_VERIFICATION)
+  emailVerified   Boolean       @default(false)
+  phoneVerified   Boolean       @default(false)
+  lastLoginAt          DateTime?
+
+  // Auth tokens (hashed before storage)
+  verificationToken    String?
+  verificationExpiry   DateTime?
+  resetToken           String?
+  resetExpiry          DateTime?
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  store           Store?
+  addresses       Address[]
+  orders          Order[]
+  cart            Cart?
+  wishlistItems   WishlistItem[]
+  reviews         Review[]
+  notifications   Notification[]
+  supportTickets  SupportTicket[]
+  followedStores  StoreFollower[]
+  refreshTokens   RefreshToken[]
+  storeEmployments StoreEmployee[]
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+model RefreshToken {
+  id          String   @id @default(cuid())
+  token       String   @unique
+  userId      String
+  expiresAt   DateTime
+  revoked     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("refresh_tokens")
+}
+
+model Address {
+  id              String   @id @default(cuid())
+  userId          String
+  label           String?  // e.g. "Home", "Work"
+  recipientName   String
+  phone           String
+  addressLine1    String
+  addressLine2    String?
+  city            String
+  province        String
+  postalCode      String
+  country         String   @default("South Africa")
+  isDefault       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders          Order[]
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+// ============================================================================
+// STORES / BRANDS
+// ============================================================================
+
+model Store {
+  id              String      @id @default(cuid())
+  ownerId         String      @unique
+  companyName     String      @unique // Registered legal entity name (CIPC). Used for invoices, payouts, compliance.
+  displayName     String      @unique // Public-facing brand name. Shown to buyers everywhere.
+  slug            String      @unique // URL-friendly identifier derived from displayName
+  description     String?
+  story           String?     // Brand story for discovery/community
+  websiteUrl      String?     // Brand's external website. Optional throughout entire lifecycle.
+  logoUrl         String?
+  bannerUrl       String?
+  status          StoreStatus @default(DRAFT)
+  rejectionReason String?     // Set by admin on rejection. Cleared on edit or resubmission.
+
+  // Contact & business info
+  contactEmail    String?
+  contactPhone    String?
+  businessRegNo   String?     // CIPC registration
+  vatNumber       String?
+
+  // Payout info
+  bankName        String?
+  bankAccountNo   String?
+  bankBranchCode  String?
+  bankAccountType String?
+
+  // Metrics (denormalized for performance)
+  totalSales      Int         @default(0)
+  totalRevenue    Decimal     @default(0) @db.Decimal(12, 2)
+  averageRating   Float       @default(0)
+  followerCount   Int         @default(0)
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // Relations
+  owner           User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  products        Product[]
+  categories      StoreCategory[]
+  orders          Order[]
+  payouts         Payout[]
+  followers       StoreFollower[]
+  contentPosts    ContentPost[]
+  promotions      Promotion[]
+  addresses       StoreAddress[]
+  employees       StoreEmployee[]
+
+  @@index([slug])
+  @@index([status])
+  @@map("stores")
+}
+
+model StoreFollower {
+  id        String   @id @default(cuid())
+  userId    String
+  storeId   String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, storeId])
+  @@map("store_followers")
+}
+
+// Physical locations for the store's public profile (not shipping logistics)
+model StoreAddress {
+  id            String   @id @default(cuid())
+  storeId       String
+  streetNumber  String
+  streetName    String
+  buildingName  String?  // Building, complex, mall, or shopping centre name
+  city          String
+  postalCode    String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  store         Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@map("store_addresses")
+}
+
+// Team members invited to help manage a store
+model StoreEmployee {
+  id             String    @id @default(cuid())
+  storeId        String
+  userId         String?   // Null until invite is accepted and linked to a YIIVA account
+  email          String    // Email the invite was sent to
+  employeeNumber String?   // Optional identifier provided by the employee
+  inviteToken    String?   // SHA-256 hash of invite token. Raw token sent via email.
+  inviteExpiry   DateTime?
+  acceptedAt     DateTime? // Null until invite accepted
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  store          Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user           User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([storeId, email])
+  @@index([storeId])
+  @@index([userId])
+  @@index([email])
+  @@map("store_employees")
+}
+
+// ============================================================================
+// PRODUCTS & CATALOG
+// ============================================================================
+
+model Category {
+  id          String     @id @default(cuid())
+  name        String
+  slug        String     @unique
+  description String?
+  imageUrl    String?
+  parentId    String?
+  sortOrder   Int        @default(0)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryTree")
+  products    ProductCategory[]
+  storeCategories StoreCategory[]
+
+  @@index([parentId])
+  @@index([slug])
+  @@map("categories")
+}
+
+model StoreCategory {
+  id         String   @id @default(cuid())
+  storeId    String
+  categoryId String
+  createdAt  DateTime @default(now())
+
+  store      Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, categoryId])
+  @@map("store_categories")
+}
+
+model Product {
+  id              String        @id @default(cuid())
+  storeId         String
+  title           String
+  slug            String
+  description     String?
+  status          ProductStatus @default(DRAFT)
+
+  // Pricing (in ZAR cents to avoid floating point issues)
+  priceInCents    Int
+  comparePriceInCents Int?      // Original/compare-at price for showing discounts
+  costInCents     Int?          // Cost price for margin calculations
+
+  // Inventory (aggregated from variants if variants exist)
+  sku             String?
+  totalStock      Int           @default(0)
+  lowStockThreshold Int         @default(5)
+
+  // Shipping
+  weightInGrams   Int?
+  lengthCm        Float?
+  widthCm         Float?
+  heightCm        Float?
+
+  // SEO / Discovery
+  metaTitle       String?
+  metaDescription String?
+
+  // Metrics (denormalized)
+  totalSold       Int           @default(0)
+  viewCount       Int           @default(0)
+  averageRating   Float         @default(0)
+  reviewCount     Int           @default(0)
+
+  isFeatured      Boolean       @default(false)
+  publishedAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  store           Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  variants        ProductVariant[]
+  images          ProductImage[]
+  categories      ProductCategory[]
+  tags            ProductTag[]
+  reviews         Review[]
+  wishlistItems   WishlistItem[]
+  cartItems       CartItem[]
+  orderItems      OrderItem[]
+  contentProducts ContentPostProduct[]
+
+  @@unique([storeId, slug])
+  @@index([storeId])
+  @@index([status])
+  @@index([priceInCents])
+  @@index([createdAt])
+  @@index([isFeatured])
+  @@map("products")
+}
+
+model ProductVariant {
+  id            String   @id @default(cuid())
+  productId     String
+  name          String   // e.g. "Black / Medium"
+  sku           String?  @unique
+  priceInCents  Int?     // Override product price if set
+  stock         Int      @default(0)
+  sortOrder     Int      @default(0)
+
+  // Variant options
+  color         String?
+  size          String?
+  material      String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  cartItems     CartItem[]
+  orderItems    OrderItem[]
+
+  @@index([productId])
+  @@map("product_variants")
+}
+
+model ProductImage {
+  id          String   @id @default(cuid())
+  productId   String
+  url         String
+  altText     String?
+  sortOrder   Int      @default(0)
+  isPrimary   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+model ProductCategory {
+  id          String   @id @default(cuid())
+  productId   String
+  categoryId  String
+  createdAt   DateTime @default(now())
+
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, categoryId])
+  @@map("product_categories")
+}
+
+// ============================================================================
+// AI TAGGING & DISCOVERY
+// ============================================================================
+
+model Tag {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  slug        String       @unique
+  isAiGenerated Boolean    @default(false)
+  usageCount  Int          @default(0)
+  createdAt   DateTime     @default(now())
+
+  products    ProductTag[]
+
+  @@index([slug])
+  @@index([usageCount])
+  @@map("tags")
+}
+
+model ProductTag {
+  id          String   @id @default(cuid())
+  productId   String
+  tagId       String
+  confidence  Float?   // AI confidence score (0-1) if AI-generated
+  isAiGenerated Boolean @default(false)
+  createdAt   DateTime @default(now())
+
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tag         Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, tagId])
+  @@map("product_tags")
+}
+
+// ============================================================================
+// CONTENT / SHOPPABLE MEDIA
+// ============================================================================
+
+model ContentPost {
+  id          String      @id @default(cuid())
+  storeId     String
+  caption     String?
+  contentType ContentType
+  mediaUrl    String
+  thumbnailUrl String?
+  viewCount   Int         @default(0)
+  likeCount   Int         @default(0)
+  isPublished Boolean     @default(false)
+  publishedAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  store       Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  products    ContentPostProduct[]
+
+  @@index([storeId])
+  @@index([isPublished, createdAt])
+  @@map("content_posts")
+}
+
+model ContentPostProduct {
+  id            String      @id @default(cuid())
+  contentPostId String
+  productId     String
+  // Position of product tag overlay on the media (for shoppable tags)
+  positionX     Float?
+  positionY     Float?
+  createdAt     DateTime    @default(now())
+
+  contentPost   ContentPost @relation(fields: [contentPostId], references: [id], onDelete: Cascade)
+  product       Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([contentPostId, productId])
+  @@map("content_post_products")
+}
+
+// ============================================================================
+// CART & WISHLIST
+// ============================================================================
+
+model Cart {
+  id        String     @id @default(cuid())
+  userId    String     @unique
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     CartItem[]
+
+  @@map("carts")
+}
+
+model CartItem {
+  id          String          @id @default(cuid())
+  cartId      String
+  productId   String
+  variantId   String?
+  quantity    Int             @default(1)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  cart        Cart            @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product     Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant     ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@unique([cartId, productId, variantId])
+  @@map("cart_items")
+}
+
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@map("wishlist_items")
+}
+
+// ============================================================================
+// ORDERS
+// ============================================================================
+
+model Order {
+  id                String      @id @default(cuid())
+  orderNumber       String      @unique @default(cuid()) // Human-readable order number
+  userId            String
+  storeId           String
+  addressId         String
+
+  status            OrderStatus @default(PENDING)
+
+  // Amounts (ZAR cents)
+  subtotalInCents   Int
+  shippingInCents   Int         @default(0)
+  discountInCents   Int         @default(0)
+  totalInCents      Int
+
+  // Snapshot of delivery address at time of order
+  shippingName      String
+  shippingPhone     String
+  shippingAddress1  String
+  shippingAddress2  String?
+  shippingCity      String
+  shippingProvince  String
+  shippingPostalCode String
+  shippingCountry   String      @default("South Africa")
+
+  notes             String?     // Customer notes
+  cancelReason      String?
+
+  placedAt          DateTime    @default(now())
+  confirmedAt       DateTime?
+  dispatchedAt      DateTime?
+  deliveredAt       DateTime?
+  cancelledAt       DateTime?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  // Relations
+  user              User        @relation(fields: [userId], references: [id])
+  store             Store       @relation(fields: [storeId], references: [id])
+  address           Address     @relation(fields: [addressId], references: [id])
+  items             OrderItem[]
+  payment           Payment?
+  shipment          Shipment?
+  promotionUsage    PromotionUsage?
+
+  @@index([userId])
+  @@index([storeId])
+  @@index([status])
+  @@index([orderNumber])
+  @@index([placedAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id              String          @id @default(cuid())
+  orderId         String
+  productId       String
+  variantId       String?
+  quantity        Int
+  unitPriceInCents Int
+  totalInCents    Int
+
+  // Snapshot of product details at time of order
+  productTitle    String
+  variantName     String?
+  productImageUrl String?
+
+  createdAt       DateTime        @default(now())
+
+  order           Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product         Product         @relation(fields: [productId], references: [id])
+  variant         ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// ============================================================================
+// PAYMENTS (PayFast Integration)
+// ============================================================================
+
+model Payment {
+  id                  String        @id @default(cuid())
+  orderId             String        @unique
+  status              PaymentStatus @default(PENDING)
+  method              PaymentMethod?
+
+  // Amounts in ZAR cents (converted from PayFast's Rand values)
+  amountGrossInCents  Int           // PayFast: amount_gross
+  amountFeeInCents    Int           @default(0) // PayFast: amount_fee (PayFast transaction fee)
+  amountNetInCents    Int           // PayFast: amount_net (what merchant receives)
+
+  // PayFast ITN references
+  mPaymentId          String        @unique // Your unique reference sent to PayFast (m_payment_id)
+  pfPaymentId         String?       // PayFast's own payment ID returned via ITN (pf_payment_id)
+  paymentStatus       String?       // PayFast payment_status: COMPLETE, FAILED, PENDING
+  merchantId          String?       // PayFast merchant_id for verification
+
+  // PayFast custom fields (5 string + 5 int available for your use)
+  customStr1          String?       // e.g. store ID
+  customStr2          String?       // e.g. order reference
+  customInt1          Int?          // e.g. internal order ID
+
+  // Buyer info returned by PayFast ITN
+  pfNameFirst         String?       // PayFast: name_first
+  pfNameLast          String?       // PayFast: name_last
+  pfEmailAddress      String?       // PayFast: email_address
+
+  // PayFast token (for subscription/tokenized billing if needed later)
+  pfToken             String?       // token returned for recurring payments
+
+  // Signature for verification
+  pfSignature         String?       // PayFast: signature (MD5 hash for ITN verification)
+
+  // Raw ITN webhook payload for full audit trail
+  itnPayload          Json?
+
+  paidAt              DateTime?
+  failedAt            DateTime?
+  refundedAt          DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  order               Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([mPaymentId])
+  @@index([pfPaymentId])
+  @@index([status])
+  @@map("payments")
+}
+
+// ============================================================================
+// MERCHANT PAYOUTS
+// ============================================================================
+
+model Payout {
+  id              String       @id @default(cuid())
+  storeId         String
+  amountInCents   Int
+  feeInCents      Int          @default(0) // Platform commission deducted
+  netAmountInCents Int
+  status          PayoutStatus @default(PENDING)
+  reference       String?      // Bank transfer reference
+  periodStart     DateTime     // Payout period start
+  periodEnd       DateTime     // Payout period end
+  processedAt     DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  store           Store        @relation(fields: [storeId], references: [id])
+
+  @@index([storeId])
+  @@index([status])
+  @@map("payouts")
+}
+
+// ============================================================================
+// SHIPPING / DELIVERY (The Courier Guy Integration)
+// ============================================================================
+
+model Shipment {
+  id                    String         @id @default(cuid())
+  orderId               String         @unique
+  status                ShipmentStatus @default(PENDING)
+
+  // ShipLogic/TCG references
+  shiplogicShipmentId   String?        @unique // ShipLogic's internal shipment ID
+  waybillNumber         String?        @unique // TCG waybill number (primary tracking identifier)
+  trackingUrl           String?        // Public tracking URL (tcg.shiplogic.com/track)
+  serviceType           String?        // e.g. "LOF" (Local Overnight Flyer), "LOX", "ECO", "NFS"
+
+  // ShipLogic shipment status: creating, created, cancelling, cancelled, manifesting, manifested, failed
+  shiplogicStatus       String?
+
+  // Quote / Rate info
+  quoteId               String?        // ShipLogic quote reference
+  rateInCents           Int?           // Shipping cost from ShipLogic rates endpoint
+  rateExVatInCents      Int?           // Rate excluding VAT
+
+  // Parcel details sent to ShipLogic
+  parcelCount           Int            @default(1)
+  totalWeightInGrams    Int?
+  parcelDescription     String?
+
+  // Collection & delivery
+  collectionDate        DateTime?      // Earliest collection date sent to ShipLogic
+  estimatedDelivery     DateTime?
+  collectedAt           DateTime?
+  deliveredAt           DateTime?
+
+  // Proof of delivery
+  podUrl                String?        // POD document URL
+  deliveryOtp           String?        // OTP pin used for delivery confirmation
+
+  // Raw ShipLogic API response for auditing
+  shiplogicPayload      Json?
+
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  order                 Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  trackingEvents        ShipmentTrackingEvent[]
+
+  @@index([waybillNumber])
+  @@index([shiplogicShipmentId])
+  @@index([status])
+  @@map("shipments")
+}
+
+// Individual tracking events from ShipLogic webhook/polling
+model ShipmentTrackingEvent {
+  id            String   @id @default(cuid())
+  shipmentId    String
+  status        String   // e.g. "Collected", "In Transit", "At Hub", "Out for Delivery", "Delivered"
+  description   String?  // Detailed tracking message from ShipLogic
+  location      String?  // Branch/hub location if available
+  timestamp     DateTime // When the event occurred (from ShipLogic)
+  createdAt     DateTime @default(now())
+
+  shipment      Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId, timestamp])
+  @@map("shipment_tracking_events")
+}
+
+// ============================================================================
+// REVIEWS & RATINGS
+// ============================================================================
+
+model Review {
+  id          String   @id @default(cuid())
+  userId      String
+  productId   String
+  rating      Int      // 1-5
+  title       String?
+  body        String?
+  isVerified  Boolean  @default(false) // Verified purchase
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId]) // One review per product per user
+  @@index([productId])
+  @@index([rating])
+  @@map("reviews")
+}
+
+// ============================================================================
+// PROMOTIONS & DISCOUNTS
+// ============================================================================
+
+model Promotion {
+  id              String       @id @default(cuid())
+  storeId         String
+  code            String
+  description     String?
+  discountType    DiscountType
+  discountValue   Decimal      @db.Decimal(10, 2) // Percentage or fixed amount
+  minOrderInCents Int?         // Minimum order value to apply
+  maxUsage        Int?         // Total usage limit
+  usageCount      Int          @default(0)
+  maxUsagePerUser Int          @default(1)
+  isActive        Boolean      @default(true)
+  startsAt        DateTime
+  expiresAt       DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  store           Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  usages          PromotionUsage[]
+
+  @@unique([storeId, code])
+  @@index([code])
+  @@index([isActive])
+  @@map("promotions")
+}
+
+model PromotionUsage {
+  id          String    @id @default(cuid())
+  promotionId String
+  orderId     String    @unique
+  createdAt   DateTime  @default(now())
+
+  promotion   Promotion @relation(fields: [promotionId], references: [id])
+  order       Order     @relation(fields: [orderId], references: [id])
+
+  @@map("promotion_usages")
+}
+
+// ============================================================================
+// NOTIFICATIONS
+// ============================================================================
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?            // Flexible payload (orderId, productId, etc.)
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ============================================================================
+// CUSTOMER SUPPORT
+// ============================================================================
+
+model SupportTicket {
+  id          String                @id @default(cuid())
+  userId      String
+  orderId     String?               // Optional link to order
+  subject     String
+  description String
+  status      SupportTicketStatus   @default(OPEN)
+  priority    SupportTicketPriority @default(MEDIUM)
+  resolvedAt  DateTime?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  user        User                  @relation(fields: [userId], references: [id])
+  messages    SupportMessage[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("support_tickets")
+}
+
+model SupportMessage {
+  id          String        @id @default(cuid())
+  ticketId    String
+  senderType  String        // "USER", "MERCHANT", "ADMIN"
+  senderId    String
+  body        String
+  attachments Json?         // Array of attachment URLs
+  createdAt   DateTime      @default(now())
+
+  ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@map("support_messages")
+}
+
+// ============================================================================
+// WAITLIST (Pre-launch)
+// ============================================================================
+
+model WaitlistEntry {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  source    String?  // Where they signed up from
+  createdAt DateTime @default(now())
+
+  @@map("waitlist_entries")
+}
+
+// ============================================================================
+// SEARCH & ANALYTICS EVENTS (for real-time insights)
+// ============================================================================
+
+model AnalyticsEvent {
+  id          String   @id @default(cuid())
+  eventType   String   // e.g. "product_view", "search", "add_to_cart", "purchase"
+  userId      String?
+  storeId     String?
+  productId   String?
+  metadata    Json?    // Flexible event data
+  createdAt   DateTime @default(now())
+
+  @@index([eventType])
+  @@index([storeId, createdAt])
+  @@index([productId, createdAt])
+  @@index([userId, createdAt])
+  @@map("analytics_events")
+}
+
