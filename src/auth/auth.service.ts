@@ -40,7 +40,14 @@ type UserProfile = {
   phoneVerified: boolean;
   accountStatus: AccountStatus;
   createdAt: Date;
-  store: { id: string; status: StoreStatus } | null;
+  store: {
+    id: string;
+    displayName: string;
+    slug: string;
+    status: StoreStatus;
+    logoUrl: string | null;
+    rejectionReason: string | null;
+  } | null;
 };
 
 @Injectable()
@@ -405,7 +412,11 @@ export class AuthService {
         store: {
           select: {
             id: true,
+            displayName: true,
+            slug: true,
             status: true,
+            logoUrl: true,
+            rejectionReason: true,
           },
         },
       },

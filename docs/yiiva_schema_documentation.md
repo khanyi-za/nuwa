@@ -121,18 +121,22 @@ Without this enum, you'd need boolean fields like `isVerified`, `isSuspended`, `
 ## StoreStatus
 
 ```
-DRAFT, PENDING_REVIEW, ACTIVE, SUSPENDED, CLOSED
+DRAFT, PENDING_REVIEW, APPROVED, PENDING_GO_LIVE, ACTIVE, SUSPENDED, CLOSED
 ```
 
-This drives YIIVA's curated marketplace model, which is core to the business proposition. Unlike open marketplaces where anyone can list immediately, YIIVA reviews brands for quality.
+This drives YIIVA's curated marketplace model, which is core to the business proposition. Unlike open marketplaces where anyone can list immediately, YIIVA uses a **two-gate review system** to ensure both brand legitimacy and store launch readiness.
 
 - **DRAFT** is when a merchant is still setting up their store — adding their logo, story, bank details. They can save progress without going live.
-- **PENDING_REVIEW** means the merchant has submitted their store for approval. Your team reviews it to ensure it fits YIIVA's quality standards (real brand, good product photography, legitimate business). This is what makes YIIVA curated rather than a free-for-all.
-- **ACTIVE** means the store is live and visible to buyers.
+- **PENDING_REVIEW** means the merchant has submitted their store for the first review. An admin verifies that the brand is legitimate — real CIPC registration, valid bank details, real contact info. This is the curation gate that prevents spam and fraud from entering the platform.
+- **APPROVED** means the store passed the first review. The owner's role is upgraded from BUYER to MERCHANT, giving them dashboard access to add products, upload their banner, write their brand story, and prepare for launch. The store is **not yet visible to buyers** at this stage.
+- **PENDING_GO_LIVE** means the merchant has requested the second review after meeting the launch readiness requirements (13 required fields, at least one StoreAddress, at least 7 active products). An admin verifies the store is ready to be seen by buyers.
+- **ACTIVE** means the store passed the second review and is live and visible to buyers in the discovery feed and search.
 - **SUSPENDED** lets admins pull a store temporarily (counterfeit complaints, payment issues) while preserving all data.
 - **CLOSED** is permanent — the merchant has shut down.
 
-Your product listing queries will filter by `StoreStatus.ACTIVE` so buyers never see draft or suspended stores. The merchant dashboard shows different UI states depending on this status.
+**Rejection paths:** A rejection at PENDING_REVIEW sends the store back to DRAFT with a `rejectionReason`. A rejection at PENDING_GO_LIVE sends the store back to APPROVED — the merchant retains their MERCHANT role and dashboard access and only needs to address the launch feedback.
+
+Your product listing queries will filter by `StoreStatus.ACTIVE` so buyers never see draft, approved, or suspended stores. The merchant dashboard shows different UI states depending on this status.
 
 ---
 
@@ -316,6 +320,10 @@ The `accountStatus` field lets you control the user lifecycle — you can requir
 - `role` — determines access level and app experience
 - `accountStatus` — controls whether the user can use the platform
 - `emailVerified` / `phoneVerified` — track verification state independently
+- `verificationToken` (optional) — hashed email verification token. Set on registration, cleared after the user verifies their email.
+- `verificationExpiry` (optional) — when the verification token expires (24 hours after issue).
+- `resetToken` (optional) — hashed password reset token. Set when the user requests a password reset, cleared after the reset is complete.
+- `resetExpiry` (optional) — when the reset token expires (1 hour after issue).
 
 **Relations:** store, addresses, orders, cart, wishlistItems, reviews, notifications, supportTickets, followedStores, refreshTokens, storeEmployments
 
@@ -358,7 +366,7 @@ This is the brand/merchant profile — the heart of YIIVA's seller side. Every m
 
 South African businesses often have a registered company name (from CIPC) that differs from their public trading/brand name. Both are stored separately: `companyName` is the legal entity used for invoices, payouts, and compliance — never shown to buyers. `displayName` is the brand name buyers see everywhere. Both are unique across the platform, which means the slug derived from `displayName` is inherently unique — no suffix collision logic needed.
 
-The `status` field controls the store lifecycle: a merchant creates a store in DRAFT, fills in details incrementally, submits it for PENDING_REVIEW (so your team can curate quality), then it goes ACTIVE. This curated flow is what differentiates YIIVA from open marketplaces. The `rejectionReason` field is set by an admin when a store is rejected — it gives the merchant actionable feedback and is cleared automatically when they edit their store or resubmit.
+The `status` field controls the store lifecycle through a two-gate review system: a merchant creates a store in DRAFT, fills in details incrementally, and submits it for PENDING_REVIEW (first gate — admin verifies legitimacy). Once APPROVED, the owner is upgraded to MERCHANT, gains dashboard access, and prepares for launch. When ready, they request go-live (PENDING_GO_LIVE — second gate — admin verifies readiness). Only after the second approval does the store become ACTIVE and visible to buyers. This curated flow is what differentiates YIIVA from open marketplaces. The `rejectionReason` field is set by an admin when a store is rejected at either gate — it gives the merchant actionable feedback and is cleared automatically when they edit their store or resubmit.
 
 Bank details are stored directly on the store because payouts go to the business, not the individual user. The denormalized metrics (`totalSales`, `totalRevenue`, `averageRating`, `followerCount`) exist because these values get queried constantly — on store listings, search results, dashboards. Calculating them from joins every time would be expensive, so we store them and update them when relevant events happen (new order, new review, new follower).
 
@@ -367,9 +375,15 @@ Bank details are stored directly on the store because payouts go to the business
 - `companyName` (unique) — registered legal entity name (CIPC). Used for invoices, payouts, compliance. Not shown to buyers.
 - `displayName` (unique) — public-facing brand name shown to buyers everywhere
 - `slug` (unique) — URL-friendly identifier derived from `displayName`
+- `description` — short brand summary shown in search results and store listings
 - `story` — brand narrative for discovery and community
-- `status` — DRAFT → PENDING_REVIEW → ACTIVE (curated marketplace flow)
-- `rejectionReason` — admin feedback on rejection. Cleared on edit or resubmission.
+- `websiteUrl` (optional) — the brand's external website. Optional throughout the entire store lifecycle including at go-live. Many SA creators sell exclusively through YIIVA and Instagram.
+- `logoUrl` / `bannerUrl` — brand visuals. Set via the update endpoint after the frontend uploads to cloud storage. `bannerUrl` is required at the go-live gate.
+- `contactEmail` / `contactPhone` — store contact details. May differ from the owner's account email/phone.
+- `businessRegNo` — CIPC company registration number. Required for first-review submission.
+- `vatNumber` (optional) — VAT registration number. Not required at any stage.
+- `status` — DRAFT → PENDING_REVIEW → APPROVED → PENDING_GO_LIVE → ACTIVE (two-gate curated marketplace flow)
+- `rejectionReason` — admin feedback on rejection. Set by an admin at either review gate. First-gate rejection sends the store back to DRAFT; second-gate rejection sends it back to APPROVED. Cleared automatically when the merchant edits their store or resubmits.
 - `bankName` / `bankAccountNo` / `bankBranchCode` / `bankAccountType` — payout destination
 - `totalSales` / `totalRevenue` / `averageRating` / `followerCount` — denormalized for performance
 
@@ -638,7 +652,7 @@ Simple save-for-later functionality. One entry per user-product pair. This is in
 
 This is where the schema gets most critical because orders involve money, and mistakes here are costly.
 
-**Why we snapshot the address**: The `shippingName`, `shippingAddress1`, `shippingCity`, etc. fields duplicate information from the Address model. This is intentional and essential. If a user changes or deletes their address after placing an order, the order must still show where it was shipped. The `addressId` reference is kept for convenience but the snapshots are the source of truth.
+**Why we snapshot the address**: The `shippingName`, `shippingPhone`, `shippingAddress1`, `shippingCity`, etc. fields duplicate information from the Address model. This is intentional and essential. If a user changes or deletes their address after placing an order, the order must still show where it was shipped. The `addressId` reference is kept for convenience but the snapshots are the source of truth.
 
 **Order per store**: Each order belongs to one store. If a buyer purchases from three different brands in one checkout, that creates three separate orders. This is important because each store handles its own fulfillment, has its own shipment, and receives its own payout. Splitting at the order level keeps fulfillment clean.
 
@@ -653,7 +667,8 @@ This is where the schema gets most critical because orders involve money, and mi
 - `addressId` (FK) — reference to address record
 - `status` — OrderStatus enum
 - `subtotalInCents` / `shippingInCents` / `discountInCents` / `totalInCents` — full breakdown
-- `shippingName` / `shippingAddress1` / `shippingCity` / `shippingProvince` / `shippingPostalCode` — address snapshot
+- `shippingName` / `shippingPhone` / `shippingAddress1` / `shippingAddress2` / `shippingCity` / `shippingProvince` / `shippingPostalCode` / `shippingCountry` — full address snapshot at time of order
+- `cancelReason` (optional) — reason stored when an order is cancelled
 - `placedAt` / `confirmedAt` / `dispatchedAt` / `deliveredAt` / `cancelledAt` — lifecycle timestamps
 
 **Relations:** user, store, address, items (OrderItem[]), payment, shipment, promotionUsage
@@ -702,8 +717,11 @@ This model is designed specifically around PayFast's ITN (Instant Transaction No
 - `method` — PaymentMethod enum
 - `amountGrossInCents` / `amountFeeInCents` / `amountNetInCents` — full financial breakdown
 - `paymentStatus` — raw PayFast status string (COMPLETE, FAILED, PENDING)
+- `merchantId` — PayFast merchant ID returned in the ITN for verification
 - `pfSignature` — MD5 hash for ITN verification
-- `customStr1`–`customStr2` / `customInt1` — PayFast custom passthrough fields
+- `customStr1` / `customStr2` / `customInt1` — PayFast custom passthrough fields for internal references (e.g. store ID, order reference)
+- `pfNameFirst` / `pfNameLast` / `pfEmailAddress` — buyer info returned by PayFast in the ITN
+- `pfToken` — PayFast token for tokenized/recurring billing if needed later
 - `itnPayload` — full raw webhook body for audit
 
 ---
@@ -722,6 +740,7 @@ This tracks money flowing from YIIVA to merchants. When orders are fulfilled, YI
 - `status` — PayoutStatus enum
 - `reference` — bank transfer reference for reconciliation
 - `periodStart` / `periodEnd` — payout period window
+- `processedAt` — timestamp of when the bank transfer was submitted
 
 ---
 
@@ -752,8 +771,10 @@ Designed around ShipLogic's API, which is what The Courier Guy uses under the ho
 - `serviceType` — LOF, LOX, ECO, NFS etc.
 - `shiplogicStatus` — raw ShipLogic status (creating, created, manifested, etc.)
 - `status` — ShipmentStatus enum (YIIVA's simplified status)
-- `rateInCents` / `rateExVatInCents` — shipping cost
-- `parcelCount` / `totalWeightInGrams` — parcel details
+- `quoteId` — ShipLogic quote reference used when creating the shipment
+- `rateInCents` / `rateExVatInCents` — shipping cost (incl. and excl. VAT) from ShipLogic
+- `parcelCount` / `totalWeightInGrams` / `parcelDescription` — parcel details sent to ShipLogic
+- `collectionDate` — earliest collection date sent to ShipLogic when booking the shipment
 - `deliveryOtp` — OTP for delivery confirmation
 - `podUrl` — proof of delivery document
 - `shiplogicPayload` — full API response for audit

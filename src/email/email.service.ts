@@ -7,6 +7,7 @@ import { storeApprovalEmailTemplate } from './templates/store-approval-email';
 import { storeRejectionEmailTemplate } from './templates/store-rejection-email';
 import { storeLiveEmailTemplate } from './templates/store-live-email';
 import { goLiveRejectionEmailTemplate } from './templates/go-live-rejection-email';
+import { storeInviteEmailTemplate } from './templates/store-invite-email';
 
 export interface EmailResult {
   success: boolean;
@@ -185,6 +186,38 @@ export class EmailService {
       const message = err instanceof Error ? err.message : 'Unknown error';
       this.logger.error(
         `Unexpected error sending go-live rejection email to ${to}: ${message}`,
+      );
+      return { success: false, error: message };
+    }
+  }
+
+  async sendStoreInviteEmail(
+    to: string,
+    storeName: string,
+    rawToken: string,
+  ): Promise<EmailResult> {
+    const inviteUrl = `${this.frontendUrl}/employees/invite?token=${rawToken}`;
+
+    try {
+      const { data, error } = await this.resend.emails.send({
+        from: this.from,
+        to,
+        subject: `You've been invited to manage ${storeName} on YIIVA`,
+        html: storeInviteEmailTemplate(storeName, inviteUrl),
+      });
+
+      if (error) {
+        this.logger.error(
+          `Failed to send store invite email to ${to}: ${error.message}`,
+        );
+        return { success: false, error: error.message };
+      }
+
+      return { success: true, messageId: data?.id };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      this.logger.error(
+        `Unexpected error sending store invite email to ${to}: ${message}`,
       );
       return { success: false, error: message };
     }

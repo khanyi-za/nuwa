@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -16,6 +17,9 @@ import { UpdateStoreDto } from './dto/update-store.dto';
 import { ListPendingStoresDto } from './dto/list-pending-stores.dto';
 import { ReviewStoreDto } from './dto/review-store.dto';
 import { ReviewGoLiveDto } from './dto/review-go-live.dto';
+import { CreateAddressDto } from './dto/create-address.dto';
+import { UpdateAddressDto } from './dto/update-address.dto';
+import { InviteEmployeeDto } from './dto/invite-employee.dto';
 import { StoreService } from './store.service';
 
 @Controller('stores')
@@ -23,6 +27,13 @@ export class StoreController {
   constructor(private readonly storeService: StoreService) {}
 
   // ── Specific routes declared first to prevent parameterised routes swallowing them ──
+
+  // GET /stores/me — authenticated owner's full private store view (null if no store)
+  // Must be before any :slug or :id routes or NestJS will match "me" as a slug param
+  @Get('me')
+  getMyStore(@CurrentUser('id') userId: string) {
+    return this.storeService.getMyStore(userId);
+  }
 
   // GET /stores/admin/pending — admin work queue of stores awaiting first review
   @Get('admin/pending')
@@ -94,5 +105,127 @@ export class StoreController {
     @Body() dto: UpdateStoreDto,
   ) {
     return this.storeService.update(userId, storeId, dto);
+  }
+
+  // ── Address sub-resource routes ──────────────────────────────────────────────
+
+  // POST /stores/:storeId/addresses — add a physical location (owner or active employee)
+  @Post(':storeId/addresses')
+  addAddress(
+    @CurrentUser('id') userId: string,
+    @Param('storeId') storeId: string,
+    @Body() dto: CreateAddressDto,
+  ) {
+    return this.storeService.addAddress(userId, storeId, dto);
+  }
+
+  // PATCH /stores/:storeId/addresses/:addressId — update a location
+  @Patch(':storeId/addresses/:addressId')
+  updateAddress(
+    @CurrentUser('id') userId: string,
+    @Param('storeId') storeId: string,
+    @Param('addressId') addressId: string,
+    @Body() dto: UpdateAddressDto,
+  ) {
+    return this.storeService.updateAddress(userId, storeId, addressId, dto);
+  }
+
+  // DELETE /stores/:storeId/addresses/:addressId — remove a location
+  @Delete(':storeId/addresses/:addressId')
+  @HttpCode(200)
+  deleteAddress(
+    @CurrentUser('id') userId: string,
+    @Param('storeId') storeId: string,
+    @Param('addressId') addressId: string,
+  ) {
+    return this.storeService.deleteAddress(userId, storeId, addressId);
+  }
+
+  // ── Employee sub-resource routes (owner-only management) ─────────────────────
+
+  // POST /stores/:storeId/employees — send an invite to an email
+  @Post(':storeId/employees')
+  inviteEmployee(
+    @CurrentUser('id') userId: string,
+    @Param('storeId') storeId: string,
+    @Body() dto: InviteEmployeeDto,
+  ) {
+    return this.storeService.inviteEmployee(userId, storeId, dto);
+  }
+
+  // GET /stores/:storeId/employees — list all employees and pending invites
+  @Get(':storeId/employees')
+  listEmployees(
+    @CurrentUser('id') userId: string,
+    @Param('storeId') storeId: string,
+  ) {
+    return this.storeService.listEmployees(userId, storeId);
+  }
+
+  // POST /stores/:storeId/employees/:employeeId/resend — resend invite with a fresh token
+  @Post(':storeId/employees/:employeeId/resend')
+  @HttpCode(200)
+  resendInvite(
+    @CurrentUser('id') userId: string,
+    @Param('storeId') storeId: string,
+    @Param('employeeId') employeeId: string,
+  ) {
+    return this.storeService.resendInvite(userId, storeId, employeeId);
+  }
+
+  // POST /stores/:storeId/employees/:employeeId/deactivate — revoke access
+  @Post(':storeId/employees/:employeeId/deactivate')
+  @HttpCode(200)
+  deactivateEmployee(
+    @CurrentUser('id') userId: string,
+    @Param('storeId') storeId: string,
+    @Param('employeeId') employeeId: string,
+  ) {
+    return this.storeService.deactivateEmployee(userId, storeId, employeeId);
+  }
+
+  // POST /stores/:storeId/employees/:employeeId/reactivate — restore access
+  @Post(':storeId/employees/:employeeId/reactivate')
+  @HttpCode(200)
+  reactivateEmployee(
+    @CurrentUser('id') userId: string,
+    @Param('storeId') storeId: string,
+    @Param('employeeId') employeeId: string,
+  ) {
+    return this.storeService.reactivateEmployee(userId, storeId, employeeId);
+  }
+
+  // DELETE /stores/:storeId/employees/:employeeId — permanently remove the record
+  @Delete(':storeId/employees/:employeeId')
+  @HttpCode(200)
+  removeEmployee(
+    @CurrentUser('id') userId: string,
+    @Param('storeId') storeId: string,
+    @Param('employeeId') employeeId: string,
+  ) {
+    return this.storeService.removeEmployee(userId, storeId, employeeId);
+  }
+
+  // POST /stores/:id/follow — follow a store (any authenticated user)
+  @Post(':id/follow')
+  @HttpCode(200)
+  followStore(@CurrentUser('id') userId: string, @Param('id') storeId: string) {
+    return this.storeService.followStore(userId, storeId);
+  }
+
+  // DELETE /stores/:id/follow — unfollow a store (any authenticated user)
+  @Delete(':id/follow')
+  @HttpCode(200)
+  unfollowStore(@CurrentUser('id') userId: string, @Param('id') storeId: string) {
+    return this.storeService.unfollowStore(userId, storeId);
+  }
+
+  // ── Catch-all parameterised route — MUST be declared last ────────────────────
+
+  // GET /stores/:slug — public store profile (ACTIVE stores only, whitelist fields)
+  // Declared last so it doesn't swallow /me, /admin/pending, /admin/pending-go-live
+  @Get(':slug')
+  getPublicStore(@CurrentUser('id') userId: string, @Param('slug') slug: string) {
+    return this.storeService.getPublicStore(slug, userId);
   }
 }
