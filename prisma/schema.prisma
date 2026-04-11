@@ -277,6 +277,7 @@ model Store {
   promotions      Promotion[]
   addresses       StoreAddress[]
   employees       StoreEmployee[]
+  collections     StoreCollection[]
 
   @@index([slug])
   @@index([status])
@@ -336,6 +337,41 @@ model StoreEmployee {
   @@index([userId])
   @@index([email])
   @@map("store_employees")
+}
+
+// Merchant-created product groupings within a store (e.g. "Summer 2025", "Limited Edition")
+// Store-scoped only — does not affect platform-wide discovery
+model StoreCollection {
+  id          String   @id @default(cuid())
+  storeId     String
+  name        String
+  slug        String
+  description String?
+  imageUrl    String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  store       Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  products    ProductCollection[]
+
+  @@unique([storeId, slug])
+  @@index([storeId])
+  @@map("store_collections")
+}
+
+// Join table: many-to-many between Product and StoreCollection
+model ProductCollection {
+  id           String   @id @default(cuid())
+  productId    String
+  collectionId String
+  createdAt    DateTime @default(now())
+
+  product      Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  collection   StoreCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, collectionId])
+  @@map("product_collections")
 }
 
 // ============================================================================
@@ -421,6 +457,7 @@ model Product {
   images          ProductImage[]
   categories      ProductCategory[]
   tags            ProductTag[]
+  collections     ProductCollection[]
   reviews         Review[]
   wishlistItems   WishlistItem[]
   cartItems       CartItem[]

@@ -1,6 +1,6 @@
 # YIIVA — Database Schema Documentation
 
-> Technical reference for all 34 database models and enums in the YIIVA platform.
+> Technical reference for all 36 database models and enums in the YIIVA platform.
 > Stack: NestJS + Prisma + PostgreSQL
 
 ---
@@ -35,43 +35,45 @@
     - [StoreEmployee](#7-storeemployee)
     - [Category](#8-category)
     - [StoreCategory](#9-storecategory)
+    - [StoreCollection](#10-storecollection)
+    - [ProductCollection](#11-productcollection)
   - [Products & Catalog](#products--catalog)
-    - [Product](#10-product)
-    - [ProductVariant](#11-productvariant)
-    - [ProductImage](#12-productimage)
-    - [ProductCategory](#13-productcategory)
+    - [Product](#12-product)
+    - [ProductVariant](#13-productvariant)
+    - [ProductImage](#14-productimage)
+    - [ProductCategory](#15-productcategory)
   - [AI Tagging & Discovery](#ai-tagging--discovery)
-    - [Tag](#14-tag)
-    - [ProductTag](#15-producttag)
+    - [Tag](#16-tag)
+    - [ProductTag](#17-producttag)
   - [Content / Shoppable Media](#content--shoppable-media)
-    - [ContentPost](#16-contentpost)
-    - [ContentPostProduct](#17-contentpostproduct)
+    - [ContentPost](#18-contentpost)
+    - [ContentPostProduct](#19-contentpostproduct)
   - [Cart & Wishlist](#cart--wishlist)
-    - [Cart](#18-cart)
-    - [CartItem](#19-cartitem)
-    - [WishlistItem](#20-wishlistitem)
+    - [Cart](#20-cart)
+    - [CartItem](#21-cartitem)
+    - [WishlistItem](#22-wishlistitem)
   - [Orders](#orders)
-    - [Order](#21-order)
-    - [OrderItem](#22-orderitem)
+    - [Order](#23-order)
+    - [OrderItem](#24-orderitem)
   - [Payments](#payments)
-    - [Payment](#23-payment)
-    - [Payout](#24-payout)
+    - [Payment](#25-payment)
+    - [Payout](#26-payout)
   - [Shipping & Delivery](#shipping--delivery)
-    - [Shipment](#25-shipment)
-    - [ShipmentTrackingEvent](#26-shipmenttrackingevent)
+    - [Shipment](#27-shipment)
+    - [ShipmentTrackingEvent](#28-shipmenttrackingevent)
   - [Reviews](#reviews)
-    - [Review](#27-review)
+    - [Review](#29-review)
   - [Promotions & Discounts](#promotions--discounts)
-    - [Promotion](#28-promotion)
-    - [PromotionUsage](#29-promotionusage)
+    - [Promotion](#30-promotion)
+    - [PromotionUsage](#31-promotionusage)
   - [Notifications](#notifications)
-    - [Notification](#30-notification)
+    - [Notification](#32-notification)
   - [Customer Support](#customer-support)
-    - [SupportTicket](#31-supportticket)
-    - [SupportMessage](#32-supportmessage)
+    - [SupportTicket](#33-supportticket)
+    - [SupportMessage](#34-supportmessage)
   - [Standalone / Utility](#standalone--utility)
-    - [WaitlistEntry](#33-waitlistentry)
-    - [AnalyticsEvent](#34-analyticsevent)
+    - [WaitlistEntry](#35-waitlistentry)
+    - [AnalyticsEvent](#36-analyticsevent)
 
 ---
 
@@ -387,7 +389,7 @@ Bank details are stored directly on the store because payouts go to the business
 - `bankName` / `bankAccountNo` / `bankBranchCode` / `bankAccountType` — payout destination
 - `totalSales` / `totalRevenue` / `averageRating` / `followerCount` — denormalized for performance
 
-**Relations:** owner (User), products, categories, orders, payouts, followers, contentPosts, promotions, addresses, employees
+**Relations:** owner (User), products, categories, orders, payouts, followers, contentPosts, promotions, addresses, employees, collections
 
 ---
 
@@ -475,9 +477,45 @@ This join table links stores to the categories they sell in. It's separate from 
 
 ---
 
+### 10. StoreCollection
+
+Merchant-created groupings of products within their own store — for example "Summer 2025", "Limited Edition", or "Winter Essentials". Collections are entirely store-scoped: they exist to help the merchant organise their catalog for buyers browsing their storefront, but they have no effect on platform-wide discovery or search. A buyer browsing the global catalog sees categories (platform-managed), not collections (merchant-managed).
+
+The `slug` is unique per store, not platform-wide — two different stores can both have a collection called "new-arrivals". The `@@unique([storeId, slug])` constraint enforces this scoping. The `sortOrder` field lets merchants control the order their collections appear on their store page (lower number = appears first).
+
+**Key fields:**
+- `storeId` (FK) — which store this collection belongs to. Cascade on delete.
+- `name` — the collection name shown to buyers. Required.
+- `slug` — URL-friendly identifier derived from `name`. Unique per store, not platform-wide.
+- `description` (optional) — short description shown on the collection page
+- `imageUrl` (optional) — hero/cover image for the collection
+- `sortOrder` — manual ordering within the store. Defaults to 0.
+
+**Constraints:** `@@unique([storeId, slug])` — slug is unique within a store. `@@index([storeId])` — fast lookup of all collections for a store.
+
+**Relations:** store (Store), products (via ProductCollection)
+
+---
+
+### 11. ProductCollection
+
+Join table for the many-to-many relationship between `Product` and `StoreCollection`. A single product can belong to multiple collections (e.g. a hoodie in both "Winter Essentials" and "Featured"), and a collection can contain many products.
+
+Both foreign keys cascade on delete — if the product is deleted, the membership is removed; if the collection is deleted, all its product memberships are removed. The `@@unique([productId, collectionId])` constraint prevents a product from being added to the same collection twice.
+
+**Key fields:**
+- `productId` (FK) — the product. Cascade on delete.
+- `collectionId` (FK) — the collection. Cascade on delete.
+
+**Constraints:** `@@unique([productId, collectionId])` — prevents duplicate memberships.
+
+**Relations:** product (Product), collection (StoreCollection)
+
+---
+
 ## Products & Catalog
 
-### 10. Product
+### 12. Product
 
 This is the main product listing. Several important design choices:
 
@@ -505,11 +543,11 @@ The `@@unique([storeId, slug])` ensures slugs are unique within a store but diff
 - `totalSold` / `viewCount` / `averageRating` / `reviewCount` — denormalized metrics
 - `status` — DRAFT, ACTIVE, OUT_OF_STOCK, ARCHIVED
 
-**Relations:** store, variants, images, categories, tags, reviews, wishlistItems, cartItems, orderItems, contentProducts
+**Relations:** store, variants, images, categories, tags, collections, reviews, wishlistItems, cartItems, orderItems, contentProducts
 
 ---
 
-### 11. ProductVariant
+### 13. ProductVariant
 
 This handles size/color/material combinations. A "Black Hoodie" product might have variants like "Black / Small", "Black / Medium", "Black / Large". Each variant tracks its own `stock` and can optionally override the base product price.
 
@@ -525,7 +563,7 @@ The `sku` is unique across the entire platform because SKUs are meant to be glob
 
 ---
 
-### 12. ProductImage
+### 14. ProductImage
 
 Separated from Product because products have multiple images. `sortOrder` controls the gallery sequence, and `isPrimary` marks which image shows as the thumbnail in listings. Keeping images in their own table also makes it easy to add/remove/reorder images without touching the product record.
 
@@ -538,7 +576,7 @@ Separated from Product because products have multiple images. `sortOrder` contro
 
 ---
 
-### 13. ProductCategory
+### 15. ProductCategory
 
 The join table between products and categories. A product can belong to multiple categories (a face cream could be in both "Skincare" and "Beauty Gifts"). The unique constraint prevents duplicate assignments.
 
@@ -550,7 +588,7 @@ The join table between products and categories. A product can belong to multiple
 
 ## AI Tagging & Discovery
 
-### 14. Tag
+### 16. Tag
 
 Tags are the backbone of YIIVA's AI-powered discovery. Unlike categories (which are hierarchical and admin-managed), tags are flat, flexible labels like "minimalist", "summer", "handmade", "cotton".
 
@@ -564,7 +602,7 @@ The `isAiGenerated` flag distinguishes tags created by YIIVA's AI tagging engine
 
 ---
 
-### 15. ProductTag
+### 17. ProductTag
 
 The join table between products and tags, with an important addition: `confidence`. When the AI tags a product, it might be 95% confident it's "streetwear" but only 60% confident it's "vintage". Storing confidence lets you set thresholds — maybe you only show tags above 0.7 confidence to buyers, but show all of them to the merchant so they can confirm or remove them.
 
@@ -580,7 +618,7 @@ The join table between products and tags, with an important addition: `confidenc
 
 ## Content / Shoppable Media
 
-### 16. ContentPost
+### 18. ContentPost
 
 This is YIIVA's content-to-commerce feature — the thing that differentiates it from a plain marketplace. Brands upload images and videos that tell their brand story, and those media pieces are directly shoppable.
 
@@ -596,7 +634,7 @@ The `contentType` enum distinguishes images from videos because they render diff
 
 ---
 
-### 17. ContentPostProduct
+### 19. ContentPostProduct
 
 This is the "shoppable tag" — it links a product to a specific content post. The `positionX` and `positionY` fields store where the product tag sits on the image/video (as percentages, e.g. 0.35, 0.72). This lets the mobile app render a tappable product marker at the right position on the media.
 
@@ -611,7 +649,7 @@ A single content post can tag multiple products, and a single product can appear
 
 ## Cart & Wishlist
 
-### 18. Cart
+### 20. Cart
 
 One cart per user (`userId` is unique). We use a separate Cart model rather than just a list of CartItems because the cart itself has metadata (when it was created, when it was last updated) and it makes queries cleaner — you fetch the cart, then its items, rather than querying all cart items by userId.
 
@@ -622,7 +660,7 @@ One cart per user (`userId` is unique). We use a separate Cart model rather than
 
 ---
 
-### 19. CartItem
+### 21. CartItem
 
 Each item in the cart references a product and optionally a variant. The `@@unique([cartId, productId, variantId])` constraint ensures a user can't add the same product+variant combination twice — instead, the quantity increments.
 
@@ -636,7 +674,7 @@ The variant is optional because some products don't have variants.
 
 ---
 
-### 20. WishlistItem
+### 22. WishlistItem
 
 Simple save-for-later functionality. One entry per user-product pair. This is intentionally simpler than cart — no quantities, no variants, just "I'm interested in this product." It drives engagement features like "X items on your wishlist are now on sale."
 
@@ -648,7 +686,7 @@ Simple save-for-later functionality. One entry per user-product pair. This is in
 
 ## Orders
 
-### 21. Order
+### 23. Order
 
 This is where the schema gets most critical because orders involve money, and mistakes here are costly.
 
@@ -675,7 +713,7 @@ This is where the schema gets most critical because orders involve money, and mi
 
 ---
 
-### 22. OrderItem
+### 24. OrderItem
 
 Each line item in an order. We snapshot `productTitle`, `variantName`, and `productImageUrl` because products can be renamed, images changed, or products deleted after an order is placed. The customer's order history must always show what they actually bought.
 
@@ -693,7 +731,7 @@ Each line item in an order. We snapshot `productTitle`, `variantName`, and `prod
 
 ## Payments
 
-### 23. Payment
+### 25. Payment
 
 This model is designed specifically around PayFast's ITN (Instant Transaction Notification) system.
 
@@ -726,7 +764,7 @@ This model is designed specifically around PayFast's ITN (Instant Transaction No
 
 ---
 
-### 24. Payout
+### 26. Payout
 
 This tracks money flowing from YIIVA to merchants. When orders are fulfilled, YIIVA collects the payment (via PayFast) and periodically pays out merchants minus the platform commission.
 
@@ -746,7 +784,7 @@ This tracks money flowing from YIIVA to merchants. When orders are fulfilled, YI
 
 ## Shipping & Delivery
 
-### 25. Shipment
+### 27. Shipment
 
 Designed around ShipLogic's API, which is what The Courier Guy uses under the hood.
 
@@ -783,7 +821,7 @@ Designed around ShipLogic's API, which is what The Courier Guy uses under the ho
 
 ---
 
-### 26. ShipmentTrackingEvent
+### 28. ShipmentTrackingEvent
 
 A separate table because a single shipment has many tracking events over its lifecycle (collected → at hub → in transit → out for delivery → delivered). Each event has a status, description, optional location (which branch/hub), and a timestamp from ShipLogic.
 
@@ -800,7 +838,7 @@ This lets you build a detailed tracking timeline in the app for buyers and merch
 
 ## Reviews
 
-### 27. Review
+### 29. Review
 
 One review per user per product (`@@unique([userId, productId])`). The `isVerified` flag indicates whether the reviewer actually bought the product — verified reviews build trust and you can filter by them. `isPublished` lets you moderate reviews (hide spam or abusive content).
 
@@ -818,7 +856,7 @@ The `rating` is 1-5, standard for e-commerce. When a review is created or update
 
 ## Promotions & Discounts
 
-### 28. Promotion
+### 30. Promotion
 
 Store-level discount codes. `discountType` handles three common patterns: percentage off, fixed Rand amount off, or free shipping. `discountValue` is flexible — it's 15.00 for 15% off or 50.00 for R50 off, depending on type.
 
@@ -838,7 +876,7 @@ The `@@unique([storeId, code])` ensures each store has unique codes but differen
 
 ---
 
-### 29. PromotionUsage
+### 31. PromotionUsage
 
 Tracks which promotions were applied to which orders. The `orderId` is unique because one order can only use one promotion code. This table lets you enforce usage limits and provides a clear audit trail.
 
@@ -850,7 +888,7 @@ Tracks which promotions were applied to which orders. The `orderId` is unique be
 
 ## Notifications
 
-### 30. Notification
+### 32. Notification
 
 A flexible notification system for both buyers and merchants. The `type` enum covers all major events (order updates, payment events, new reviews, etc.). The `data` JSON field lets you attach any relevant context (like an orderId or productId) so the app can deep-link when the notification is tapped.
 
@@ -867,7 +905,7 @@ A flexible notification system for both buyers and merchants. The `type` enum co
 
 ## Customer Support
 
-### 31. SupportTicket
+### 33. SupportTicket
 
 Customer care with a ticket-based system. Tickets can optionally link to an order (`orderId`) since most support issues are order-related.
 
@@ -885,7 +923,7 @@ Customer care with a ticket-based system. Tickets can optionally link to an orde
 
 ---
 
-### 32. SupportMessage
+### 34. SupportMessage
 
 The conversation thread within a support ticket. `senderType` distinguishes between the buyer, the merchant, and YIIVA admin staff.
 
@@ -902,7 +940,7 @@ The conversation thread within a support ticket. `senderType` distinguishes betw
 
 ## Standalone / Utility
 
-### 33. WaitlistEntry
+### 35. WaitlistEntry
 
 Simple pre-launch email collection. You're in this phase right now. Just an email and a source (to track where signups came from — social media, direct, referral). This table will be less relevant after launch but the data remains valuable for your initial merchant outreach.
 
@@ -912,7 +950,7 @@ Simple pre-launch email collection. You're in this phase right now. Just an emai
 
 ---
 
-### 34. AnalyticsEvent
+### 36. AnalyticsEvent
 
 A flexible event-tracking table for real-time insights — one of YIIVA's key features. Rather than creating separate tables for every type of analytics event, we use a single table with an `eventType` string and a `metadata` JSON field. This covers product views, searches, add-to-cart actions, purchases, and any future event types without schema changes.
 
