@@ -1263,7 +1263,7 @@ export class StoreService {
    * Returns true if the user is the store owner OR an active accepted employee.
    * Returns false if the store doesn't exist (intentional — don't reveal existence).
    */
-  private async canManageStore(userId: string, storeId: string): Promise<boolean> {
+  async canManageStore(userId: string, storeId: string): Promise<boolean> {
     const store = await this.prisma.store.findUnique({
       where: { id: storeId },
       select: { ownerId: true },

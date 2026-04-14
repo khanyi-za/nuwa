@@ -23,6 +23,7 @@
   - [SupportTicketStatus](#supportticketstatus)
   - [SupportTicketPriority](#supportticketpriority)
   - [DiscountType](#discounttype)
+  - [MediaType](#mediatype)
 - [Models](#models)
   - [Users & Auth](#users--auth)
     - [User](#1-user)
@@ -305,6 +306,20 @@ These are the three fundamental ways to discount in e-commerce, and the calculat
 
 ---
 
+## MediaType
+
+```
+IMAGE, VIDEO
+```
+
+Used on `ProductImage` to distinguish between photo assets and video assets attached to a product listing. A product can have multiple images and multiple videos — they share the same `ProductImage` table and URL-based storage model, but render completely differently in the buyer app (images load inline in a gallery, videos need a player with play/pause and buffering).
+
+The distinction also matters for the activation contract: a product must have **at least one `IMAGE`** before it can go live. A product with only videos does not satisfy this requirement — buyers need a photograph to evaluate the product in a listing or search result.
+
+`ContentPost` uses a separate `ContentType` enum (also `IMAGE` / `VIDEO`) for shoppable media posts. These are two different models with different concerns — don't conflate them.
+
+---
+
 # Models
 
 ## Users & Auth
@@ -565,14 +580,17 @@ The `sku` is unique across the entire platform because SKUs are meant to be glob
 
 ### 14. ProductImage
 
-Separated from Product because products have multiple images. `sortOrder` controls the gallery sequence, and `isPrimary` marks which image shows as the thumbnail in listings. Keeping images in their own table also makes it easy to add/remove/reorder images without touching the product record.
+Separated from Product because products have multiple media assets. `sortOrder` controls the gallery sequence, and `isPrimary` marks which image shows as the thumbnail in listings. Keeping media in their own table makes it easy to add, remove, or reorder assets without touching the product record.
+
+A product can have both images and videos in this table — `mediaType` distinguishes them. The activation contract requires at least one asset with `mediaType: IMAGE` before a product can go live. Videos are supplementary; they alone do not satisfy the image requirement.
 
 **Key fields:**
-- `productId` (FK) — which product this image belongs to
-- `url` — image file location
-- `altText` — accessibility text
+- `productId` (FK) — which product this asset belongs to
+- `url` — file location (image URL or video URL)
+- `altText` — accessibility text (for images; optional for videos)
+- `mediaType` — `IMAGE` or `VIDEO`. Defaults to `IMAGE`.
 - `sortOrder` — gallery display order
-- `isPrimary` — thumbnail image flag
+- `isPrimary` — thumbnail flag (should only be set on an `IMAGE` type asset)
 
 ---
 
