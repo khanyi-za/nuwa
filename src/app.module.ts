@@ -9,6 +9,7 @@ import { EmailModule } from './email/email.module';
 import { AuthModule } from './auth/auth.module';
 import { StoreModule } from './store/store.module';
 import { ProductModule } from './product/product.module';
+import { OrderModule } from './order/order.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { ProductModule } from './product/product.module';
     AuthModule,
     StoreModule,
     ProductModule,
+    OrderModule,
   ],
   controllers: [AppController],
   providers: [

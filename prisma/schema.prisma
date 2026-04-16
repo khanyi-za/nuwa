@@ -10,7 +10,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-
 }
 
 // ============================================================================
@@ -33,9 +32,9 @@ enum AccountStatus {
 enum StoreStatus {
   DRAFT
   PENDING_REVIEW
-  APPROVED           // Legitimate — merchant can add products; not yet visible to buyers
-  PENDING_GO_LIVE    // 2nd review gate — admin verifies launch readiness
-  ACTIVE             // Live and visible to buyers
+  APPROVED // Legitimate — merchant can add products; not yet visible to buyers
+  PENDING_GO_LIVE // 2nd review gate — admin verifies launch readiness
+  ACTIVE // Live and visible to buyers
   SUSPENDED
   CLOSED
 }
@@ -75,19 +74,19 @@ enum PaymentStatus {
 }
 
 enum PaymentMethod {
-  CREDIT_CARD    // cc
-  DEBIT_CARD     // dc
-  INSTANT_EFT    // ef
-  DELAYED_EFT    // Delayed EFT
-  MOBICRED       // mc
-  SNAPSCAN       // ss
-  MASTERPASS     // mp
-  STORE_CREDIT   // sc (PayFast store credit / wallet)
-  ZAPPER         // zp
-  PAYPAL         // pp
-  RCS            // rc
-  APPLE_PAY      // ap
-  SAMSUNG_PAY    // sp
+  CREDIT_CARD // cc
+  DEBIT_CARD // dc
+  INSTANT_EFT // ef
+  DELAYED_EFT // Delayed EFT
+  MOBICRED // mc
+  SNAPSCAN // ss
+  MASTERPASS // mp
+  STORE_CREDIT // sc (PayFast store credit / wallet)
+  ZAPPER // zp
+  PAYPAL // pp
+  RCS // rc
+  APPLE_PAY // ap
+  SAMSUNG_PAY // sp
 }
 
 enum ShipmentStatus {
@@ -154,39 +153,40 @@ enum DiscountType {
 // ============================================================================
 
 model User {
-  id              String        @id @default(cuid())
-  email           String        @unique
-  phone           String?       @unique
-  passwordHash    String
-  firstName       String
-  lastName        String
-  avatarUrl       String?
-  role            UserRole      @default(BUYER)
-  accountStatus   AccountStatus @default(PENDING_VERIFICATION)
-  emailVerified   Boolean       @default(false)
-  phoneVerified   Boolean       @default(false)
-  lastLoginAt          DateTime?
+  id             String        @id @default(cuid())
+  email          String        @unique
+  phone          String?       @unique
+  passwordHash   String
+  firstName      String
+  lastName       String
+  avatarUrl      String?
+  role           UserRole      @default(BUYER)
+  accountStatus  AccountStatus @default(PENDING_VERIFICATION)
+  emailVerified  Boolean       @default(false)
+  phoneVerified  Boolean       @default(false)
+  lastLoginAt    DateTime?
+  isGuestAccount Boolean       @default(false)
 
   // Auth tokens (hashed before storage)
-  verificationToken    String?
-  verificationExpiry   DateTime?
-  resetToken           String?
-  resetExpiry          DateTime?
+  verificationToken  String?
+  verificationExpiry DateTime?
+  resetToken         String?
+  resetExpiry        DateTime?
 
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  store           Store?
-  addresses       Address[]
-  orders          Order[]
-  cart            Cart?
-  wishlistItems   WishlistItem[]
-  reviews         Review[]
-  notifications   Notification[]
-  supportTickets  SupportTicket[]
-  followedStores  StoreFollower[]
-  refreshTokens   RefreshToken[]
+  store            Store?
+  addresses        Address[]
+  orders           Order[]
+  cart             Cart?
+  wishlistItems    WishlistItem[]
+  reviews          Review[]
+  notifications    Notification[]
+  supportTickets   SupportTicket[]
+  followedStores   StoreFollower[]
+  refreshTokens    RefreshToken[]
   storeEmployments StoreEmployee[]
 
   @@index([email])
@@ -195,14 +195,14 @@ model User {
 }
 
 model RefreshToken {
-  id          String   @id @default(cuid())
-  token       String   @unique
-  userId      String
-  expiresAt   DateTime
-  revoked     Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
 
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([token])
@@ -210,25 +210,27 @@ model RefreshToken {
 }
 
 model Address {
-  id              String   @id @default(cuid())
-  userId          String
-  label           String?  // e.g. "Home", "Work"
-  recipientName   String
-  phone           String
-  addressLine1    String
-  addressLine2    String?
-  city            String
-  province        String
-  postalCode      String
-  country         String   @default("South Africa")
-  isDefault       Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id            String   @id @default(cuid())
+  userId        String
+  label         String? // e.g. "Home", "Work"
+  recipientName String
+  phone         String
+  addressLine1  String
+  addressLine2  String?
+  city          String
+  province      String
+  postalCode    String
+  country       String    @default("South Africa")
+  isDefault     Boolean   @default(false)
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  orders          Order[]
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders Order[]
 
   @@index([userId])
+  @@index([userId, deletedAt])
   @@map("addresses")
 }
 
@@ -243,18 +245,18 @@ model Store {
   displayName     String      @unique // Public-facing brand name. Shown to buyers everywhere.
   slug            String      @unique // URL-friendly identifier derived from displayName
   description     String?
-  story           String?     // Brand story for discovery/community
-  websiteUrl      String?     // Brand's external website. Optional throughout entire lifecycle.
+  story           String? // Brand story for discovery/community
+  websiteUrl      String? // Brand's external website. Optional throughout entire lifecycle.
   logoUrl         String?
   bannerUrl       String?
   status          StoreStatus @default(DRAFT)
-  rejectionReason String?     // Set by admin on rejection. Cleared on edit or resubmission.
+  rejectionReason String? // Set by admin on rejection. Cleared on edit or resubmission.
 
   // Contact & business info
-  contactEmail    String?
-  contactPhone    String?
-  businessRegNo   String?     // CIPC registration
-  vatNumber       String?
+  contactEmail  String?
+  contactPhone  String?
+  businessRegNo String? // CIPC registration
+  vatNumber     String?
 
   // Payout info
   bankName        String?
@@ -263,26 +265,27 @@ model Store {
   bankAccountType String?
 
   // Metrics (denormalized for performance)
-  totalSales      Int         @default(0)
-  totalRevenue    Decimal     @default(0) @db.Decimal(12, 2)
-  averageRating   Float       @default(0)
-  followerCount   Int         @default(0)
+  totalSales    Int     @default(0)
+  totalRevenue  Decimal @default(0) @db.Decimal(12, 2)
+  averageRating Float   @default(0)
+  followerCount Int     @default(0)
 
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  owner           User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  products        Product[]
-  categories      StoreCategory[]
-  orders          Order[]
-  payouts         Payout[]
-  followers       StoreFollower[]
-  contentPosts    ContentPost[]
-  promotions      Promotion[]
-  addresses       StoreAddress[]
-  employees       StoreEmployee[]
-  collections     StoreCollection[]
+  owner             User                   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  products          Product[]
+  categories        StoreCategory[]
+  orders            Order[]
+  payouts           Payout[]
+  followers         StoreFollower[]
+  contentPosts      ContentPost[]
+  promotions        Promotion[]
+  addresses         StoreAddress[]
+  employees         StoreEmployee[]
+  collections       StoreCollection[]
+  dispatchAddresses StoreDispatchAddress[]
 
   @@index([slug])
   @@index([status])
@@ -295,8 +298,8 @@ model StoreFollower {
   storeId   String
   createdAt DateTime @default(now())
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@unique([userId, storeId])
   @@map("store_followers")
@@ -304,38 +307,75 @@ model StoreFollower {
 
 // Physical locations for the store's public profile (not shipping logistics)
 model StoreAddress {
-  id            String   @id @default(cuid())
-  storeId       String
-  streetNumber  String
-  streetName    String
-  buildingName  String?  // Building, complex, mall, or shopping centre name
-  city          String
-  postalCode    String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String   @id @default(cuid())
+  storeId      String
+  streetNumber String
+  streetName   String
+  buildingName String? // Building, complex, mall, or shopping centre name
+  city         String
+  postalCode   String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  store         Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@index([storeId])
   @@map("store_addresses")
+}
+
+// Dispatch / pickup origin for ShipLogic. Separate from StoreAddress because dispatch
+// locations need full logistics fields (province, pickup contact, lat/lng) and do not
+// leak into the store's public profile. A merchant may have multiple (multi-location)
+// but exactly one primary.
+model StoreDispatchAddress {
+  id      String  @id @default(cuid())
+  storeId String
+  label   String? // e.g. "Warehouse", "Studio", "Home"
+
+  // Pickup contact (ShipLogic requires)
+  contactName  String
+  contactPhone String
+
+  // Full address (ShipLogic rate-endpoint requirements)
+  addressLine1 String
+  addressLine2 String?
+  suburb       String?
+  city         String
+  province     String
+  postalCode   String
+  country      String  @default("South Africa")
+
+  // Optional for rate accuracy
+  latitude  Float?
+  longitude Float?
+
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store  Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orders Order[]
+
+  @@index([storeId])
+  @@map("store_dispatch_addresses")
 }
 
 // Team members invited to help manage a store
 model StoreEmployee {
   id             String    @id @default(cuid())
   storeId        String
-  userId         String?   // Null until invite is accepted and linked to a YIIVA account
-  email          String    // Email the invite was sent to
-  employeeNumber String?   // Optional identifier provided by the employee
-  inviteToken    String?   // SHA-256 hash of invite token. Raw token sent via email.
+  userId         String? // Null until invite is accepted and linked to a YIIVA account
+  email          String // Email the invite was sent to
+  employeeNumber String? // Optional identifier provided by the employee
+  inviteToken    String? // SHA-256 hash of invite token. Raw token sent via email.
   inviteExpiry   DateTime?
   acceptedAt     DateTime? // Null until invite accepted
   isActive       Boolean   @default(true)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  store          Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  user           User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user  User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@unique([storeId, email])
   @@index([storeId])
@@ -357,8 +397,8 @@ model StoreCollection {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  store       Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  products    ProductCollection[]
+  store    Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  products ProductCollection[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -372,8 +412,8 @@ model ProductCollection {
   collectionId String
   createdAt    DateTime @default(now())
 
-  product      Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  collection   StoreCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  product    Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  collection StoreCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
 
   @@unique([productId, collectionId])
   @@map("product_collections")
@@ -384,19 +424,19 @@ model ProductCollection {
 // ============================================================================
 
 model Category {
-  id          String     @id @default(cuid())
+  id          String   @id @default(cuid())
   name        String
-  slug        String     @unique
+  slug        String   @unique
   description String?
   imageUrl    String?
   parentId    String?
-  sortOrder   Int        @default(0)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id])
-  children    Category[] @relation("CategoryTree")
-  products    ProductCategory[]
+  parent          Category?         @relation("CategoryTree", fields: [parentId], references: [id])
+  children        Category[]        @relation("CategoryTree")
+  products        ProductCategory[]
   storeCategories StoreCategory[]
 
   @@index([parentId])
@@ -410,54 +450,55 @@ model StoreCategory {
   categoryId String
   createdAt  DateTime @default(now())
 
-  store      Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   @@unique([storeId, categoryId])
   @@map("store_categories")
 }
 
 model Product {
-  id              String        @id @default(cuid())
-  storeId         String
-  title           String
-  slug            String
-  description     String?
-  status          ProductStatus @default(DRAFT)
+  id          String        @id @default(cuid())
+  storeId     String
+  title       String
+  slug        String
+  description String?
+  status      ProductStatus @default(DRAFT)
 
   // Pricing (in ZAR cents to avoid floating point issues)
-  priceInCents    Int
-  comparePriceInCents Int?      // Original/compare-at price for showing discounts
-  costInCents     Int?          // Cost price for margin calculations
+  priceInCents        Int
+  comparePriceInCents Int? // Original/compare-at price for showing discounts
+  costInCents         Int? // Cost price for margin calculations
 
   // Inventory (aggregated from variants if variants exist)
-  sku             String?
-  totalStock      Int           @default(0)
-  lowStockThreshold Int         @default(5)
+  sku               String?
+  totalStock        Int     @default(0)
+  reservedStock     Int     @default(0)
+  lowStockThreshold Int     @default(5)
 
   // Shipping
-  weightInGrams   Int?
-  lengthCm        Float?
-  widthCm         Float?
-  heightCm        Float?
+  weightInGrams Int?
+  lengthCm      Float?
+  widthCm       Float?
+  heightCm      Float?
 
   // SEO / Discovery
   metaTitle       String?
   metaDescription String?
 
   // Metrics (denormalized)
-  totalSold       Int           @default(0)
-  viewCount       Int           @default(0)
-  averageRating   Float         @default(0)
-  reviewCount     Int           @default(0)
+  totalSold     Int   @default(0)
+  viewCount     Int   @default(0)
+  averageRating Float @default(0)
+  reviewCount   Int   @default(0)
 
-  isFeatured      Boolean       @default(false)
-  publishedAt     DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  isFeatured  Boolean   @default(false)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   // Relations
-  store           Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store           Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
   variants        ProductVariant[]
   images          ProductImage[]
   categories      ProductCategory[]
@@ -479,54 +520,55 @@ model Product {
 }
 
 model ProductVariant {
-  id            String   @id @default(cuid())
+  id            String  @id @default(cuid())
   productId     String
-  name          String   // e.g. "Black / Medium"
-  sku           String?  @unique
-  priceInCents  Int?     // Override product price if set
-  stock         Int      @default(0)
-  sortOrder     Int      @default(0)
+  name          String // e.g. "Black / Medium"
+  sku           String? @unique
+  priceInCents  Int? // Override product price if set
+  stock         Int     @default(0)
+  reservedStock Int     @default(0)
+  sortOrder     Int     @default(0)
 
   // Variant options
-  color         String?
-  size          String?
-  material      String?
+  color    String?
+  size     String?
+  material String?
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  cartItems     CartItem[]
-  orderItems    OrderItem[]
+  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  cartItems  CartItem[]
+  orderItems OrderItem[]
 
   @@index([productId])
   @@map("product_variants")
 }
 
 model ProductImage {
-  id          String    @id @default(cuid())
-  productId   String
-  url         String
-  altText     String?
-  mediaType   MediaType @default(IMAGE)
-  sortOrder   Int       @default(0)
-  isPrimary   Boolean   @default(false)
-  createdAt   DateTime  @default(now())
+  id        String    @id @default(cuid())
+  productId String
+  url       String
+  altText   String?
+  mediaType MediaType @default(IMAGE)
+  sortOrder Int       @default(0)
+  isPrimary Boolean   @default(false)
+  createdAt DateTime  @default(now())
 
-  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([productId])
   @@map("product_images")
 }
 
 model ProductCategory {
-  id          String   @id @default(cuid())
-  productId   String
-  categoryId  String
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  productId  String
+  categoryId String
+  createdAt  DateTime @default(now())
 
-  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   @@unique([productId, categoryId])
   @@map("product_categories")
@@ -537,14 +579,14 @@ model ProductCategory {
 // ============================================================================
 
 model Tag {
-  id          String       @id @default(cuid())
-  name        String       @unique
-  slug        String       @unique
-  isAiGenerated Boolean    @default(false)
-  usageCount  Int          @default(0)
-  createdAt   DateTime     @default(now())
+  id            String   @id @default(cuid())
+  name          String   @unique
+  slug          String   @unique
+  isAiGenerated Boolean  @default(false)
+  usageCount    Int      @default(0)
+  createdAt     DateTime @default(now())
 
-  products    ProductTag[]
+  products ProductTag[]
 
   @@index([slug])
   @@index([usageCount])
@@ -552,15 +594,15 @@ model Tag {
 }
 
 model ProductTag {
-  id          String   @id @default(cuid())
-  productId   String
-  tagId       String
-  confidence  Float?   // AI confidence score (0-1) if AI-generated
-  isAiGenerated Boolean @default(false)
-  createdAt   DateTime @default(now())
+  id            String   @id @default(cuid())
+  productId     String
+  tagId         String
+  confidence    Float? // AI confidence score (0-1) if AI-generated
+  isAiGenerated Boolean  @default(false)
+  createdAt     DateTime @default(now())
 
-  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  tag         Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@unique([productId, tagId])
   @@map("product_tags")
@@ -571,21 +613,21 @@ model ProductTag {
 // ============================================================================
 
 model ContentPost {
-  id          String      @id @default(cuid())
-  storeId     String
-  caption     String?
-  contentType ContentType
-  mediaUrl    String
+  id           String      @id @default(cuid())
+  storeId      String
+  caption      String?
+  contentType  ContentType
+  mediaUrl     String
   thumbnailUrl String?
-  viewCount   Int         @default(0)
-  likeCount   Int         @default(0)
-  isPublished Boolean     @default(false)
-  publishedAt DateTime?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  viewCount    Int         @default(0)
+  likeCount    Int         @default(0)
+  isPublished  Boolean     @default(false)
+  publishedAt  DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 
-  store       Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  products    ContentPostProduct[]
+  store    Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  products ContentPostProduct[]
 
   @@index([storeId])
   @@index([isPublished, createdAt])
@@ -593,16 +635,16 @@ model ContentPost {
 }
 
 model ContentPostProduct {
-  id            String      @id @default(cuid())
+  id            String   @id @default(cuid())
   contentPostId String
   productId     String
   // Position of product tag overlay on the media (for shoppable tags)
   positionX     Float?
   positionY     Float?
-  createdAt     DateTime    @default(now())
+  createdAt     DateTime @default(now())
 
-  contentPost   ContentPost @relation(fields: [contentPostId], references: [id], onDelete: Cascade)
-  product       Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  contentPost ContentPost @relation(fields: [contentPostId], references: [id], onDelete: Cascade)
+  product     Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([contentPostId, productId])
   @@map("content_post_products")
@@ -613,29 +655,29 @@ model ContentPostProduct {
 // ============================================================================
 
 model Cart {
-  id        String     @id @default(cuid())
-  userId    String     @unique
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items     CartItem[]
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items CartItem[]
 
   @@map("carts")
 }
 
 model CartItem {
-  id          String          @id @default(cuid())
-  cartId      String
-  productId   String
-  variantId   String?
-  quantity    Int             @default(1)
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  id        String   @id @default(cuid())
+  cartId    String
+  productId String
+  variantId String?
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  cart        Cart            @relation(fields: [cartId], references: [id], onDelete: Cascade)
-  product     Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  variant     ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  cart    Cart            @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
 
   @@unique([cartId, productId, variantId])
   @@map("cart_items")
@@ -647,8 +689,8 @@ model WishlistItem {
   productId String
   createdAt DateTime @default(now())
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([userId, productId])
   @@map("wishlist_items")
@@ -659,49 +701,55 @@ model WishlistItem {
 // ============================================================================
 
 model Order {
-  id                String      @id @default(cuid())
-  orderNumber       String      @unique @default(cuid()) // Human-readable order number
-  userId            String
-  storeId           String
-  addressId         String
+  id          String @id @default(cuid())
+  orderNumber String @unique @default(cuid()) // Human-readable order number
+  userId      String
+  storeId     String
+  addressId   String
 
-  status            OrderStatus @default(PENDING)
+  status OrderStatus @default(PENDING)
 
   // Amounts (ZAR cents)
-  subtotalInCents   Int
-  shippingInCents   Int         @default(0)
-  discountInCents   Int         @default(0)
-  totalInCents      Int
+  subtotalInCents Int
+  shippingInCents Int @default(0)
+  discountInCents Int @default(0)
+  totalInCents    Int
+
+  // Shipping context (ShipLogic quote + merchant dispatch origin)
+  shippingQuoteId           String?
+  shippingServiceTier       String?
+  shippingDispatchAddressId String?
 
   // Snapshot of delivery address at time of order
-  shippingName      String
-  shippingPhone     String
-  shippingAddress1  String
-  shippingAddress2  String?
-  shippingCity      String
-  shippingProvince  String
+  shippingName       String
+  shippingPhone      String
+  shippingAddress1   String
+  shippingAddress2   String?
+  shippingCity       String
+  shippingProvince   String
   shippingPostalCode String
-  shippingCountry   String      @default("South Africa")
+  shippingCountry    String  @default("South Africa")
 
-  notes             String?     // Customer notes
-  cancelReason      String?
+  notes        String? // Customer notes
+  cancelReason String?
 
-  placedAt          DateTime    @default(now())
-  confirmedAt       DateTime?
-  dispatchedAt      DateTime?
-  deliveredAt       DateTime?
-  cancelledAt       DateTime?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  placedAt     DateTime  @default(now())
+  confirmedAt  DateTime?
+  dispatchedAt DateTime?
+  deliveredAt  DateTime?
+  cancelledAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   // Relations
-  user              User        @relation(fields: [userId], references: [id])
-  store             Store       @relation(fields: [storeId], references: [id])
-  address           Address     @relation(fields: [addressId], references: [id])
-  items             OrderItem[]
-  payment           Payment?
-  shipment          Shipment?
-  promotionUsage    PromotionUsage?
+  user            User                  @relation(fields: [userId], references: [id])
+  store           Store                 @relation(fields: [storeId], references: [id])
+  address         Address               @relation(fields: [addressId], references: [id])
+  dispatchAddress StoreDispatchAddress? @relation(fields: [shippingDispatchAddressId], references: [id])
+  items           OrderItem[]
+  payment         Payment?
+  shipment        Shipment?
+  promotionUsage  PromotionUsage?
 
   @@index([userId])
   @@index([storeId])
@@ -712,24 +760,24 @@ model Order {
 }
 
 model OrderItem {
-  id              String          @id @default(cuid())
-  orderId         String
-  productId       String
-  variantId       String?
-  quantity        Int
+  id               String  @id @default(cuid())
+  orderId          String
+  productId        String
+  variantId        String?
+  quantity         Int
   unitPriceInCents Int
-  totalInCents    Int
+  totalInCents     Int
 
   // Snapshot of product details at time of order
   productTitle    String
   variantName     String?
   productImageUrl String?
 
-  createdAt       DateTime        @default(now())
+  createdAt DateTime @default(now())
 
-  order           Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product         Product         @relation(fields: [productId], references: [id])
-  variant         ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  order   Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product         @relation(fields: [productId], references: [id])
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
   @@map("order_items")
@@ -739,52 +787,71 @@ model OrderItem {
 // PAYMENTS (PayFast Integration)
 // ============================================================================
 
-model Payment {
-  id                  String        @id @default(cuid())
-  orderId             String        @unique
-  status              PaymentStatus @default(PENDING)
-  method              PaymentMethod?
+// Represents one PayFast transaction. A single transaction can cover multiple Orders
+// (multi-brand cart → multi-order checkout). All PayFast ITN / signature / payload
+// fields live here because they describe the transaction, not an individual order.
+model PaymentGroup {
+  id          String        @id @default(cuid())
+  mPaymentId  String        @unique
+  pfPaymentId String?
+  status      PaymentStatus @default(PENDING)
 
-  // Amounts in ZAR cents (converted from PayFast's Rand values)
-  amountGrossInCents  Int           // PayFast: amount_gross
-  amountFeeInCents    Int           @default(0) // PayFast: amount_fee (PayFast transaction fee)
-  amountNetInCents    Int           // PayFast: amount_net (what merchant receives)
+  amountGrossInCents Int
+  amountFeeInCents   Int @default(0)
+  amountNetInCents   Int
 
-  // PayFast ITN references
-  mPaymentId          String        @unique // Your unique reference sent to PayFast (m_payment_id)
-  pfPaymentId         String?       // PayFast's own payment ID returned via ITN (pf_payment_id)
-  paymentStatus       String?       // PayFast payment_status: COMPLETE, FAILED, PENDING
-  merchantId          String?       // PayFast merchant_id for verification
+  method PaymentMethod?
 
-  // PayFast custom fields (5 string + 5 int available for your use)
-  customStr1          String?       // e.g. store ID
-  customStr2          String?       // e.g. order reference
-  customInt1          Int?          // e.g. internal order ID
+  // PayFast ITN / verification
+  pfSignature    String?
+  itnPayload     Json?
+  pfToken        String?
+  pfNameFirst    String?
+  pfNameLast     String?
+  pfEmailAddress String?
 
-  // Buyer info returned by PayFast ITN
-  pfNameFirst         String?       // PayFast: name_first
-  pfNameLast          String?       // PayFast: name_last
-  pfEmailAddress      String?       // PayFast: email_address
+  paidAt    DateTime?
+  failedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
-  // PayFast token (for subscription/tokenized billing if needed later)
-  pfToken             String?       // token returned for recurring payments
-
-  // Signature for verification
-  pfSignature         String?       // PayFast: signature (MD5 hash for ITN verification)
-
-  // Raw ITN webhook payload for full audit trail
-  itnPayload          Json?
-
-  paidAt              DateTime?
-  failedAt            DateTime?
-  refundedAt          DateTime?
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
-
-  order               Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  payments Payment[]
 
   @@index([mPaymentId])
-  @@index([pfPaymentId])
+  @@index([status])
+  @@map("payment_groups")
+}
+
+// Per-order slice of a PaymentGroup. Holds this order's share of the gross/fee/net split
+// plus eager commission math (locked at payment time, immune to later rate changes).
+model Payment {
+  id             String @id @default(cuid())
+  orderId        String @unique
+  paymentGroupId String
+
+  status PaymentStatus @default(PENDING)
+
+  // This order's portion of the payment group
+  amountGrossInCents Int
+  amountFeeInCents   Int @default(0) // proportional PayFast fee
+  amountNetInCents   Int
+
+  // Eager commission math (locked at payment time; immune to rate changes)
+  platformCommissionInCents Int @default(0) // YIIVA 5.5% take
+  merchantPayoutInCents     Int @default(0) // amountNet - platformCommission
+
+  // Refund tracking
+  refundedAmountInCents Int @default(0)
+
+  paidAt     DateTime?
+  refundedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  order        Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  paymentGroup PaymentGroup @relation(fields: [paymentGroupId], references: [id], onDelete: Cascade)
+
+  @@index([paymentGroupId])
   @@index([status])
   @@map("payments")
 }
@@ -794,20 +861,20 @@ model Payment {
 // ============================================================================
 
 model Payout {
-  id              String       @id @default(cuid())
-  storeId         String
-  amountInCents   Int
-  feeInCents      Int          @default(0) // Platform commission deducted
+  id               String       @id @default(cuid())
+  storeId          String
+  amountInCents    Int
+  feeInCents       Int          @default(0) // Platform commission deducted
   netAmountInCents Int
-  status          PayoutStatus @default(PENDING)
-  reference       String?      // Bank transfer reference
-  periodStart     DateTime     // Payout period start
-  periodEnd       DateTime     // Payout period end
-  processedAt     DateTime?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  status           PayoutStatus @default(PENDING)
+  reference        String? // Bank transfer reference
+  periodStart      DateTime // Payout period start
+  periodEnd        DateTime // Payout period end
+  processedAt      DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
-  store           Store        @relation(fields: [storeId], references: [id])
+  store Store @relation(fields: [storeId], references: [id])
 
   @@index([storeId])
   @@index([status])
@@ -819,47 +886,47 @@ model Payout {
 // ============================================================================
 
 model Shipment {
-  id                    String         @id @default(cuid())
-  orderId               String         @unique
-  status                ShipmentStatus @default(PENDING)
+  id      String         @id @default(cuid())
+  orderId String         @unique
+  status  ShipmentStatus @default(PENDING)
 
   // ShipLogic/TCG references
-  shiplogicShipmentId   String?        @unique // ShipLogic's internal shipment ID
-  waybillNumber         String?        @unique // TCG waybill number (primary tracking identifier)
-  trackingUrl           String?        // Public tracking URL (tcg.shiplogic.com/track)
-  serviceType           String?        // e.g. "LOF" (Local Overnight Flyer), "LOX", "ECO", "NFS"
+  shiplogicShipmentId String? @unique // ShipLogic's internal shipment ID
+  waybillNumber       String? @unique // TCG waybill number (primary tracking identifier)
+  trackingUrl         String? // Public tracking URL (tcg.shiplogic.com/track)
+  serviceType         String? // e.g. "LOF" (Local Overnight Flyer), "LOX", "ECO", "NFS"
 
   // ShipLogic shipment status: creating, created, cancelling, cancelled, manifesting, manifested, failed
-  shiplogicStatus       String?
+  shiplogicStatus String?
 
   // Quote / Rate info
-  quoteId               String?        // ShipLogic quote reference
-  rateInCents           Int?           // Shipping cost from ShipLogic rates endpoint
-  rateExVatInCents      Int?           // Rate excluding VAT
+  quoteId          String? // ShipLogic quote reference
+  rateInCents      Int? // Shipping cost from ShipLogic rates endpoint
+  rateExVatInCents Int? // Rate excluding VAT
 
   // Parcel details sent to ShipLogic
-  parcelCount           Int            @default(1)
-  totalWeightInGrams    Int?
-  parcelDescription     String?
+  parcelCount        Int     @default(1)
+  totalWeightInGrams Int?
+  parcelDescription  String?
 
   // Collection & delivery
-  collectionDate        DateTime?      // Earliest collection date sent to ShipLogic
-  estimatedDelivery     DateTime?
-  collectedAt           DateTime?
-  deliveredAt           DateTime?
+  collectionDate    DateTime? // Earliest collection date sent to ShipLogic
+  estimatedDelivery DateTime?
+  collectedAt       DateTime?
+  deliveredAt       DateTime?
 
   // Proof of delivery
-  podUrl                String?        // POD document URL
-  deliveryOtp           String?        // OTP pin used for delivery confirmation
+  podUrl      String? // POD document URL
+  deliveryOtp String? // OTP pin used for delivery confirmation
 
   // Raw ShipLogic API response for auditing
-  shiplogicPayload      Json?
+  shiplogicPayload Json?
 
-  createdAt             DateTime       @default(now())
-  updatedAt             DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  order                 Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  trackingEvents        ShipmentTrackingEvent[]
+  order          Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  trackingEvents ShipmentTrackingEvent[]
 
   @@index([waybillNumber])
   @@index([shiplogicShipmentId])
@@ -869,15 +936,15 @@ model Shipment {
 
 // Individual tracking events from ShipLogic webhook/polling
 model ShipmentTrackingEvent {
-  id            String   @id @default(cuid())
-  shipmentId    String
-  status        String   // e.g. "Collected", "In Transit", "At Hub", "Out for Delivery", "Delivered"
-  description   String?  // Detailed tracking message from ShipLogic
-  location      String?  // Branch/hub location if available
-  timestamp     DateTime // When the event occurred (from ShipLogic)
-  createdAt     DateTime @default(now())
+  id          String   @id @default(cuid())
+  shipmentId  String
+  status      String // e.g. "Collected", "In Transit", "At Hub", "Out for Delivery", "Delivered"
+  description String? // Detailed tracking message from ShipLogic
+  location    String? // Branch/hub location if available
+  timestamp   DateTime // When the event occurred (from ShipLogic)
+  createdAt   DateTime @default(now())
 
-  shipment      Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
   @@index([shipmentId, timestamp])
   @@map("shipment_tracking_events")
@@ -891,7 +958,7 @@ model Review {
   id          String   @id @default(cuid())
   userId      String
   productId   String
-  rating      Int      // 1-5
+  rating      Int // 1-5
   title       String?
   body        String?
   isVerified  Boolean  @default(false) // Verified purchase
@@ -899,8 +966,8 @@ model Review {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([userId, productId]) // One review per product per user
   @@index([productId])
@@ -919,8 +986,8 @@ model Promotion {
   description     String?
   discountType    DiscountType
   discountValue   Decimal      @db.Decimal(10, 2) // Percentage or fixed amount
-  minOrderInCents Int?         // Minimum order value to apply
-  maxUsage        Int?         // Total usage limit
+  minOrderInCents Int? // Minimum order value to apply
+  maxUsage        Int? // Total usage limit
   usageCount      Int          @default(0)
   maxUsagePerUser Int          @default(1)
   isActive        Boolean      @default(true)
@@ -929,8 +996,8 @@ model Promotion {
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 
-  store           Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  usages          PromotionUsage[]
+  store  Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  usages PromotionUsage[]
 
   @@unique([storeId, code])
   @@index([code])
@@ -939,13 +1006,13 @@ model Promotion {
 }
 
 model PromotionUsage {
-  id          String    @id @default(cuid())
+  id          String   @id @default(cuid())
   promotionId String
-  orderId     String    @unique
-  createdAt   DateTime  @default(now())
+  orderId     String   @unique
+  createdAt   DateTime @default(now())
 
-  promotion   Promotion @relation(fields: [promotionId], references: [id])
-  order       Order     @relation(fields: [orderId], references: [id])
+  promotion Promotion @relation(fields: [promotionId], references: [id])
+  order     Order     @relation(fields: [orderId], references: [id])
 
   @@map("promotion_usages")
 }
@@ -960,12 +1027,12 @@ model Notification {
   type      NotificationType
   title     String
   body      String
-  data      Json?            // Flexible payload (orderId, productId, etc.)
+  data      Json? // Flexible payload (orderId, productId, etc.)
   isRead    Boolean          @default(false)
   readAt    DateTime?
   createdAt DateTime         @default(now())
 
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, isRead])
   @@index([createdAt])
@@ -979,7 +1046,7 @@ model Notification {
 model SupportTicket {
   id          String                @id @default(cuid())
   userId      String
-  orderId     String?               // Optional link to order
+  orderId     String? // Optional link to order
   subject     String
   description String
   status      SupportTicketStatus   @default(OPEN)
@@ -988,8 +1055,8 @@ model SupportTicket {
   createdAt   DateTime              @default(now())
   updatedAt   DateTime              @updatedAt
 
-  user        User                  @relation(fields: [userId], references: [id])
-  messages    SupportMessage[]
+  user     User             @relation(fields: [userId], references: [id])
+  messages SupportMessage[]
 
   @@index([userId])
   @@index([status])
@@ -997,15 +1064,15 @@ model SupportTicket {
 }
 
 model SupportMessage {
-  id          String        @id @default(cuid())
+  id          String   @id @default(cuid())
   ticketId    String
-  senderType  String        // "USER", "MERCHANT", "ADMIN"
+  senderType  String // "USER", "MERCHANT", "ADMIN"
   senderId    String
   body        String
-  attachments Json?         // Array of attachment URLs
-  createdAt   DateTime      @default(now())
+  attachments Json? // Array of attachment URLs
+  createdAt   DateTime @default(now())
 
-  ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
   @@index([ticketId])
   @@map("support_messages")
@@ -1018,7 +1085,7 @@ model SupportMessage {
 model WaitlistEntry {
   id        String   @id @default(cuid())
   email     String   @unique
-  source    String?  // Where they signed up from
+  source    String? // Where they signed up from
   createdAt DateTime @default(now())
 
   @@map("waitlist_entries")
@@ -1029,13 +1096,13 @@ model WaitlistEntry {
 // ============================================================================
 
 model AnalyticsEvent {
-  id          String   @id @default(cuid())
-  eventType   String   // e.g. "product_view", "search", "add_to_cart", "purchase"
-  userId      String?
-  storeId     String?
-  productId   String?
-  metadata    Json?    // Flexible event data
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  eventType String // e.g. "product_view", "search", "add_to_cart", "purchase"
+  userId    String?
+  storeId   String?
+  productId String?
+  metadata  Json? // Flexible event data
+  createdAt DateTime @default(now())
 
   @@index([eventType])
   @@index([storeId, createdAt])
@@ -1043,4 +1110,3 @@ model AnalyticsEvent {
   @@index([userId, createdAt])
   @@map("analytics_events")
 }
-
