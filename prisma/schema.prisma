@@ -470,7 +470,8 @@ model Product {
   comparePriceInCents Int? // Original/compare-at price for showing discounts
   costInCents         Int? // Cost price for margin calculations
 
-  // Inventory (aggregated from variants if variants exist)
+  // Inventory — bare SKU only. Each variant has independent stock.
+  // Product-overall availability = totalStock + Σ(variants.stock).
   sku               String?
   totalStock        Int     @default(0)
   reservedStock     Int     @default(0)
@@ -799,6 +800,7 @@ model PaymentGroup {
   amountGrossInCents Int
   amountFeeInCents   Int @default(0)
   amountNetInCents   Int
+  shippingInCents    Int @default(0) // flat shipping fee lives here, not on individual Orders
 
   method PaymentMethod?
 

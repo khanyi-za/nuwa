@@ -14,6 +14,9 @@ import { CartService } from './cart/cart.service';
 import { CheckoutController } from './checkout/checkout.controller';
 import { CheckoutService } from './checkout/checkout.service';
 
+import { MerchantOrdersController } from './merchant-orders/merchant-orders.controller';
+import { MerchantOrdersService } from './merchant-orders/merchant-orders.service';
+
 import { PAYMENT_SERVICE } from './contracts/payment-contract';
 import { SHIPPING_SERVICE } from './contracts/shipping-contract';
 import { PaymentStubService } from './contracts/stubs/payment-stub.service';
@@ -35,6 +38,7 @@ import { ShippingStubService } from './contracts/stubs/shipping-stub.service';
     AddressController,
     CartController,
     CheckoutController,
+    MerchantOrdersController,
     // WishlistController — added in Phase 9
   ],
   providers: [
@@ -42,6 +46,7 @@ import { ShippingStubService } from './contracts/stubs/shipping-stub.service';
     AddressService,
     CartService,
     CheckoutService,
+    MerchantOrdersService,
     { provide: SHIPPING_SERVICE, useClass: ShippingStubService },
     { provide: PAYMENT_SERVICE, useClass: PaymentStubService },
   ],

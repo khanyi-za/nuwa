@@ -631,6 +631,234 @@ All guarded by `UserRole.BUYER`.
 
 - **Unset default directly.** Setting `isDefault: false` on the current default address via PATCH is blocked with 409 — "Set another address as default instead." Rationale: prevents the buyer from ending up in a no-default state via PATCH (which would break checkout defaults). The only way to lose the default is to delete it, which auto-promotes another.
 
+### Phase 3 — Cart
+
+Phase 3 builds authenticated cart CRUD with soft stock reservation — the on-ramp to Phase 4 checkout. Cart schema (`Cart`, `CartItem`) already exists from pre-Orders-module work; no new tables are required. All writes route through a stock-reservation primitive that keeps `reservedStock` in lockstep with cart contents.
+
+**Scope.** Authenticated buyer cart CRUD only. Anonymous browsing uses a client-side `localStorage` stash on the frontend, replayed via `POST /cart/items` after login or guest-account creation — no server-side guest cart. Checkout's split-by-store and hard-decrement-on-payment are Phase 4 concerns.
+
+**Locked decisions:**
+
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | Must the buyer pick a variant when a product has variants? | **No.** Bare product is its own SKU (`variantId: null`). Buyer may add bare or any variant. |
+| 2 | Duplicate-add behavior (same product + variant already in cart)? | **Increment quantity.** Backed by the existing `@@unique([cartId, productId, variantId])` — duplicate insert becomes an UPDATE. |
+| 3 | Per-line quantity cap? | **Only bounded by stock.** No hard-coded ceiling. |
+| 4 | Which stock row is reserved on add? | **Independent SKU model.** `variantId: null` → reserve on `Product.reservedStock`. `variantId` set → reserve on `ProductVariant.reservedStock`. Each SKU's inventory is independent; product-overall availability = bare + Σ(variants). |
+| 5 | Stock race handling on add / quantity-up? | **Optimistic conditional `UPDATE`**. Single `UPDATE … WHERE reservedStock + Δ <= totalStock`. Rows-affected = 0 ⇒ 409 "Out of stock". No row-level locks, no retry loop. |
+| 6 | Quantity-down / remove? | **Unconditional `UPDATE`** releasing reservation by delta. No race — giving stock back always succeeds. |
+| 7 | `GET /cart` response shape? | **Grouped by store** — `{ stores: [{ storeId, storeName, items, subtotalInCents }], grandSubtotalInCents }`. Mirrors the checkout-time split. |
+| 8 | Price snapshotting on cart lines? | **None.** Live `Product.priceInCents` on every read. `CartItem` has no price column. Checkout locks price on `OrderItem` creation. |
+| 9 | Stale-line surfacing (archived product, missing variant, stock dropped below qty)? | **Non-destructive flag.** Each item carries `status: "available" \| "unavailable" \| "partial_stock"`. Cart reads never mutate. Checkout enforces correctness. |
+| 10 | Empty-cart behavior on GET? | **Lazy cart.** `GET /cart` for a user with no `Cart` row returns 200 with an empty grouped shape. `Cart` row is created on first `POST /cart/items`. |
+| 11 | Guest-cart strategy? | **Client-side stash (`localStorage`).** No server-side guest cart, no schema carve-out for `Cart.userId`. Frontend replays stashed items via `POST /cart/items` after login or guest-account creation. Stock reservation only starts once items hit the server. |
+| 12 | Clear-cart endpoint? | **Yes.** `DELETE /cart` nukes all items and releases all reservations in a single transaction. |
+| 13 | Product / store deactivation while items are in cart? | **No auto-removal.** Line persists, `status` flips to `"unavailable"` on read. Stale-cart cron (Phase 8) still applies the 24h inactivity rule. |
+
+**Phase 3 schema change.**
+
+No new columns or tables. One documentation fix to the `Product` model:
+
+```prisma
+model Product {
+  // Inventory — bare SKU. Each variant has independent stock.
+  // Product-overall availability = bare + Σ(variants).
+  totalStock        Int     @default(0)
+  reservedStock     Int     @default(0)
+}
+```
+
+The previous comment read `// Inventory (aggregated from variants if variants exist)` — that was the aggregate model, which we're explicitly rejecting with decision #4. Comment-only edit; no migration.
+
+**Phase 3 helpers established:**
+
+- `src/order/cart/stock.ts` — `reserveStock(tx, productId, variantId, delta)` and `releaseStock(tx, productId, variantId, delta)`. Route to the `Product` row (when `variantId` is null) or the `ProductVariant` row based on the SKU rule in decision #4. `reserveStock` throws `ConflictException("Out of stock")` on rows-affected = 0; `releaseStock` is unconditional.
+- `CartService.buildCartView(userId)` — private helper that fetches items + joins product/variant + groups by `product.storeId` + computes per-store subtotal + flags `status` per item. Used by both `GET /cart` and post-mutation response shapes so every cart-returning endpoint gives an identical view.
+- `CartService.assertCartItemOwned(tx, userId, itemId)` — ownership guard for PATCH/DELETE item. 404-not-403 on cross-user, matching Phase 2's pattern.
+
+**Phase 3 endpoints (5 total):**
+
+| Method   | Path                  | Description                                     |
+|----------|-----------------------|-------------------------------------------------|
+| `GET`    | `/cart`               | Grouped cart view for current buyer             |
+| `POST`   | `/cart/items`         | Add an item (product + optional variant + qty)  |
+| `PATCH`  | `/cart/items/:itemId` | Change quantity (up or down)                    |
+| `DELETE` | `/cart/items/:itemId` | Remove a single line (releases its reservation) |
+| `DELETE` | `/cart`               | Clear all items (releases all reservations)     |
+
+All guarded by `UserRole.BUYER`.
+
+**Edge cases flagged for Phase 3 implementation:**
+
+- **Item-not-in-cart on PATCH/DELETE.** 404-not-403, matching Phase 2. Ownership guard runs inside the transaction so a concurrent delete can't be resurrected by a raced patch.
+- **Out-of-stock on quantity-up.** Conditional UPDATE fails ⇒ 409. Cart line quantity is unchanged; buyer sees the current quantity preserved and a clear error.
+- **Simultaneous add of same SKU from two tabs.** Both calls compete on the conditional UPDATE. Loser gets 409. No deadlock — the lock is per-row and held only for the UPDATE's duration.
+- **Stock race during `DELETE /cart`.** Release runs per-item inside one transaction; a concurrent add on the same SKU is serialized by Postgres's normal MVCC. The clear succeeds or the whole transaction rolls back.
+- **Merge race on login (frontend-driven).** Stash merge is a sequence of POSTs; partial failure is possible (some items add, some get 409 from stock changes during the stash window). Frontend renders the result per-item. Out of scope for the backend.
+
+**Product-module follow-up (not Phase 3 blocking):**
+
+The independent-SKU inventory model (decision #4) means product detail pages should display overall availability as `Product.totalStock + Σ(variants.stock)`. Today's Product module may still treat `Product.totalStock` as an aggregate — verify and adjust when Product display logic is next touched. Not a blocker for Phase 3 because cart operations only touch the specific SKU being added/mutated.
+
+### Phase 4 — Checkout
+
+Phase 4 is the largest phase in the module. It takes the cart from Phase 3 and materializes it into one or more `Order` rows (one per store), assembles a `PaymentGroup` with per-order `Payment` slices, calls into the stubbed `PAYMENT_SERVICE` to initialize a PayFast transaction, and returns a redirect URL. Stock reservations carry through from cart-add to ITN outcome; hard-decrement happens later via the Payments module's ITN handler, which is out of scope here.
+
+**Scope.** Buyer-side checkout only: quote + commit endpoints. Merchant order views (Phase 5), buyer order views (Phase 6), admin cross-store views (Phase 7), and the stale-cart / pending-order cron (Phase 8) are separate phases. ITN handling itself lives in the Payments module when it ships — Phase 4 only ships the outbound call (`initialize`) via the contract.
+
+**Locked decisions:**
+
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | Checkout flow shape? | **Two-step.** `POST /checkout/quote` returns per-store totals + shipping breakdown + grand total for UI confirmation. `POST /checkout` commits — creates Orders + PaymentGroup + Payments, calls PayFast, returns redirect URL. |
+| 2 | Shipping tier / service selection? | **Single tier for MVP.** No buyer-selectable tiers. `Order.shippingServiceTier` defaults to `ECO`. Phase 4 ships the tier column hard-coded; buyer-selection is a future Shipping-module concern. |
+| 3 | Shipping fee shape? | **Flat R110 per checkout.** 11000 cents. Stored in env var `SHIPPING_FLAT_FEE_IN_CENTS` (default 11000). `ShippingStubService.getRate` returns `{ quoteId: "stub-flat-${cuid}", rateInCents: <env> }` — the contract shape stays stable when the real Shipping module lands. |
+| 4 | Multi-store shipping allocation? | **No per-Order split.** Shipping is a single flat R110 stored on `PaymentGroup.shippingInCents`. `Order.shippingInCents = 0` always. YIIVA pays The Courier Guy directly — merchants never see or handle shipping money. `Order.totalInCents = subtotalInCents`. |
+| 5 | Guest User materialization timing? | **On commit, not on quote.** `POST /checkout/quote` accepts `{ email, phone, address }` transiently — no DB writes. `POST /checkout` creates the guest `User` (with `isGuestAccount: true`) and `Address` inside the same atomic transaction as the Orders. Prevents guest-account leakage from abandoned quotes. |
+| 6 | Guest email verification? | **Deferred to Phase 6** (account-claim flow). Guest accounts are usable for checkout without verification; verification is required only for the "upgrade to real account" path. |
+| 7 | Stock commit timing? | **Hard-decrement only at ITN success.** Reservations from Phase 3 persist through Order creation → through PayFast → until ITN outcome. On ITN `COMPLETE` (Payments module, later): `totalStock -= qty`, `reservedStock -= qty` atomically. On ITN `FAILED` / 30-min expiry (Phase 8 cron): release reservation, flip Order to `CANCELLED`. |
+| 8 | Rollback when PayFast `initialize` fails after DB writes committed? | **Delete Orders + Payments + PaymentGroup** in a compensating transaction. Cart + reservations stay untouched so buyer can retry. Alternative (keep rows in PENDING + let cron expire) was rejected as leaving zombie state. |
+| 9 | External HTTP inside DB transaction? | **Never.** PayFast `initialize` runs *after* the DB tx commits. Tx 1: create Orders + PaymentGroup + Payments (DB-only). Tx 2 (on PayFast success): clear cart items. Tx 3 (on PayFast failure): delete Orders + PaymentGroup + Payments. |
+| 10 | Cart-clear timing? | **After PayFast `initialize` succeeds, not before.** If PayFast fails and we've already cleared the cart, rebuilding it from about-to-be-deleted OrderItems is ugly. Cart persists until the buyer is actually on the PayFast page. |
+| 11 | VAT? | **None for MVP.** Prices are final, no VAT line on Order. Revisit when YIIVA crosses the SA VAT registration threshold. |
+| 12 | Commission base? | **Subtotal only.** `Payment.platformCommissionInCents = round(Order.subtotalInCents × 0.055)`. Shipping is not commissionable. Computed at Order creation, locked on the Payment row. |
+| 13 | PayFast fee allocation? | **Deferred to Payments module.** Phase 4 writes `Payment.amountFeeInCents = 0` at creation time. When ITN arrives with the actual PayFast fee on `PaymentGroup`, the Payments module splits it proportionally across sibling Payments. |
+| 14 | Handling of `"unavailable"` / `"partial_stock"` lines at checkout? | **Hard reject.** Quote and commit both 409 with a list of offending `{ itemId, productTitle, status }`. Buyer must adjust cart and retry. No auto-skip. |
+| 15 | Store missing primary dispatch address? | **Hard reject at quote time.** 400 "Store X has not configured shipping yet." — surfaces the onboarding gap to the buyer. Deferred check: store-onboarding go-live-gate should prevent this state in the first place (Shipping-module planning). |
+| 16 | Stub behavior for end-to-end testability? | **Deterministic.** `ShippingStubService.getRate` returns the flat R110. `PaymentStubService.initialize` returns `{ mPaymentId: "stub-${cuid}", redirectUrl: \`https://sandbox.payfast.co.za/eng/process?m_payment_id=...\` }`. Enables service-level integration tests without a mock framework in the cart/checkout path. |
+| 17 | Order number collision retry? | **Inside the checkout service.** Wrap the atomic create in a try/catch for Prisma `P2002` on `orders.orderNumber`; regenerate and retry up to 3 times. After 3 consecutive collisions, throw 500 (should be statistically impossible — foundation note #3). |
+
+**Phase 4 schema changes.** Added `shippingInCents Int @default(0)` to `PaymentGroup` — the flat shipping fee lives here (YIIVA pays The Courier Guy directly, merchants never handle shipping money). Individual `Order.shippingInCents` is always 0.
+
+**Phase 4 helpers established:**
+
+- `src/order/checkout/totals.ts` — `computeCheckoutTotals(cart, shippingTotalInCents)`. Pure function: groups cart by store, computes per-store subtotal + commission, returns `{ stores, grandSubtotal, grandShipping, grandTotal }`. No per-store shipping split — shipping stays at checkout level on `PaymentGroup`.
+- `src/order/checkout/reservations.ts` — `releaseOrderReservations(tx, orderIds)`. Walks each Order's items and issues `releaseStock` per line. Used by the PayFast-failure rollback path and by the Phase 8 stale-order cron.
+- `CheckoutService.assertCartIsCheckoutable(cart)` — private guard. Throws 409 with detail payload when any line has `status !== 'available'`. Also validates cart is non-empty.
+- `CheckoutService.resolveShippingAddress(userId, dto)` — resolves the delivery address. For authenticated buyers: reads `addressId` from DTO, calls the Address service's ownership guard. For guests: materializes a new User + Address inside the checkout transaction.
+- `generateOrderNumber()` — reused from Phase 1 (`src/order/utils/order-number.ts`).
+
+**Phase 4 endpoints (2 total):**
+
+| Method | Path               | Auth            | Description                                                    |
+|--------|--------------------|-----------------|----------------------------------------------------------------|
+| `POST` | `/checkout/quote`  | Optional JWT    | Preview: accept `addressId` (or guest `{email, phone, address}`), return per-store subtotals + shipping allocation + grand total. No DB writes. |
+| `POST` | `/checkout`        | Optional JWT    | Commit: validate cart, create Orders + PaymentGroup + Payments, call PayFast init, clear cart on success. Returns `{ redirectUrl, orderNumbers }`. |
+
+"Optional JWT" means the endpoint is callable by both authenticated buyers (JWT present, BUYER role) and guests (no JWT, must supply `{email, phone, address}` in the DTO). `GET /checkout/status/:orderNumber` is deferred to Phase 6 (buyer order views).
+
+**Edge cases flagged for Phase 4 implementation:**
+
+- **Concurrent cart mutation during quote → commit.** Buyer opens checkout in two tabs, commits in one, the second tab's commit finds a missing cart item. Surface as 409; the second tab refreshes its cart view from `GET /cart`.
+- **Stock grabbed between quote and commit.** Quote shows `"available"`, buyer confirms, commit re-checks statuses and one line is now `"partial_stock"`. Same 409 hard-reject as Phase 3 decision #14 — no auto-adjust.
+- **`orderNumber` collision on retry.** Three collisions in a row ⇒ 500. Statistically negligible at our volume; collision probability at 1M orders/year is ~3 in 100M (foundation note #3).
+- **Guest commit with an email that already belongs to a verified User.** Reject with 409 "An account with this email exists. Please log in to continue." Prevents account hijacking via guest checkout.
+- **Per-checkout flat shipping lives on `PaymentGroup`, not on individual Orders.** `Order.shippingInCents = 0` always. Frontend displays shipping from the PaymentGroup level, not from Order detail.
+- **PayFast init timeout / network error.** Treated as failure → Orders/Payments/PaymentGroup deleted, cart untouched, buyer sees "Payment provider unavailable, please retry." Reservations from Phase 3 stay, so a quick retry hits the same stock.
+
+**Shipping subsidy model (Path A — acknowledged risk):**
+
+MVP charges buyers a flat R110 per checkout regardless of how many stores/parcels are involved. YIIVA pays The Courier Guy separately per shipment — each Order is a physically separate parcel shipped from the merchant's dispatch address to the buyer. When multi-brand carts split into N shipments, the real courier cost will typically exceed R110.
+
+This is an intentional **customer-acquisition subsidy** for the marketplace phase. Phase 4 does not integrate with The Courier Guy API — `ShippingStubService` returns R110, no rate lookup. When the Shipping module ships:
+
+- A new `Shipment` model will track `costInCentsFromCourier` per parcel (the real Courier Guy cost, written at waybill creation time).
+- A weekly reconciliation report computes `Σ(buyer-paid shipping) − Σ(courier-billed)` to track the subsidy burn.
+- If subsidy exceeds a threshold (e.g. 5% of monthly GMV), pricing options include: a multi-brand surcharge (`R110 + R50 per additional store`), real-time Courier Guy rate quotes at checkout, or a higher flat fee.
+
+Until Shipping module lands, this gap is invisible in the code — the flat R110 is the only number in play.
+
+**Phase 4 data flow (commit path):**
+
+```
+POST /checkout                                     [tx count]
+ ├── validate cart (not empty, no unavailable lines)    [-]
+ ├── resolve shipping address (existing or guest)       [tx 1 — guest: create User + Address]
+ ├── fetch shipping rate from ShippingStubService       [-]
+ ├── compute totals (shipping on PaymentGroup only)      [-]
+ ├── create Orders + OrderItems + PaymentGroup +
+ │   Payments (commission computed here)                [tx 1 continued]
+ ├── commit tx 1 ───────────────────────────────────── ✓ DB: PENDING Orders
+ ├── call PaymentStubService.initialize                 [HTTP]
+ │    ├── success → tx 2: clear cart items ─────────── ✓ DB: empty cart
+ │    │             return { redirectUrl, orderNumbers }
+ │    └── failure → tx 3: delete Orders/Payments/      ✓ DB: reverted
+ │                        PaymentGroup
+ │                  return 502 "Payment init failed"
+```
+
+Reservations from Phase 3 are untouched throughout. They are only resolved by the Payments module's ITN handler (success → hard-decrement) or the Phase 8 cron (expiry → release).
+
+---
+
+### Phase 5 Decisions — Merchant Order Management
+
+**Scope.** Merchant-facing order list, detail, state transitions, and cancel. These endpoints let merchants view and manage orders placed against their store. All routes are scoped under `stores/:storeId/orders` and guarded by `MERCHANT` role + `StoreService.canManageStore()` (owner or active employee).
+
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | List orders endpoint shape? | **`GET /stores/:storeId/orders`** with query params. Scoped under the store for natural ownership semantics. |
+| 2 | Order detail endpoint? | **`GET /stores/:storeId/orders/:orderId`** — full order with items, buyer contact, shipping address snapshot, payment status. |
+| 3 | Filtering & pagination? | **Status filter + order number search + cursor-based pagination.** Default 20 per page, max 50. Date range filtering deferred. |
+| 4 | Sorting? | **Newest first, fixed.** No user-selectable sort for MVP. |
+| 5 | Merchant-driven state transitions? | **`CONFIRMED → PROCESSING → READY_FOR_DISPATCH`.** Sequential only — no skipping steps. |
+| 6 | Who confirms `PENDING → CONFIRMED`? | **Automatic on successful payment** (ITN handler in Payments module). Not a merchant action — Phase 5 starts from `CONFIRMED`. |
+| 7 | Merchant cancel constraints? | **`CONFIRMED` or `PROCESSING` only.** Once `READY_FOR_DISPATCH`, cancellation requires admin involvement. |
+| 8 | Cancel reason required? | **Yes.** Enum: `OUT_OF_STOCK`, `CANNOT_FULFILL`, `OTHER` + optional freetext notes. Stored as `cancelReason` on the Order row. |
+| 9 | Who can access these endpoints? | **Store owner + active employees** via `StoreService.canManageStore()`. Staff model already exists; guard is future-proof. |
+| 10 | Guard pattern? | **Reuse `StoreService.canManageStore()`** — no new guard needed. Service calls it at the start of every method. |
+| 11 | Order list response shape? | **Summary only:** orderNumber, status, totalInCents, itemCount, buyerName, placedAt. Full items on detail endpoint only. |
+| 12 | Buyer contact in merchant view? | **Yes — name, email, phone.** Merchants need this for fulfillment coordination. |
+
+**Phase 5 schema changes.** None. All columns needed (`status`, `cancelReason`, `cancelledAt`, timestamp fields) were established in Phase 1.
+
+**Phase 5 files created:**
+
+- `src/order/merchant-orders/merchant-orders.service.ts` — list, detail, status transition, cancel logic
+- `src/order/merchant-orders/merchant-orders.controller.ts` — 4 route handlers
+- `src/order/merchant-orders/merchant-orders.service.spec.ts` — 20 tests
+- `src/order/dto/merchant-order-query.dto.ts` — status filter, search, cursor, take
+- `src/order/dto/update-order-status.dto.ts` — target status enum validation
+- `src/order/dto/cancel-order.dto.ts` — `CancelReason` enum + optional notes
+
+**Phase 5 endpoints (4 total):**
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/stores/:storeId/orders` | MERCHANT + store access | List orders: status filter, order number search, cursor pagination |
+| `GET` | `/stores/:storeId/orders/:orderId` | MERCHANT + store access | Full detail: items, buyer info, shipping address, payment |
+| `PATCH` | `/stores/:storeId/orders/:orderId/status` | MERCHANT + store access | Advance: `CONFIRMED → PROCESSING → READY_FOR_DISPATCH` |
+| `POST` | `/stores/:storeId/orders/:orderId/cancel` | MERCHANT + store access | Cancel with required reason (from `CONFIRMED` or `PROCESSING` only) |
+
+**State machine (merchant-driven transitions only):**
+
+```
+                    ┌──────────────┐
+  (payment ITN) ──▶ │  CONFIRMED   │
+                    └──────┬───────┘
+                           │ PATCH status=PROCESSING
+                           ▼
+                    ┌──────────────┐
+                    │  PROCESSING  │
+                    └──────┬───────┘
+                           │ PATCH status=READY_FOR_DISPATCH
+                           ▼
+                    ┌──────────────────┐
+                    │ READY_FOR_DISPATCH│
+                    └──────────────────┘
+
+  Cancel (POST /cancel) allowed from CONFIRMED or PROCESSING only.
+  PENDING → CONFIRMED is a payment event, not a merchant action.
+  DISPATCHED, IN_TRANSIT, DELIVERED are shipping/courier events (future).
+```
+
+**Edge cases handled:**
+
+- **Cross-store access.** 404 (not 403) when order exists but belongs to a different store — consistent with existing 404-not-403 pattern.
+- **Invalid transition.** 400 with message "Cannot transition from X to Y" — covers skip attempts (CONFIRMED → READY_FOR_DISPATCH) and backward transitions.
+- **Cancel from post-dispatch states.** 400 "Cannot cancel an order in READY_FOR_DISPATCH status" — admin-only path needed for these.
+- **Cancel reason format.** `OUT_OF_STOCK` and `CANNOT_FULFILL` stored as-is. `OTHER` with notes stored as `"OTHER: <notes>"` for searchability.
+
 ---
 
 ## References
