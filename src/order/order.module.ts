@@ -17,6 +17,12 @@ import { CheckoutService } from './checkout/checkout.service';
 import { MerchantOrdersController } from './merchant-orders/merchant-orders.controller';
 import { MerchantOrdersService } from './merchant-orders/merchant-orders.service';
 
+import { BuyerOrdersController } from './buyer-orders/buyer-orders.controller';
+import { BuyerOrdersService } from './buyer-orders/buyer-orders.service';
+
+import { AdminOrdersController } from './admin-orders/admin-orders.controller';
+import { AdminOrdersService } from './admin-orders/admin-orders.service';
+
 import { PAYMENT_SERVICE } from './contracts/payment-contract';
 import { SHIPPING_SERVICE } from './contracts/shipping-contract';
 import { PaymentStubService } from './contracts/stubs/payment-stub.service';
@@ -39,6 +45,8 @@ import { ShippingStubService } from './contracts/stubs/shipping-stub.service';
     CartController,
     CheckoutController,
     MerchantOrdersController,
+    BuyerOrdersController,
+    AdminOrdersController,
     // WishlistController — added in Phase 9
   ],
   providers: [
@@ -47,6 +55,8 @@ import { ShippingStubService } from './contracts/stubs/shipping-stub.service';
     CartService,
     CheckoutService,
     MerchantOrdersService,
+    BuyerOrdersService,
+    AdminOrdersService,
     { provide: SHIPPING_SERVICE, useClass: ShippingStubService },
     { provide: PAYMENT_SERVICE, useClass: PaymentStubService },
   ],

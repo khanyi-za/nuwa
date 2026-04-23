@@ -5,6 +5,8 @@ import { PassportModule } from '@nestjs/passport';
 import { ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { ClaimController } from './claim/claim.controller';
+import { ClaimService } from './claim/claim.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
@@ -22,9 +24,10 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
       }),
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, ClaimController],
   providers: [
     AuthService,
+    ClaimService,
     JwtStrategy,
     {
       provide: APP_GUARD,

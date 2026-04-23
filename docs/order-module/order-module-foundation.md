@@ -861,6 +861,138 @@ Reservations from Phase 3 are untouched throughout. They are only resolved by th
 
 ---
 
+### Phase 6 Decisions — Buyer Order Views + Guest Account Claim
+
+**Scope.** Buyer-facing order list, detail, buyer cancel, and guest account claim flow. The buyer endpoints live in the Orders module (`/orders`); the claim endpoint lives in the Auth module (`/auth/claim`).
+
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | List orders endpoint? | **`GET /orders`** — JWT identifies the buyer, no userId in path needed. |
+| 2 | Order detail endpoint? | **`GET /orders/:orderId`** — full detail with items, timeline, shipping address, payment status. |
+| 3 | Filtering & pagination? | **Status filter + order number search + cursor-based pagination.** Same pattern as merchant orders. |
+| 4 | Multi-store grouping? | **Flat list across all stores.** Frontend groups by store/checkout if desired. |
+| 5 | Buyer cancel? | **Yes, from `PENDING` or `CONFIRMED` only.** Once `PROCESSING`, buyer must contact the merchant. |
+| 6 | Buyer cancel reason? | **Required enum:** `CHANGED_MIND`, `ORDERED_BY_MISTAKE`, `FOUND_CHEAPER`, `OTHER` + optional notes. |
+| 7 | Buyer vs merchant detail shape? | **Buyers don't see:** commission, merchant payout. **Buyers see:** status, items, totals, shipping address, payment status (paid/pending/failed), status timeline. |
+| 8 | Status timeline? | **Yes.** `placedAt`, `confirmedAt`, `dispatchedAt`, `deliveredAt`, `cancelledAt` — all included in detail response. |
+| 9 | Guest claim flow? | **Email verification required** (Option B). Prevents claiming a random guest's account. Verification stubbed for MVP — enforced when Notifications module ships. |
+| 10 | Guest order view before claiming? | **Deferred.** Order status communicated via transactional email (future Notifications module). No public order-status endpoint for MVP. |
+| 11 | Guest claim implementation scope? | **Scaffold.** `POST /auth/claim` sets password + flips `isGuestAccount: false` + sets `emailVerified: true`. Real OTP/link verification added when Notifications module lands. |
+
+**Phase 6 schema changes.** None.
+
+**Phase 6 files created:**
+
+- `src/order/buyer-orders/buyer-orders.service.ts` — list, detail, buyer cancel
+- `src/order/buyer-orders/buyer-orders.controller.ts` — 3 route handlers
+- `src/order/buyer-orders/buyer-orders.service.spec.ts` — 13 tests
+- `src/order/dto/buyer-order-query.dto.ts` — status filter, search, cursor, take
+- `src/order/dto/buyer-cancel-order.dto.ts` — `BuyerCancelReason` enum + optional notes
+- `src/auth/claim/claim.service.ts` — guest account claim (password set, verification stubbed)
+- `src/auth/claim/claim.controller.ts` — `POST /auth/claim` (public endpoint)
+- `src/auth/claim/claim.service.spec.ts` — 5 tests
+- `src/auth/dto/claim-account.dto.ts` — email + password validation
+
+**Phase 6 endpoints (4 total):**
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/orders` | BUYER | List buyer's orders: status filter, order number search, cursor pagination |
+| `GET` | `/orders/:orderId` | BUYER | Full detail: items, timeline, shipping address, payment status (no commission) |
+| `POST` | `/orders/:orderId/cancel` | BUYER | Cancel from `PENDING` or `CONFIRMED` with required reason |
+| `POST` | `/auth/claim` | Public | Guest account claim: set password, flip `isGuestAccount` (verification stubbed) |
+
+**Buyer cancel vs merchant cancel:**
+
+| Aspect | Buyer | Merchant |
+|--------|-------|----------|
+| Cancellable states | `PENDING`, `CONFIRMED` | `CONFIRMED`, `PROCESSING` |
+| Reason enum | `CHANGED_MIND`, `ORDERED_BY_MISTAKE`, `FOUND_CHEAPER`, `OTHER` | `OUT_OF_STOCK`, `CANNOT_FULFILL`, `OTHER` |
+| After `PROCESSING` | "Please contact the merchant" | Still allowed |
+| After `READY_FOR_DISPATCH` | Not allowed | Not allowed (admin-only) |
+
+**Guest account claim flow (scaffold):**
+
+```
+POST /auth/claim { email, password }
+ ├── find user by email
+ │    ├── not found → 404
+ │    └── found + isGuestAccount: false → 409 "already registered"
+ ├── hash password (bcrypt, 12 rounds)
+ ├── update user:
+ │    ├── passwordHash = <hashed>
+ │    ├── isGuestAccount = false
+ │    └── emailVerified = true (stubbed — real verification later)
+ └── return { message: "Account claimed" }
+```
+
+**TODO when Notifications module ships:** Add email OTP/link verification step before allowing password set. The `emailVerified = true` stub will be replaced with actual verification.
+
+---
+
+### Phase 7 Decisions — Admin Order Views
+
+**Scope.** Cross-store admin order list, full order detail (including payment internals), admin overrides (force-confirm, cancel from any state, edit order), and refund trigger stub. All routes under `/admin/orders`, guarded by `@Roles(UserRole.ADMIN)`.
+
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | List orders endpoint? | **`GET /admin/orders`** — dedicated admin namespace, clean separation from buyer/merchant controllers. |
+| 2 | Order detail endpoint? | **`GET /admin/orders/:orderId`** — admin sees everything: payment internals, commission, merchant payout, buyer account type. |
+| 3 | Filtering? | **Store filter (`storeId`), status filter, order number search, buyer email search, cursor pagination.** Date range deferred. |
+| 4 | Sorting? | **Newest first, fixed.** |
+| 5 | Admin state transitions? | **Force-confirm (`PENDING → CONFIRMED`) + cancel from any non-terminal state.** Merchants own their forward workflow; admin unblocks stuck orders. |
+| 6 | Admin cancel reasons? | **Admin-specific enum:** `FRAUD`, `POLICY_VIOLATION`, `CUSTOMER_REQUEST`, `MERCHANT_REQUEST`, `OTHER`. Stored with `ADMIN:` prefix for auditability. |
+| 7 | Admin edit order? | **Yes — shipping address and notes.** Enables ops to fix delivery issues without requiring buyer/merchant involvement. |
+| 8 | Refund trigger? | **Stub only.** `POST /admin/orders/:orderId/refund` sets `Order.status = REFUND_REQUESTED`. Real refund processing deferred to Payments module. |
+| 9 | Partial refunds? | **Full refund only for MVP.** Partial refunds deferred (which items, commission recalculation). |
+| 10 | Authorization? | **`@Roles(UserRole.ADMIN)`** — single admin role. Granular admin permissions deferred. |
+
+**Phase 7 schema changes.** None.
+
+**Phase 7 files created:**
+
+- `src/order/admin-orders/admin-orders.service.ts` — list, detail, force-confirm, cancel, edit, refund stub
+- `src/order/admin-orders/admin-orders.controller.ts` — 6 route handlers
+- `src/order/admin-orders/admin-orders.service.spec.ts` — 27 tests
+- `src/order/dto/admin-order-query.dto.ts` — storeId, status, search, buyerEmail, cursor, take
+- `src/order/dto/admin-cancel-order.dto.ts` — `AdminCancelReason` enum + optional notes
+- `src/order/dto/admin-edit-order.dto.ts` — optional shipping address fields + notes
+
+**Phase 7 endpoints (6 total):**
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/admin/orders` | ADMIN | Cross-store list: store/status/orderNumber/buyerEmail filters, cursor pagination |
+| `GET` | `/admin/orders/:orderId` | ADMIN | Full detail: items, buyer (incl. isGuestAccount), store, payment internals, timeline |
+| `PATCH` | `/admin/orders/:orderId` | ADMIN | Edit shipping address and/or notes |
+| `POST` | `/admin/orders/:orderId/confirm` | ADMIN | Force-confirm a `PENDING` order (manual payment verification) |
+| `POST` | `/admin/orders/:orderId/cancel` | ADMIN | Cancel from any non-terminal state with admin-specific reason |
+| `POST` | `/admin/orders/:orderId/refund` | ADMIN | Stub: sets `REFUND_REQUESTED` (real processing in Payments module) |
+
+**Admin cancel reason format:** `ADMIN:FRAUD`, `ADMIN:POLICY_VIOLATION`, `ADMIN:CUSTOMER_REQUEST`, `ADMIN:MERCHANT_REQUEST`, `ADMIN:OTHER: <notes>`. The `ADMIN:` prefix distinguishes admin cancels from buyer/merchant cancels in the `cancelReason` column.
+
+**Admin vs buyer vs merchant cancel comparison:**
+
+| Aspect | Buyer | Merchant | Admin |
+|--------|-------|----------|-------|
+| Cancellable states | `PENDING`, `CONFIRMED` | `CONFIRMED`, `PROCESSING` | All except `DELIVERED`, `REFUNDED`, `CANCELLED` |
+| Reason enum | `CHANGED_MIND`, `ORDERED_BY_MISTAKE`, `FOUND_CHEAPER`, `OTHER` | `OUT_OF_STOCK`, `CANNOT_FULFILL`, `OTHER` | `FRAUD`, `POLICY_VIOLATION`, `CUSTOMER_REQUEST`, `MERCHANT_REQUEST`, `OTHER` |
+| Stored format | `CHANGED_MIND` | `OUT_OF_STOCK` | `ADMIN:FRAUD` |
+
+**Refund stub flow:**
+
+```
+POST /admin/orders/:orderId/refund
+ ├── find order → 404 if not found
+ ├── reject if PENDING (cancel instead)
+ ├── reject if already REFUNDED or REFUND_REQUESTED
+ └── set status = REFUND_REQUESTED
+     └── When Payments module ships: ITN handler picks up REFUND_REQUESTED,
+         calls PayFast refund API, updates Payment, sets REFUNDED.
+```
+
+---
+
 ## References
 
 - **YIIVA philosophy:** `docs/about_yiiva.md`
