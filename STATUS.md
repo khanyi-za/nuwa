@@ -2,157 +2,120 @@
 
 ## Where we are
 
-We are building the **Order module** for YIIVA, phase by phase. Phases 1–6 are complete. Phase 7 (Admin Order Views) is next. Nothing is half-finished — Phase 6 landed cleanly and all 174 tests pass.
+Order module Phases 1–9 are complete. Phase 10 (Consolidated Testing) is the only remaining phase. Nothing is half-finished.
 
-There are **uncommitted changes** on `main` from this session. They cover Phase 5 (Merchant Order Management), Phase 6 (Buyer Order Views + Guest Account Claim), the shipping restructure from late Phase 4, and the CLAUDE.md file. The user has not asked for a commit yet.
+There are **uncommitted changes** on `main` from this session covering Phase 8 (Cron Cleanup), Phase 9 (Wishlist), `@nestjs/schedule` dependency, `ScheduleModule` registration, foundation doc updates for Phases 8 & 9, and the updated CLAUDE.md. The user has not asked for a commit yet.
 
-## What was built this session
+223 tests across 15 suites, all passing in ~2.5s.
 
-### Shipping restructure (mid-Phase 4 fix)
+## What was built this session (after Phase 7 commit)
 
-The user caught a fundamental design flaw: we were splitting the R110 shipping fee proportionally across Orders and sending shipping money to merchants. But merchants never touch shipping — YIIVA pays The Courier Guy directly. The proportional split was unnecessary complexity.
+### Phase 7 — Admin Order Views (committed in `460caa1`)
 
-**What changed:**
-- Removed `splitShippingProportional()` from `src/order/checkout/totals.ts` entirely
-- Removed `shippingInCents` from `CheckoutStoreGroup` interface — stores no longer carry shipping
-- `Order.shippingInCents = 0` always (set in `checkout.service.ts:193`)
-- `Order.totalInCents = subtotalInCents` (no shipping mixed in, `checkout.service.ts:195`)
-- Added `shippingInCents Int @default(0)` to `PaymentGroup` model in schema (`prisma/schema.prisma:803`)
-- `PaymentGroup.shippingInCents = totals.grandShippingInCents` (set in `checkout.service.ts:232`)
-- `Payment.amountGrossInCents = storeGroup.subtotalInCents` — merchant's slice only, no shipping (`checkout.service.ts:241`)
-- Migration applied: `prisma/migrations/20260416140000_add_shipping_to_payment_group/`
-- Updated 8 test expectations across `totals.spec.ts` and `checkout.service.spec.ts`
-- Updated Phase 4 decision #4 in `docs/order-module/order-module-foundation.md`
+Already committed. Includes admin-orders service/controller/spec, admin DTOs, force-confirm, admin cancel, admin edit (user chose Option A — admin CAN edit orders), refund stub.
 
-**What we rejected:** The proportional split (each Order gets `round(R110 * subtotal / grandSubtotal)` with rounding pennies to the largest store). It was technically correct but architecturally wrong — it modeled money flow that doesn't exist.
-
-### Phase 5 — Merchant Order Management
+### Phase 8 — Cron: Cart & Stock Cleanup (uncommitted)
 
 Files created:
-- `src/order/merchant-orders/merchant-orders.service.ts` — list, detail, status transition, cancel
-- `src/order/merchant-orders/merchant-orders.controller.ts` — 4 endpoints under `stores/:storeId/orders`
-- `src/order/merchant-orders/merchant-orders.service.spec.ts` — 20 tests
-- `src/order/dto/merchant-order-query.dto.ts`
-- `src/order/dto/update-order-status.dto.ts`
-- `src/order/dto/cancel-order.dto.ts` — `CancelReason` enum: `OUT_OF_STOCK`, `CANNOT_FULFILL`, `OTHER`
+- `src/order/cron/order-cleanup.service.ts` — `@Cron(CronExpression.EVERY_5_MINUTES)`
+- `src/order/cron/order-cleanup.service.spec.ts` — 10 tests
 
-Key decisions:
-- Authorization via `StoreService.canManageStore()` — owner + active employee, already existed
-- `PENDING→CONFIRMED` is NOT a merchant action (that's a payment event from ITN)
-- Merchant transitions: `CONFIRMED→PROCESSING→READY_FOR_DISPATCH` only, sequential
-- Cancel from `CONFIRMED` or `PROCESSING` only. After `READY_FOR_DISPATCH`, admin needed.
-- Cancel reason stored as `"OUT_OF_STOCK"` or `"OTHER: <freetext>"` on `Order.cancelReason`
+Key decisions the user made:
+- **A1 — 24h fixed cutoff**, not env-configurable (Option A)
+- **A2 — Release stock only, keep cart items** (Option B) — buyers don't lose their cart, items become unreserved, re-reserve on next checkout attempt
+- **A3 — 30 min pending order expiry** (Option A) — keep PaymentGroup/Payments for audit trail, just cancel the order and release stock
+- **Batch processing** — 100 per batch, `while (true) { findMany take:100; if length < 100 break; }`, per-item try/catch with `this.logger.error()`
+- Cancel reason for expired orders: `SYSTEM:PAYMENT_TIMEOUT`
 
-### Phase 6 — Buyer Order Views + Guest Account Claim
+Dependencies added:
+- `npm install @nestjs/schedule` (added to package.json)
+- `ScheduleModule.forRoot()` added to `src/app.module.ts` imports
+
+### Phase 9 — Wishlist (uncommitted)
 
 Files created:
-- `src/order/buyer-orders/buyer-orders.service.ts` — list, detail, cancel
-- `src/order/buyer-orders/buyer-orders.controller.ts` — 3 endpoints under `/orders`
-- `src/order/buyer-orders/buyer-orders.service.spec.ts` — 13 tests
-- `src/order/dto/buyer-order-query.dto.ts`
-- `src/order/dto/buyer-cancel-order.dto.ts` — `BuyerCancelReason` enum: `CHANGED_MIND`, `ORDERED_BY_MISTAKE`, `FOUND_CHEAPER`, `OTHER`
-- `src/auth/claim/claim.service.ts` — guest account claim (password set, verification stubbed)
-- `src/auth/claim/claim.controller.ts` — `POST /auth/claim` (public endpoint)
-- `src/auth/claim/claim.service.spec.ts` — 5 tests
-- `src/auth/dto/claim-account.dto.ts`
+- `src/order/wishlist/wishlist.service.ts` — list (paginated), add, remove
+- `src/order/wishlist/wishlist.controller.ts` — GET /, POST /:productId (201), DELETE /:itemId (204)
+- `src/order/wishlist/wishlist.service.spec.ts` — 12 tests
 
 Key decisions:
-- `GET /orders` not `GET /users/:userId/orders` — JWT already identifies the buyer
-- Flat list across all stores, frontend groups if desired
-- Buyer cancel from `PENDING` or `CONFIRMED` only (once `PROCESSING`, contact merchant)
-- Buyer detail includes status timeline (`placedAt`, `confirmedAt`, `dispatchedAt`, `deliveredAt`, `cancelledAt`) but NOT commission/payout fields
-- `paymentStatus` exposed as simple string (PENDING/COMPLETED/FAILED), not the full Payment object
-- Guest claim is a scaffold: `POST /auth/claim { email, password }` sets password + flips `isGuestAccount: false` + stubs `emailVerified: true`. Real OTP verification deferred to Notifications module.
-- Guest order view deferred — guests get order status via transactional email (future), not via API
-
-Modified files:
-- `src/order/order.module.ts` — registered `BuyerOrdersController` + `BuyerOrdersService`
-- `src/auth/auth.module.ts` — registered `ClaimController` + `ClaimService`
-- `docs/order-module/order-module-foundation.md` — added Phase 5 + Phase 6 decision logs
-
-## What's working
-
-- 174 tests, 12 suites, all green (<2.5s)
-- `npx tsc --noEmit` shows only the 3 pre-existing TS2502 errors in spec files (from the `$transaction` mock pattern). These have been there since Phase 2 and don't affect test execution. They are in `address.service.spec.ts:55`, `cart.service.spec.ts:77`, `checkout.service.spec.ts:113`. Do not try to fix them — they're a Prisma type inference quirk with `jest.fn((fn) => fn(mockPrisma))`.
+- Wishlist at product level, not variant level
+- `@@unique([userId, productId])` — P2002 Prisma error → 409 ConflictException
+- `isAvailable` computed from `ProductStatus.ACTIVE` (shows greyed out in frontend if archived/out of stock)
+- `totalCount` included in response for badge display
+- Product image: first by `sortOrder`, null if none
 
 ## Uncommitted changes
 
-Everything below is uncommitted on `main`:
+Everything below is uncommitted on `main` (last commit: `460caa1 phase 7 of order module`):
 
 ```
 Modified:
-  docs/order-module/order-module-foundation.md   — Phase 5 + 6 decisions added
-  src/auth/auth.module.ts                        — ClaimController + ClaimService registered
-  src/order/order.module.ts                      — BuyerOrdersController + BuyerOrdersService registered
+  CLAUDE.md                                      — Updated for Phases 7-9, ScheduleModule, 223 tests
+  docs/order-module/order-module-foundation.md   — Phase 8 + 9 decisions added
+  package.json / package-lock.json               — @nestjs/schedule dependency added
+  src/app.module.ts                              — ScheduleModule.forRoot() registered
+  src/order/order.module.ts                      — OrderCleanupService, WishlistController, WishlistService registered
 
 Untracked:
-  CLAUDE.md
-  STATUS.md
-  src/auth/claim/claim.controller.ts
-  src/auth/claim/claim.service.ts
-  src/auth/claim/claim.service.spec.ts
-  src/auth/dto/claim-account.dto.ts
-  src/order/buyer-orders/buyer-orders.controller.ts
-  src/order/buyer-orders/buyer-orders.service.ts
-  src/order/buyer-orders/buyer-orders.service.spec.ts
-  src/order/dto/buyer-cancel-order.dto.ts
-  src/order/dto/buyer-order-query.dto.ts
+  src/order/cron/order-cleanup.service.ts
+  src/order/cron/order-cleanup.service.spec.ts
+  src/order/wishlist/wishlist.service.ts
+  src/order/wishlist/wishlist.controller.ts
+  src/order/wishlist/wishlist.service.spec.ts
 ```
 
-Note: Phase 5 files (merchant-orders, cancel-order.dto, update-order-status.dto, merchant-order-query.dto) were committed in `a029f52` along with Phase 4 checkout. The shipping restructure (totals.ts simplification, checkout.service.ts changes, PaymentGroup migration) was also in that commit. Only Phase 6 + CLAUDE.md + this file are uncommitted.
+## What we tried and rejected
 
-Wait — let me verify. The git status shows `order.module.ts` as modified. That file has both Phase 5 (MerchantOrders) and Phase 6 (BuyerOrders) registrations. Let me check: `a029f52` was the last commit message "phase 4 & 5 work on the order module". So Phase 5 merchant-orders code IS committed, but the `order.module.ts` modification adding BuyerOrders is not. The merchant-orders files themselves may or may not be committed — the user should verify with `git diff HEAD` if unsure.
+1. **Proportional shipping split** (rejected during Phase 4 shipping restructure, prior session): Was splitting R110 shipping across Orders proportionally to each store's subtotal. Rejected because YIIVA pays The Courier Guy directly — merchants never touch shipping money. Shipping now lives solely on `PaymentGroup.shippingInCents`. `Order.shippingInCents = 0` always.
 
-## Lessons learned the hard way
+2. **Configurable stale cart cutoff** (rejected for Phase 8): Could have made the 24h/30min cutoffs env-configurable. User chose fixed values — simpler, no reason to change them per-environment.
 
-These are things that bit us during implementation and aren't obvious from reading the code:
+3. **Delete cart items on stale cleanup** (rejected for Phase 8): Could have wiped the entire cart on staleness. User chose to keep items and only release stock — less hostile UX, buyer just needs to re-checkout.
 
-1. **Prisma compound unique with nullable fields**: `@@unique([cartId, productId, variantId])` does NOT enforce uniqueness when `variantId` is NULL. Postgres treats each NULL as distinct (NULLS DISTINCT default). We had to add a partial unique index migration (`20260416120000_cart_item_bare_product_unique`) and rewrite cart `upsert` to `findFirst + create/update`. If you add any new compound unique with nullable fields, you'll hit this same issue.
+4. **Delete PaymentGroup/Payments on order expiry** (rejected for Phase 8): Could have cascaded the delete. User chose to keep them for audit trail.
 
-2. **`let x = null` type narrowing**: In `checkout.service.ts`, `let variant = null; if (cond) { variant = await prisma... }` narrows `variant` to `never` after the if-block because TS infers `null` as the literal type. Fix: destructure into separate `let` variables (`let variantName: string | null = null; let variantPrice: number | null = null;`).
+5. **Variant-level wishlist** (rejected for Phase 9): Could have wishlisted specific variants. User chose product-level — simpler, buyer picks variant at cart time.
 
-3. **`$transaction` mock and test chaining**: `jest.clearAllMocks()` in `beforeEach` wipes the `$transaction` mock. Must re-bind: `mockPrisma.$transaction.mockImplementation((fn) => fn(mockPrisma))`. Also, `user.findUnique` is called multiple times in guest checkout (email collision check inside TX + buyer info fetch after TX) — need `mockResolvedValueOnce(null).mockResolvedValueOnce({...})` chaining, and tests that re-mock need `.mockReset()` first.
+## What's fragile
 
-4. **Cart clearing at checkout must NOT release stock**: `CartService.clear()` releases stock reservations, but at checkout the reservations become order reservations. Cart clearing uses raw `prisma.cartItem.deleteMany` instead of `CartService.clear()`. This is intentional — `checkout.service.ts:306`.
+1. **TS2502 errors in spec files**: `$transaction` mock pattern causes `'tx' is referenced directly or indirectly in its own type annotation` in `address.service.spec.ts:55`, `cart.service.spec.ts:77`, `checkout.service.spec.ts:113`, and `order-cleanup.service.spec.ts`. These are harmless — Jest/ts-jest runs fine. Do NOT try to fix them.
 
-5. **`OptionalJwtAuthGuard` handleRequest signature**: Must accept `(err: any, user: any, info: any)` — not `(unknown, unknown)`. The third `info` param is required to match the parent class signature even though we don't use it.
+2. **Cart compound unique with NULL variantId**: Postgres `NULLS DISTINCT` means `@@unique([cartId, productId, variantId])` doesn't enforce uniqueness when variantId is NULL. A partial unique index migration exists (`20260416120000_cart_item_bare_product_unique`) and cart uses `findFirst + create/update` instead of `upsert`. Any new compound unique with nullable fields will hit this same issue.
 
-6. **availableQuantity formula in cart view**: Original formula `Math.max(0, stockPool + item.quantity)` could return values larger than `item.quantity` in healthy state. Correct formula: `Math.max(0, Math.min(item.quantity, totalCapacity - otherReservations))`.
+3. **Cron Logger output in tests**: The error-resilience tests in `order-cleanup.service.spec.ts` produce expected ERROR log lines. These are intentional — they verify one failure doesn't block the batch.
+
+4. **`$transaction` mock re-binding**: `jest.clearAllMocks()` wipes the `$transaction` mock. Any spec using transactions must re-bind in `beforeEach`: `mockPrisma.$transaction.mockImplementation((fn) => fn(mockPrisma))`.
+
+5. **Guest checkout stock reservation timing**: Cart clearing at checkout does NOT release stock (uses raw `prisma.cartItem.deleteMany`, not `CartService.clear()`). This is intentional — stock ownership transfers from cart reservation to order at commit time.
 
 ## What to do next
 
-### First: Phase 7 — Admin Order Views
+### Option A: Commit current work first
 
-From the phase breakdown in `docs/order-module/order-module-foundation.md`:
-> **Phase 7 — Admin Order Views**: Admin cross-store order list, admin overrides, refund trigger point (stub). Steps 23–24.
+Run `git add` for all modified + untracked files above and commit. Suggested message: `"phase 8 & 9 of order module"`.
 
-This needs planning questions answered by the user. Key decisions to ask:
+### Option B: Phase 10 — Consolidated Testing
 
-- Admin order list: cross-store, filterable by store/status/date?
-- Admin overrides: which state transitions can admin force? (e.g., cancel from any state, force refund)
-- Refund trigger: stub only (like payment/shipping) or actual implementation?
-- Admin guard: new `@Roles(UserRole.ADMIN)` guard or something more granular?
-- Should admin be able to edit order details (shipping address, notes)?
+From `docs/order-module/order-module-foundation.md`:
+> **Phase 10 — Consolidated Testing**: Full-module cross-feature tests, edge cases, regression tests.
 
-Create the controller/service/spec under `src/order/admin-orders/`. Follow the exact same patterns as `merchant-orders` and `buyer-orders`.
+This phase reviews all existing 223 tests for coverage gaps, adds integration-style tests across module boundaries (e.g., cart → checkout → merchant order flow), and verifies edge cases that individual phase tests may not cover.
 
-### Second: Phase 8 — Cron: Cart & Stock Cleanup
+### Future work (not part of Order module)
 
-- Release reservations on stale carts (24h inactivity)
-- Expire PENDING orders after 30 min (no PayFast ITN received)
-- This is a scheduled task, probably using `@nestjs/schedule` with `@Cron()`
-
-### Third: Phase 9 — Wishlist
-
-- Simple CRUD on `WishlistItem` (model already exists in schema)
-- `src/order/wishlist/` directory already exists (empty)
-- Comment in `order.module.ts:47` says "WishlistController — added in Phase 9"
+- **Payments module**: Real PayFast integration, ITN webhook, refund API. Replace `PaymentStubService`.
+- **Shipping module**: Real Courier Guy integration, tracking. Replace `ShippingStubService`.
+- **Notifications module**: Email verification for guest claim, order status emails.
+- **CORS config**: Needs to be added before frontend integration.
+- **e2e tests**: Only unit tests exist currently.
 
 ## Do not touch
 
-- **Do not refactor existing Phase 1–6 code** unless the user asks. It's working, tested, and decisions are documented.
+- **Do not refactor existing Phase 1–9 code** unless the user asks. It's working, tested, and decisions are documented.
 - **Do not fix the TS2502 errors** in spec files. They're a known Prisma generics issue with mock types. Tests pass fine.
 - **Do not add CORS, e2e tests, or image upload** — those are separate workstreams.
 - **Do not implement real PayFast or Courier Guy integrations** — those are the Payments and Shipping modules respectively, not part of the Order module.
 - **Do not change the shipping model** — we deliberately moved shipping to PaymentGroup. `Order.shippingInCents = 0` is correct and intentional.
 - **Do not add email verification to the claim flow** — that's blocked on the Notifications module which doesn't exist yet.
+- **Do not change cron cutoff values** — 24h for stale carts, 30 min for pending orders. User chose fixed values intentionally.

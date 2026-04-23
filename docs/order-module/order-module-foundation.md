@@ -993,6 +993,77 @@ POST /admin/orders/:orderId/refund
 
 ---
 
+### Phase 8 Decisions — Cron: Cart & Stock Cleanup
+
+**Scope.** Scheduled cleanup job that runs every 5 minutes. Two tasks: release stock reservations on stale carts (24h) and expire PENDING orders (30 min). Uses `@nestjs/schedule` with `@Cron()` — runs in-process.
+
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | Stale cart threshold? | **24 hours** since last cart activity (`Cart.updatedAt`). Fixed constant, not env-configurable. |
+| 2 | What does cart cleanup do? | **Release stock reservations only.** Cart items are kept — they become unreserved. Re-reserved on next checkout attempt. |
+| 3 | Per-item or per-cart staleness? | **Per-cart.** If any item was updated recently, the whole cart is fresh. |
+| 4 | Pending order threshold? | **30 minutes** after order creation with no payment. |
+| 5 | What does order expiry do? | **Cancel order + release stock.** PaymentGroup and Payments kept for audit. |
+| 6 | Cancel reason for expired orders? | **`SYSTEM:PAYMENT_TIMEOUT`** — distinguishes system-initiated from buyer/merchant/admin cancels. |
+| 7 | Cron frequency? | **Every 5 minutes.** Single job handles both tasks. |
+| 8 | Implementation? | **`@nestjs/schedule`** with `@Cron(CronExpression.EVERY_5_MINUTES)`. In-process. |
+| 9 | Batch size? | **100 per batch.** Loop until no more stale items. Per-item error handling — one failure doesn't block the batch. |
+
+**Phase 8 schema changes.** None.
+
+**Phase 8 dependency added:** `@nestjs/schedule` — registered via `ScheduleModule.forRoot()` in `app.module.ts`.
+
+**Phase 8 files created:**
+
+- `src/order/cron/order-cleanup.service.ts` — `@Cron` job with `releaseStaleCartReservations()` and `expirePendingOrders()`
+- `src/order/cron/order-cleanup.service.spec.ts` — 10 tests (stale cart release, pending order expiry, batching, error resilience)
+
+**Cleanup behavior summary:**
+
+| Task | Trigger | Action | Side effects |
+|------|---------|--------|-------------|
+| Stale cart | `Cart.updatedAt` < 24h ago | Release stock for all items, touch `updatedAt` | Items stay in cart (unreserved) |
+| Pending order | `Order.createdAt` < 30m ago, status=PENDING | Release stock, set CANCELLED, set `cancelReason=SYSTEM:PAYMENT_TIMEOUT` | PaymentGroup + Payments kept |
+
+**Cancel reason prefix convention (all sources):**
+
+| Source | Format | Examples |
+|--------|--------|---------|
+| Buyer | `REASON` | `CHANGED_MIND`, `ORDERED_BY_MISTAKE` |
+| Merchant | `REASON` | `OUT_OF_STOCK`, `CANNOT_FULFILL` |
+| Admin | `ADMIN:REASON` | `ADMIN:FRAUD`, `ADMIN:POLICY_VIOLATION` |
+| System | `SYSTEM:REASON` | `SYSTEM:PAYMENT_TIMEOUT` |
+
+---
+
+### Phase 9 — Wishlist
+
+**Scope.** Simple wishlist CRUD — add/remove/list. Product-level bookmarks for authenticated buyers. No variants on wishlist (wishlisting is at the product level, variant selection happens at add-to-cart).
+
+**Phase 9 schema changes.** None. `WishlistItem` model already existed in Phase 1 schema with `@@unique([userId, productId])`.
+
+**Phase 9 files created:**
+
+- `src/order/wishlist/wishlist.service.ts` — list (paginated with product details), add (with P2002 duplicate handling), remove
+- `src/order/wishlist/wishlist.controller.ts` — 3 route handlers
+- `src/order/wishlist/wishlist.service.spec.ts` — 12 tests
+
+**Phase 9 endpoints (3 total):**
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/wishlist` | BUYER | Paginated list with product details, price, store, availability status |
+| `POST` | `/wishlist/:productId` | BUYER | Add product to wishlist (409 if already wishlisted, 404 if not ACTIVE) |
+| `DELETE` | `/wishlist/:itemId` | BUYER | Remove item (204 No Content) |
+
+**Design notes:**
+- `isAvailable` flag in response reflects current `ProductStatus.ACTIVE` — wishlisted products that get archived/deactivated show as unavailable but stay in the list.
+- `totalCount` included in list response for UI badge display.
+- Duplicate add returns 409 (not idempotent 200) — frontend should check before calling or handle the 409.
+- Remove uses 404-not-403 ownership pattern.
+
+---
+
 ## References
 
 - **YIIVA philosophy:** `docs/about_yiiva.md`

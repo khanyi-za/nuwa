@@ -17,10 +17,12 @@ AppModule
  ├── AuthModule        — JWT auth, registration, login, password reset, account claim
  ├── StoreModule       — Store CRUD, admin review, employee invites, store addresses
  ├── ProductModule     — Products, variants, images, collections, tags, categories
- ├── OrderModule       — Cart, checkout, orders (buyer + merchant views), addresses
+ ├── OrderModule       — Cart, checkout, orders (buyer + merchant + admin views), addresses, wishlist, cron cleanup
  ├── PrismaModule      — Database singleton (global)
  ├── EmailModule       — Transactional email via Resend
- └── ConfigModule      — Environment variables (global)
+ ├── ScheduleModule    — @nestjs/schedule for cron jobs (global)
+ ├── ConfigModule      — Environment variables (global)
+ └── ThrottlerModule   — Rate limiting (global, 100 req/60s)
 ```
 
 **Key dependency rules:**
@@ -59,10 +61,10 @@ feature.module.ts          — NestJS module declaration
 
 ### Error handling
 
-- **404-not-403**: When a resource exists but the user doesn't own it, throw `NotFoundException`, not `ForbiddenException`. Prevents enumeration attacks. Used everywhere: addresses, orders, cart items.
-- **ConflictException (409)**: Duplicate data, stock race, email collision.
-- **BadRequestException (400)**: Validation failures, invalid state transitions.
-- **ForbiddenException (403)**: Only for account-level issues (suspended, wrong role). Never for resource ownership.
+- **404-not-403**: When a resource exists but the user doesn't own it, throw `NotFoundException`, not `ForbiddenException`. Prevents enumeration attacks. Used everywhere: addresses, orders, cart items, wishlist items.
+- **ConflictException (409)**: Duplicate data, stock race, email collision, duplicate wishlist add.
+- **BadRequestException (400)**: Validation failures, invalid state transitions, empty update payloads.
+- **ForbiddenException (403)**: Only for account-level issues (suspended, wrong role) or store-level access (`canManageStore` returns false). Never for resource ownership.
 - **InternalServerErrorException (500)**: Only for truly unexpected failures (PayFast timeout, order number collision exhaustion).
 
 ### Testing patterns
@@ -110,7 +112,7 @@ describe('ServiceName', () => {
 ### Database patterns
 
 - **Prisma client** for all queries. Raw SQL (`$executeRaw`) only for atomic stock operations in `src/order/cart/stock.ts`.
-- **Transactions** (`$transaction`) for multi-step writes that must be atomic (stock + cart, order creation + payment group).
+- **Transactions** (`$transaction`) for multi-step writes that must be atomic (stock + cart, order creation + payment group, cron cleanup per-item).
 - **Never put HTTP calls inside a DB transaction.** The checkout flow does TX1 (create orders) → HTTP (PayFast) → TX2 (clear cart) or TX3 (rollback).
 - **Selective queries**: Always use `select` to avoid loading sensitive fields (passwordHash, tokens). Never `findUnique` without narrowing the return shape when it includes sensitive data.
 - **Soft deletes**: Addresses use `deletedAt`. Filter with `where: { deletedAt: null }`.
@@ -133,14 +135,26 @@ Independent SKU: bare product has `totalStock`/`reservedStock`, each variant has
 - **Reserve**: Optimistic conditional UPDATE (`WHERE reservedStock + delta <= totalStock`). Throws `ConflictException` on race.
 - **Release**: Unconditional UPDATE with `GREATEST(0, reservedStock - delta)` floor.
 - Cart-add reserves stock. Cart-remove releases stock. Checkout does NOT re-reserve for authenticated buyers (already reserved). Guest checkout reserves in the commit transaction.
+- **Stale cart cron** (24h) releases reservations but keeps cart items. **Pending order cron** (30 min) releases reservations and cancels the order.
+
+### Cancel reason prefix convention
+
+All cancel reasons are stored in `Order.cancelReason`. The prefix indicates the source:
+
+| Source | Format | Examples |
+|--------|--------|---------|
+| Buyer | `REASON` | `CHANGED_MIND`, `ORDERED_BY_MISTAKE`, `FOUND_CHEAPER` |
+| Merchant | `REASON` | `OUT_OF_STOCK`, `CANNOT_FULFILL` |
+| Admin | `ADMIN:REASON` | `ADMIN:FRAUD`, `ADMIN:POLICY_VIOLATION` |
+| System | `SYSTEM:REASON` | `SYSTEM:PAYMENT_TIMEOUT` |
 
 ### Cursor-based pagination
 
-Used in merchant-orders and buyer-orders. Pattern: fetch `take + 1` rows, if `length > take`, trim to `take` and set `nextCursor` to last item's ID.
+Used in merchant-orders, buyer-orders, admin-orders, and wishlist. Pattern: fetch `take + 1` rows, if `length > take`, trim to `take` and set `nextCursor` to last item's ID. Default page size 20, max 50.
 
 ### DTOs
 
-All DTOs live in the module's `dto/` subdirectory. Use class-validator decorators. Enums defined in DTO files when they're DTO-specific (e.g., `CancelReason`, `BuyerCancelReason`). Prisma enums used directly when they match (e.g., `OrderStatus`).
+All DTOs live in the module's `dto/` subdirectory. Use class-validator decorators. Enums defined in DTO files when they're DTO-specific (e.g., `CancelReason`, `BuyerCancelReason`, `AdminCancelReason`). Prisma enums used directly when they match (e.g., `OrderStatus`).
 
 ## Key files and directories
 
@@ -152,7 +166,7 @@ prisma/
 
 src/
   main.ts                          — Bootstrap, global ValidationPipe
-  app.module.ts                    — Root module, all imports, ThrottlerGuard
+  app.module.ts                    — Root module, all imports, ThrottlerGuard, ScheduleModule
 
   auth/
     auth.service.ts                — Register, login, verify, refresh, password reset
@@ -160,7 +174,7 @@ src/
     guards/optional-jwt-auth.guard.ts — For checkout (auth + guest)
     decorators/public.decorator.ts — @Public() decorator
     decorators/roles.decorator.ts  — @Roles() decorator
-    claim/claim.service.ts         — Guest account claiming (scaffold)
+    claim/claim.service.ts         — Guest account claiming (scaffold, verification stubbed)
 
   store/
     store.service.ts               — Store CRUD, canManageStore, employee management
@@ -187,6 +201,12 @@ src/
       merchant-orders.service.ts   — List, detail, status transitions, cancel
     buyer-orders/
       buyer-orders.service.ts      — List, detail, buyer cancel
+    admin-orders/
+      admin-orders.service.ts      — Cross-store list, detail, force-confirm, cancel, edit, refund stub
+    cron/
+      order-cleanup.service.ts     — @Cron every 5 min: stale cart release + pending order expiry
+    wishlist/
+      wishlist.service.ts          — Add, remove, list with product details
     address/
       address.service.ts           — Buyer address CRUD (soft delete)
     dto/                           — All order-related DTOs
@@ -207,26 +227,28 @@ Read `prisma/schema.prisma` for the full schema. Key models:
 - **Store** — DRAFT→PENDING_REVIEW→APPROVED→PENDING_GO_LIVE→ACTIVE lifecycle
 - **Product** — DRAFT/ACTIVE/OUT_OF_STOCK/ARCHIVED, independent stock per bare+variant
 - **Cart/CartItem** — One cart per user, lazy-created on first add
-- **Order** — One per store per checkout. Status: PENDING→CONFIRMED→PROCESSING→READY_FOR_DISPATCH→DISPATCHED→DELIVERED
+- **Order** — One per store per checkout. Status: PENDING→CONFIRMED→PROCESSING→READY_FOR_DISPATCH→DISPATCHED→IN_TRANSIT→DELIVERED
 - **OrderItem** — Snapshot of product details at order time
 - **PaymentGroup** — One PayFast transaction, covers N orders. Holds shippingInCents.
 - **Payment** — Per-order slice with commission math. One-to-one with Order.
 - **Address** — Buyer delivery addresses, soft delete, max 4, one default
+- **WishlistItem** — Product-level bookmark, @@unique([userId, productId])
 
 ## Constraints and limitations
 
 - **No CORS config** — needs to be added before frontend integration.
 - **No e2e tests** — only unit tests exist. `test/` directory has config but no test files.
-- **Pre-existing TS2502 errors** in 3 spec files (address, cart, checkout) from `$transaction` mock pattern. These don't affect test execution — Jest uses ts-jest which is more lenient.
+- **Pre-existing TS2502 errors** in spec files (address, cart, checkout, cron) from `$transaction` mock pattern. These don't affect test execution — Jest uses ts-jest which is more lenient.
 - **No rate limiting per-endpoint** — only global throttle (100/60s).
 - **Payments and Shipping are stubs** — `PaymentStubService` and `ShippingStubService` return deterministic fake data. Real integrations not yet built.
 - **Guest account claim has no email verification** — stubbed with `emailVerified: true`. Needs Notifications module.
+- **Refund is a stub** — `POST /admin/orders/:orderId/refund` only sets `REFUND_REQUESTED` status. Real PayFast refund API call deferred to Payments module.
 - **No image upload** — ProductImage stores URLs, actual upload mechanism not implemented.
 - **noImplicitAny: false** in tsconfig — some untyped code exists (controller `@Req() req: any`).
 
 ## Order module phase status
 
-The order module is built in 10 phases. Track progress in `docs/order-module/order-module-foundation.md`.
+The order module is built in 10 phases. All decisions documented in `docs/order-module/order-module-foundation.md`.
 
 | Phase | Name | Status |
 |-------|------|--------|
@@ -236,17 +258,17 @@ The order module is built in 10 phases. Track progress in `docs/order-module/ord
 | 4 | Checkout (quote, commit, guest, PayFast) | Complete |
 | 5 | Merchant Order Management | Complete |
 | 6 | Buyer Order Views + Guest Claim | Complete |
-| 7 | Admin Order Views | Not started |
-| 8 | Cron: Cart & Stock Cleanup | Not started |
-| 9 | Wishlist | Not started |
+| 7 | Admin Order Views | Complete |
+| 8 | Cron: Cart & Stock Cleanup | Complete |
+| 9 | Wishlist | Complete |
 | 10 | Consolidated Testing | Not started |
 
 ## Commands
 
 ```bash
-npx jest --no-coverage              # Run all tests (~2s)
+npx jest --no-coverage              # Run all tests (~2.5s, 223 tests)
 npx jest --testPathPatterns="cart"   # Run tests matching pattern
-npx tsc --noEmit                    # Type check (expect 3 pre-existing TS2502 in specs)
+npx tsc --noEmit                    # Type check (expect TS2502 in some specs — harmless)
 npx prisma generate                 # Regenerate Prisma client after schema changes
 npx prisma migrate dev              # Apply pending migrations
 npm run start:dev                   # Dev server with hot reload
