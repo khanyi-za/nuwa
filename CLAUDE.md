@@ -261,12 +261,12 @@ The order module is built in 10 phases. All decisions documented in `docs/order-
 | 7 | Admin Order Views | Complete |
 | 8 | Cron: Cart & Stock Cleanup | Complete |
 | 9 | Wishlist | Complete |
-| 10 | Consolidated Testing | Not started |
+| 10 | Consolidated Testing | Complete |
 
 ## Commands
 
 ```bash
-npx jest --no-coverage              # Run all tests (~2.5s, 223 tests)
+npx jest --no-coverage              # Run all tests (~2s, 246 tests)
 npx jest --testPathPatterns="cart"   # Run tests matching pattern
 npx tsc --noEmit                    # Type check (expect TS2502 in some specs — harmless)
 npx prisma generate                 # Regenerate Prisma client after schema changes

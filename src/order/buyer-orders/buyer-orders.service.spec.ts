@@ -316,4 +316,46 @@ describe('BuyerOrdersService', () => {
       ).rejects.toThrow(NotFoundException);
     });
   });
+
+  // ─── Phase 10 gap tests ────────────────────────────────────────────────
+
+  describe('getOrderDetail — payment edge cases', () => {
+    it('returns null paymentStatus when payment relation is null', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue({
+        ...baseOrderRow,
+        payment: null,
+      });
+
+      const result = await service.getOrderDetail(USER_ID, ORDER_ID);
+
+      expect(result.paymentStatus).toBeNull();
+    });
+  });
+
+  describe('cancelOrder — notes formatting', () => {
+    it('stores reason without notes when notes are undefined', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue({
+        id: ORDER_ID,
+        userId: USER_ID,
+        status: OrderStatus.PENDING,
+      });
+      mockPrisma.order.update.mockResolvedValue({
+        id: ORDER_ID,
+        status: OrderStatus.CANCELLED,
+      });
+
+      await service.cancelOrder(USER_ID, ORDER_ID, {
+        reason: BuyerCancelReason.OTHER,
+      });
+
+      // When notes is undefined, only the reason is stored (no trailing ": undefined").
+      expect(mockPrisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            cancelReason: 'OTHER',
+          }),
+        }),
+      );
+    });
+  });
 });

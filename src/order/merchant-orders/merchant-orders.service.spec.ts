@@ -460,4 +460,59 @@ describe('MerchantOrdersService', () => {
       ).rejects.toThrow(NotFoundException);
     });
   });
+
+  // ─── Phase 10 gap tests ────────────────────────────────────────────────
+
+  describe('updateStatus — backward transitions', () => {
+    it('rejects backward transition READY_FOR_DISPATCH → CONFIRMED', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue({
+        id: ORDER_ID,
+        storeId: STORE_ID,
+        status: OrderStatus.READY_FOR_DISPATCH,
+      });
+
+      await expect(
+        service.updateStatus(
+          USER_ID,
+          STORE_ID,
+          ORDER_ID,
+          OrderStatus.CONFIRMED,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects transition from DELIVERED (terminal state)', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue({
+        id: ORDER_ID,
+        storeId: STORE_ID,
+        status: OrderStatus.DELIVERED,
+      });
+
+      await expect(
+        service.updateStatus(
+          USER_ID,
+          STORE_ID,
+          ORDER_ID,
+          OrderStatus.PROCESSING,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects transition from CANCELLED', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue({
+        id: ORDER_ID,
+        storeId: STORE_ID,
+        status: OrderStatus.CANCELLED,
+      });
+
+      await expect(
+        service.updateStatus(
+          USER_ID,
+          STORE_ID,
+          ORDER_ID,
+          OrderStatus.PROCESSING,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
 });

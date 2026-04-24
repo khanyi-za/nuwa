@@ -1064,6 +1064,142 @@ POST /admin/orders/:orderId/refund
 
 ---
 
+### Phase 10 — Consolidated Testing
+
+**Scope.** Audit all existing Order module specs for coverage gaps, add targeted tests for untested code paths, add a spec for `OrderService` (if logic is added), and verify no controllers need specs. Store/Product module specs are out of scope — those are separate workstreams.
+
+**Current baseline.** 223 tests across 15 suites, all passing in ~2.5s. No e2e tests (out of scope).
+
+---
+
+#### 10.1 — Existing spec gap audit
+
+Systematic review of each service+spec pair. The following gaps were identified by reading every service implementation and comparing against its spec coverage.
+
+##### CartService (3 gaps, Medium severity)
+
+| # | Method | Gap | Why it matters |
+|---|--------|-----|----------------|
+| 1 | `addItem()` | Race condition: product becomes INACTIVE between validation (outside TX) and cart upsert (inside TX) | Inactive product could sneak into cart despite validation check |
+| 2 | `clear()` | Partial failure in stock release loop — if `releaseStock` throws mid-iteration, remaining items retain stale reservations | Cart items orphaned with permanent stock reservations |
+| 3 | `buildItemView()` | `availableQuantity` computation with edge values (e.g., `otherReservations` exceeding `totalCapacity`) | Subtle math errors could show negative or inflated availability |
+
+##### CheckoutService (6 gaps, High severity)
+
+| # | Method | Gap | Why it matters |
+|---|--------|-----|----------------|
+| 1 | `validateCheckoutInput()` | Empty string `addressId` (falsy but defined) bypasses presence check | Could create order with no delivery address |
+| 2 | `validateCheckoutInput()` | Guest checkout `items` array with zero-quantity entries | Could create OrderItems with `quantity: 0` |
+| 3 | `resolveItemsFromDto()` | Nonexistent `variantId` — findUnique returns null, but error path not tested | Untested 400 branch |
+| 4 | `materializeGuest()` | bcrypt.hash failure during guest password generation | Uncaught error → 500 instead of graceful handling |
+| 5 | `commit()` | Shipping rate fetch returns object missing `rateInCents` field | Totals computed with `undefined` shipping cost |
+| 6 | `rollbackOrders()` | FK constraint violation during cascading delete (Payment → OrderItem → Order → PaymentGroup) | Partial rollback leaves corrupted audit trail |
+
+##### CheckoutTotals (3 gaps, Medium severity)
+
+| # | Method | Gap | Why it matters |
+|---|--------|-----|----------------|
+| 1 | `computeCheckoutTotals()` | Empty `items` array — loop doesn't run, grandSubtotal = 0 | Empty checkout computed as valid (0 total) |
+| 2 | `computeCheckoutTotals()` | Commission rounding with non-round subtotals (e.g., 10001 cents → `10001 * 0.055 = 550.055`) | Accumulated rounding error across stores could short YIIVA |
+| 3 | `computeCheckoutTotals()` | Duplicate `storeId` entries with conflicting store metadata (`storeName`, `storeSlug`) | Silent inconsistency in store group — last-write-wins |
+
+##### MerchantOrdersService (3 gaps, Medium severity)
+
+| # | Method | Gap | Why it matters |
+|---|--------|-----|----------------|
+| 1 | `listOrders()` | Stale cursor pointing to deleted/nonexistent order ID | Prisma throws on invalid cursor — no graceful fallback |
+| 2 | `updateStatus()` | Backward state transition (e.g., `READY_FOR_DISPATCH→CONFIRMED`) — `ALLOWED_TRANSITIONS[READY_FOR_DISPATCH]` is undefined, `.includes()` throws TypeError | TypeError instead of 400 BadRequestException |
+| 3 | `cancelOrder()` | `notes` field without length validation on `OTHER` reason — could overflow `cancelReason` column | DB error or silent truncation on extremely long notes |
+
+##### BuyerOrdersService (2 gaps, Low severity)
+
+| # | Method | Gap | Why it matters |
+|---|--------|-----|----------------|
+| 1 | `getOrderDetail()` | Null `payment` relation (e.g., guest order before payment finalized) | `paymentStatus: null` returned but untested path |
+| 2 | `cancelOrder()` | Whitespace in `notes` field not trimmed before concatenation | Ugly cancel reasons in audit trail |
+
+##### AdminOrdersService (3 gaps, Low severity)
+
+| # | Method | Gap | Why it matters |
+|---|--------|-----|----------------|
+| 1 | `editOrder()` | Empty string values (e.g., `{ shippingName: '' }`) pass the `!== undefined` check | Admin can accidentally wipe shipping address fields |
+| 2 | `requestRefund()` | Refund on CANCELLED order — not explicitly rejected | Ambiguous: should cancelled orders be refundable? |
+| 3 | `requestRefund()` | Refund on orders in states like DISPATCHED, IN_TRANSIT — technically allowed but is that intended? | Policy gap — any non-terminal, non-PENDING state can be refunded |
+
+##### OrderCleanupService (3 gaps, High severity)
+
+| # | Method | Gap | Why it matters |
+|---|--------|-----|----------------|
+| 1 | `releaseStaleCartReservations()` | Full batch (exactly `BATCH_SIZE` results) — loop condition `length < BATCH_SIZE` never triggers break | Potential infinite loop if every batch returns exactly 100 |
+| 2 | `releaseStaleCartReservations()` | Persistent failure on same cart — error is logged but cart `updatedAt` not bumped, so it's re-fetched every 5 min forever | Resource exhaustion on corrupted stock records |
+| 3 | `expirePendingOrders()` | Order items reference deleted product/variant — `releaseStock` with orphaned FK | Stock release fails silently, reservation leaked |
+
+##### ClaimService (2 gaps, Low severity)
+
+| # | Method | Gap | Why it matters |
+|---|--------|-----|----------------|
+| 1 | `claimAccount()` | bcrypt.hash failure (OOM, invalid input) — error propagates uncaught | 500 instead of meaningful error |
+| 2 | `claimAccount()` | Guest account where `emailVerified: true` already — update is idempotent but path untested | No functional issue, just untested branch |
+
+##### Well-covered services (no gaps)
+
+- **AddressService** — 16 tests, all paths covered
+- **StockService** (stock.ts) — 8 tests, all paths covered
+- **WishlistService** — 12 tests, all paths covered
+- **PhoneUtils** — 15 tests, all paths covered
+
+**Total: 25 specific gaps across 8 services.**
+
+---
+
+#### 10.2 — OrderService spec
+
+`src/order/order.service.ts` is currently an empty placeholder (just a constructor injecting PrismaService). It exists so OrderModule can export the token for future consumers (Payments, Shipping modules).
+
+**Action:** If `OrderService` gains any logic before Phase 10 starts, add a spec. If it remains a placeholder, no spec needed — skip this item.
+
+---
+
+#### 10.3 — Controller specs (skip)
+
+All Order module controllers are thin wrappers: they destructure request params, call the service method, and return the result. No branching logic, no transformation, no error handling beyond what the service provides.
+
+Controllers tested: `OrderController`, `AddressController`, `CartController`, `CheckoutController`, `MerchantOrdersController`, `BuyerOrdersController`, `AdminOrdersController`, `WishlistController`.
+
+**Decision: Skip controller specs.** The service specs cover all business logic. Controller integration is validated when the dev server runs. Controller specs would duplicate service tests with extra mocking overhead and no new coverage.
+
+If any controller later gains logic (e.g., response transformation, conditional headers), add a spec at that point.
+
+---
+
+#### 10.4 — Store/Product module specs (skip)
+
+Store and Product modules were built in earlier workstreams and have their own test backlogs. Phase 10 is scoped to the Order module only.
+
+**Not in scope:**
+- `store.service.ts` — no spec exists. `canManageStore()` is tested indirectly through merchant-orders mocks.
+- `product.service.ts` — no spec exists.
+- `variant.service.ts` — no spec exists.
+- `image.service.ts` — no spec exists.
+
+These should get their own testing phases when Store/Product modules are revisited.
+
+---
+
+#### 10.5 — Implementation priority
+
+When Phase 10 implementation begins, address gaps in this order:
+
+1. **High severity first:** CheckoutService (6 gaps) → OrderCleanupService (3 gaps)
+2. **Medium severity:** MerchantOrdersService (3 gaps) → CartService (3 gaps) → CheckoutTotals (3 gaps)
+3. **Low severity:** AdminOrdersService (3 gaps) → BuyerOrdersService (2 gaps) → ClaimService (2 gaps)
+
+Some gaps may reveal actual bugs (e.g., merchant-orders #2 — backward state transition causing TypeError). Those should be fixed during test-writing, not deferred.
+
+**Estimated new tests: ~25–30 additional tests, bringing total to ~250.**
+
+---
+
 ## References
 
 - **YIIVA philosophy:** `docs/about_yiiva.md`

@@ -590,4 +590,183 @@ describe('CheckoutService', () => {
       );
     });
   });
+
+  // ─── Phase 10 gap tests ─────────────────────────────────────────────────
+
+  describe('input validation — edge cases', () => {
+    it('rejects authenticated buyer with empty string addressId', async () => {
+      await expect(
+        service.quote(USER_ID, { addressId: '' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects guest checkout with empty items array', async () => {
+      await expect(
+        service.quote(null, {
+          guest: {
+            email: 'a@b.com',
+            firstName: 'A',
+            lastName: 'B',
+            phone: '0821234567',
+            address: {
+              recipientName: 'A B',
+              phone: '0821234567',
+              addressLine1: '1 St',
+              city: 'CT',
+              province: 'Western Cape',
+              postalCode: '8001',
+            },
+          },
+          items: [],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('resolveItemsFromDto — edge cases', () => {
+    it('throws 400 when variant does not belong to the product', async () => {
+      mockPrisma.product.findUnique.mockResolvedValue(baseProduct);
+      mockPrisma.productVariant.findUnique.mockResolvedValue({
+        id: 'var-wrong',
+        productId: 'some-other-product',
+      });
+
+      await expect(
+        service.quote(null, {
+          guest: {
+            email: 'a@b.com',
+            firstName: 'A',
+            lastName: 'B',
+            phone: '0821234567',
+            address: {
+              recipientName: 'A B',
+              phone: '0821234567',
+              addressLine1: '1 St',
+              city: 'CT',
+              province: 'Western Cape',
+              postalCode: '8001',
+            },
+          },
+          items: [{ productId: PRODUCT_ID, variantId: 'var-wrong', quantity: 1 }],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws 404 when variant does not exist', async () => {
+      mockPrisma.product.findUnique.mockResolvedValue(baseProduct);
+      mockPrisma.productVariant.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.quote(null, {
+          guest: {
+            email: 'a@b.com',
+            firstName: 'A',
+            lastName: 'B',
+            phone: '0821234567',
+            address: {
+              recipientName: 'A B',
+              phone: '0821234567',
+              addressLine1: '1 St',
+              city: 'CT',
+              province: 'Western Cape',
+              postalCode: '8001',
+            },
+          },
+          items: [{ productId: PRODUCT_ID, variantId: 'nonexistent', quantity: 1 }],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('rollbackOrders', () => {
+    it('deletes in correct FK order: payments → order items → orders → payment group', async () => {
+      const callOrder: string[] = [];
+      mockPrisma.payment.deleteMany.mockImplementation(() => {
+        callOrder.push('payment.deleteMany');
+        return Promise.resolve();
+      });
+      mockPrisma.orderItem.deleteMany.mockImplementation(() => {
+        callOrder.push('orderItem.deleteMany');
+        return Promise.resolve();
+      });
+      mockPrisma.order.deleteMany.mockImplementation(() => {
+        callOrder.push('order.deleteMany');
+        return Promise.resolve();
+      });
+      mockPrisma.paymentGroup.delete.mockImplementation(() => {
+        callOrder.push('paymentGroup.delete');
+        return Promise.resolve();
+      });
+
+      // Set up for a commit that will fail at PayFast.
+      mockPrisma.cart.findUnique.mockResolvedValue(cartWithItems);
+      mockPrisma.address.findUnique.mockResolvedValue(baseAddress);
+      mockPrisma.order.findUnique.mockResolvedValue(null);
+      mockPrisma.order.create.mockResolvedValue({
+        id: 'order-1',
+        orderNumber: 'YV-2026-TEST1',
+      });
+      mockPrisma.paymentGroup.create.mockResolvedValue({
+        id: 'pg-1',
+        mPaymentId: 'm-1',
+      });
+      mockPrisma.payment.create.mockResolvedValue({ id: 'pay-1' });
+      mockPrisma.user.findUnique.mockResolvedValue({
+        email: 'buyer@example.com',
+        firstName: 'Thandi',
+        lastName: 'Dlamini',
+      });
+      (mockPayment.initializePayment as jest.Mock).mockRejectedValueOnce(
+        new Error('PayFast down'),
+      );
+
+      await expect(
+        service.commit(USER_ID, {
+          addressId: ADDRESS_ID,
+          returnUrl: 'r',
+          cancelUrl: 'c',
+        }),
+      ).rejects.toThrow(InternalServerErrorException);
+
+      expect(callOrder).toEqual([
+        'payment.deleteMany',
+        'orderItem.deleteMany',
+        'order.deleteMany',
+        'paymentGroup.delete',
+      ]);
+    });
+  });
+
+  describe('order number collision', () => {
+    it('retries on collision and succeeds', async () => {
+      mockPrisma.cart.findUnique.mockResolvedValue(cartWithItems);
+      mockPrisma.address.findUnique.mockResolvedValue(baseAddress);
+      // First call: collision found, second call: no collision.
+      mockPrisma.order.findUnique
+        .mockResolvedValueOnce({ id: 'existing' }) // collision
+        .mockResolvedValueOnce(null);               // no collision
+      mockPrisma.order.create.mockResolvedValue({
+        id: 'order-1',
+        orderNumber: 'YV-2026-TEST1',
+      });
+      mockPrisma.paymentGroup.create.mockResolvedValue({
+        id: 'pg-1',
+        mPaymentId: 'm-1',
+      });
+      mockPrisma.payment.create.mockResolvedValue({ id: 'pay-1' });
+      mockPrisma.user.findUnique.mockResolvedValue({
+        email: 'buyer@example.com',
+        firstName: 'Thandi',
+        lastName: 'Dlamini',
+      });
+
+      const result = await service.commit(USER_ID, {
+        addressId: ADDRESS_ID,
+        returnUrl: 'r',
+        cancelUrl: 'c',
+      });
+
+      expect(result.orderNumbers).toHaveLength(1);
+    });
+  });
 });

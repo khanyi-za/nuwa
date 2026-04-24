@@ -93,6 +93,18 @@ export class OrderCleanupService {
           this.logger.error(
             `Failed to release reservations for cart ${cart.id}: ${(err as Error).message}`,
           );
+
+          // Bump updatedAt so this cart isn't re-processed every cycle.
+          // Without this, a persistently failing cart would be retried
+          // every 5 minutes indefinitely.
+          try {
+            await this.prisma.cart.update({
+              where: { id: cart.id },
+              data: { updatedAt: new Date() },
+            });
+          } catch {
+            // If even the bump fails, we'll retry next cycle — acceptable.
+          }
         }
       }
 

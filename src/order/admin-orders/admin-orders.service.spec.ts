@@ -539,5 +539,58 @@ describe('AdminOrdersService', () => {
         NotFoundException,
       );
     });
+
+    it('allows refund on CANCELLED order (not explicitly rejected)', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue({
+        id: ORDER_ID,
+        status: OrderStatus.CANCELLED,
+      });
+      mockPrisma.order.update.mockResolvedValue({
+        id: ORDER_ID,
+        status: OrderStatus.REFUND_REQUESTED,
+      });
+
+      const result = await service.requestRefund(ORDER_ID);
+
+      expect(result.status).toBe(OrderStatus.REFUND_REQUESTED);
+    });
+
+    it('allows refund on DISPATCHED order', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue({
+        id: ORDER_ID,
+        status: OrderStatus.DISPATCHED,
+      });
+      mockPrisma.order.update.mockResolvedValue({
+        id: ORDER_ID,
+        status: OrderStatus.REFUND_REQUESTED,
+      });
+
+      const result = await service.requestRefund(ORDER_ID);
+
+      expect(result.status).toBe(OrderStatus.REFUND_REQUESTED);
+    });
+  });
+
+  // ─── Phase 10 gap tests ────────────────────────────────────────────────
+
+  describe('editOrder — edge cases', () => {
+    it('accepts empty string values (clears the field)', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue({
+        id: ORDER_ID,
+        status: OrderStatus.CONFIRMED,
+      });
+      mockPrisma.order.update.mockResolvedValue({
+        id: ORDER_ID,
+        status: OrderStatus.CONFIRMED,
+      });
+
+      await service.editOrder(ORDER_ID, { shippingName: '' });
+
+      expect(mockPrisma.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { shippingName: '' },
+        }),
+      );
+    });
   });
 });

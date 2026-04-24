@@ -120,4 +120,55 @@ describe('ClaimService', () => {
     expect(updateCall.data.passwordHash).not.toBe('securepassword123');
     expect(updateCall.data.passwordHash.startsWith('$2')).toBe(true);
   });
+
+  // ─── Phase 10 gap tests ────────────────────────────────────────────────
+
+  it('succeeds when guest account already has emailVerified: true', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'guest-1',
+      isGuestAccount: true,
+      emailVerified: true, // already verified
+    });
+    mockPrisma.user.update.mockResolvedValue({});
+
+    const result = await service.claimAccount({
+      email: 'guest@example.com',
+      password: 'securepassword123',
+    });
+
+    expect(result.message).toContain('claimed successfully');
+    // Sets emailVerified to true again (idempotent).
+    expect(mockPrisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          emailVerified: true,
+        }),
+      }),
+    );
+  });
+
+  it('propagates error when bcrypt.hash fails', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'guest-1',
+      isGuestAccount: true,
+    });
+
+    // Mock bcrypt to throw.
+    const bcrypt = require('bcrypt');
+    const originalHash = bcrypt.hash;
+    bcrypt.hash = jest.fn().mockRejectedValueOnce(new Error('bcrypt OOM'));
+
+    await expect(
+      service.claimAccount({
+        email: 'guest@example.com',
+        password: 'securepassword123',
+      }),
+    ).rejects.toThrow('bcrypt OOM');
+
+    // user.update should NOT have been called.
+    expect(mockPrisma.user.update).not.toHaveBeenCalled();
+
+    // Restore original.
+    bcrypt.hash = originalHash;
+  });
 });

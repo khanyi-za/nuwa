@@ -570,4 +570,83 @@ describe('CartService', () => {
       expect(mockPrisma.cartItem.deleteMany).not.toHaveBeenCalled();
     });
   });
+
+  // ─── Phase 10 gap tests ────────────────────────────────────────────────
+
+  describe('buildItemView — availability edge cases', () => {
+    it('returns availableQuantity 0 when totalCapacity is 0', async () => {
+      mockPrisma.cart.findUnique.mockResolvedValue({
+        id: CART_ID,
+        userId: USER_ID,
+        items: [
+          {
+            ...baseItem,
+            quantity: 2,
+            product: {
+              ...baseProduct,
+              totalStock: 0,
+              reservedStock: 2,
+            },
+          },
+        ],
+      });
+
+      const result = await service.get(USER_ID);
+
+      expect(result.stores[0].items[0].availableQuantity).toBe(0);
+      expect(result.stores[0].items[0].status).toBe('partial_stock');
+    });
+
+    it('caps availableQuantity at item.quantity when stock is abundant', async () => {
+      mockPrisma.cart.findUnique.mockResolvedValue({
+        id: CART_ID,
+        userId: USER_ID,
+        items: [
+          {
+            ...baseItem,
+            quantity: 2,
+            product: {
+              ...baseProduct,
+              totalStock: 100,
+              reservedStock: 2, // only this buyer's reservation
+            },
+          },
+        ],
+      });
+
+      const result = await service.get(USER_ID);
+
+      // availableQuantity should be capped at the item's quantity, not totalCapacity.
+      expect(result.stores[0].items[0].availableQuantity).toBe(2);
+      expect(result.stores[0].items[0].status).toBe('available');
+    });
+
+    it('computes availability correctly with variant stock', async () => {
+      mockPrisma.cart.findUnique.mockResolvedValue({
+        id: CART_ID,
+        userId: USER_ID,
+        items: [
+          {
+            ...baseItem,
+            variantId: VARIANT_ID,
+            quantity: 3,
+            variant: {
+              id: VARIANT_ID,
+              name: 'Large',
+              priceInCents: 50_000,
+              stock: 5,         // totalCapacity
+              reservedStock: 4, // 3 this buyer + 1 other
+            },
+          },
+        ],
+      });
+
+      const result = await service.get(USER_ID);
+
+      // otherReservations = max(0, 4 - 3) = 1
+      // availableQuantity = max(0, min(3, 5 - 1)) = max(0, min(3, 4)) = 3
+      expect(result.stores[0].items[0].availableQuantity).toBe(3);
+      expect(result.stores[0].items[0].status).toBe('available');
+    });
+  });
 });

@@ -88,4 +88,40 @@ describe('computeCheckoutTotals', () => {
       lineTotalInCents: 45_000,
     });
   });
+
+  // ─── Phase 10 gap tests ──────────────────────────────────────────────
+
+  it('handles empty items array gracefully', () => {
+    const result = computeCheckoutTotals([], 11_000);
+
+    expect(result.stores).toHaveLength(0);
+    expect(result.grandSubtotalInCents).toBe(0);
+    expect(result.grandShippingInCents).toBe(11_000);
+    expect(result.grandTotalInCents).toBe(11_000);
+  });
+
+  it('rounds commission correctly with fractional cents', () => {
+    // 10_001 * 0.055 = 550.055 → rounds to 550
+    const items = [
+      makeItem({ unitPriceInCents: 10_001, quantity: 1 }),
+    ];
+    const result = computeCheckoutTotals(items, 11_000);
+
+    expect(result.stores[0].commissionInCents).toBe(550);
+    expect(result.stores[0].subtotalInCents).toBe(10_001);
+  });
+
+  it('groups multiple items into the same store', () => {
+    const items = [
+      makeItem({ productId: 'prod-1', unitPriceInCents: 10_000, quantity: 1 }),
+      makeItem({ productId: 'prod-2', unitPriceInCents: 20_000, quantity: 2 }),
+    ];
+    const result = computeCheckoutTotals(items, 11_000);
+
+    // Both items share store-1, so there's one store group.
+    expect(result.stores).toHaveLength(1);
+    expect(result.stores[0].items).toHaveLength(2);
+    expect(result.stores[0].subtotalInCents).toBe(50_000); // 10000 + 40000
+    expect(result.grandSubtotalInCents).toBe(50_000);
+  });
 });

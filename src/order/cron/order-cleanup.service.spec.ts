@@ -115,7 +115,7 @@ describe('OrderCleanupService', () => {
       expect(mockPrisma.cart.findMany).toHaveBeenCalledTimes(2);
     });
 
-    it('continues processing when one cart fails', async () => {
+    it('continues processing when one cart fails and bumps updatedAt on failure', async () => {
       mockPrisma.cart.findMany.mockResolvedValueOnce([
         {
           id: 'cart-bad',
@@ -136,6 +136,14 @@ describe('OrderCleanupService', () => {
 
       // Only the second cart succeeded.
       expect(released).toBe(1);
+
+      // Failed cart's updatedAt was bumped to prevent infinite re-processing.
+      expect(mockPrisma.cart.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'cart-bad' },
+          data: { updatedAt: expect.any(Date) },
+        }),
+      );
     });
   });
 
@@ -241,6 +249,22 @@ describe('OrderCleanupService', () => {
           }),
         }),
       );
+    });
+
+    it('terminates loop when batch is exactly BATCH_SIZE followed by empty batch', async () => {
+      // Full batch of 100, then 0 — must not loop forever.
+      const fullBatch = Array.from({ length: 100 }, (_, i) => ({
+        id: `order-${i}`,
+        items: [{ productId: `prod-${i}`, variantId: null, quantity: 1 }],
+      }));
+      mockPrisma.order.findMany
+        .mockResolvedValueOnce(fullBatch)
+        .mockResolvedValueOnce([]);
+
+      const expired = await service.expirePendingOrders();
+
+      expect(expired).toBe(100);
+      expect(mockPrisma.order.findMany).toHaveBeenCalledTimes(2);
     });
   });
 
