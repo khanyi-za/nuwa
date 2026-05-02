@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, PaymentStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { releaseStock } from '../cart/stock';
 
@@ -15,14 +15,53 @@ export class OrderCleanupService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Runs every 5 minutes. Handles two cleanup tasks:
+   * Runs every 5 minutes. Handles three responsibilities:
    * 1. Release stock reservations on stale carts (24h no activity)
    * 2. Expire PENDING orders (30 min with no payment)
+   * 3. Emit a structured summary log line for ops alerting
    */
   @Cron(CronExpression.EVERY_5_MINUTES)
   async handleCleanup(): Promise<void> {
     await this.releaseStaleCartReservations();
-    await this.expirePendingOrders();
+    const cancelledThisCycle = await this.expirePendingOrders();
+    await this.emitSummaryLog(cancelledThisCycle);
+  }
+
+  /**
+   * Emit a single structured log line per cycle. Ops sets up alerts on:
+   *   - reconcileRequired > 0 (immediate investigation)
+   *   - olderThan30Min growing (PayFast latency or our processing issue)
+   *   - cancelledThisCycle high (payment success rate dropping)
+   */
+  private async emitSummaryLog(cancelledThisCycle: number): Promise<void> {
+    const cutoff30m = new Date(
+      Date.now() - PENDING_ORDER_MINUTES * 60 * 1000,
+    );
+    const [pendingCount, reconcileRequiredCount, olderThan30Min] =
+      await Promise.all([
+        this.prisma.paymentGroup.count({
+          where: { status: PaymentStatus.PENDING },
+        }),
+        this.prisma.paymentGroup.count({
+          where: { status: PaymentStatus.RECONCILE_REQUIRED },
+        }),
+        this.prisma.paymentGroup.count({
+          where: {
+            status: PaymentStatus.PENDING,
+            createdAt: { lt: cutoff30m },
+          },
+        }),
+      ]);
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'payment_cleanup_summary',
+        pendingCount,
+        reconcileRequiredCount,
+        cancelledThisCycle,
+        olderThan30Min,
+      }),
+    );
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

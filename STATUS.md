@@ -1,104 +1,121 @@
-# STATUS.md — Last updated 2026-04-23
+# STATUS.md — Last updated 2026-05-01
 
 ## Where we are
 
-**Order module is complete.** All 10 phases are done. 246 tests across 15 suites, all passing in ~2s.
+**Payments module is complete.** All 6 phases shipped this session. 480 tests across 26 suites, all passing in ~2s.
 
-There are **uncommitted changes** on `main` covering:
-- Phase 8 (Cron Cleanup) + Phase 9 (Wishlist) — from prior session
-- Phase 10 (Consolidated Testing) — from this session
-- Bug fix: OrderCleanupService `updatedAt` bump on failure
-- `@nestjs/schedule` dependency + `ScheduleModule` registration
-- Foundation doc updates for Phases 8, 9, 10
-- Updated CLAUDE.md + STATUS.md
+`main` is up to date with `origin/main`. The session's work is **uncommitted on `main`**:
+
+```
+Modified:
+  CLAUDE.md
+  STATUS.md
+  .env.example
+  prisma/schema.prisma
+  src/app.module.ts
+  src/main.ts
+  src/order/admin-orders/admin-orders.controller.ts
+  src/order/admin-orders/admin-orders.service.ts
+  src/order/admin-orders/admin-orders.service.spec.ts
+  src/order/checkout/checkout.service.ts
+  src/order/checkout/checkout.service.spec.ts
+  src/order/contracts/payment-contract.ts
+  src/order/contracts/stubs/payment-stub.service.ts
+  src/order/cron/order-cleanup.service.ts
+  src/order/cron/order-cleanup.service.spec.ts
+  src/order/order.module.ts
+
+Untracked:
+  docs/payments-module/payments-module-foundation.md
+  prisma/migrations/20260501101905_add_payments_module_foundation/
+  src/order/dto/admin-refund-order.dto.ts
+  src/payments/                                   (full directory)
+```
 
 The user has not asked for a commit yet.
 
 ## What was built this session
 
-### Phase 10 — Consolidated Testing
+All decisions documented in [`docs/payments-module/payments-module-foundation.md`](docs/payments-module/payments-module-foundation.md).
 
-**Bug fix:** `OrderCleanupService.releaseStaleCartReservations()` was not bumping `cart.updatedAt` when a transaction failed, causing the same broken cart to be re-processed every 5-minute cron cycle indefinitely. Fixed by adding a `cart.update` call in the catch block (`order-cleanup.service.ts:98-105`).
+| Phase | Name | Tests added |
+|-------|------|---|
+| 1 | Foundation (schema, scaffold, env config) | +45 |
+| 2 | Signature primitives (`phpUrlencode`, signing service) | +74 |
+| 3 | Real `initializePayment` + frontend contract change | +18 |
+| 4 | ITN webhook (allowlist, notify service, controller, trust-proxy) | +46 |
+| 5 | Refund API (REST client, admin wiring, refund-ITN handling) | +28 |
+| 6 | Reconciliation tooling + cleanup-cron summary log | +23 |
 
-**False alarm:** `MerchantOrdersService.updateStatus()` was flagged as a likely bug (backward transitions causing TypeError), but the code already has `if (!allowed || !allowed.includes(targetStatus))` which handles undefined `ALLOWED_TRANSITIONS` entries correctly.
+**Schema migration** — `20260501101905_add_payments_module_foundation`:
+- New `payment_events` table (audit log; `itnHash` unique constraint = idempotency primitive)
+- New `ItnTxType` enum (`PAYMENT`, `REFUND`)
+- Added `RECONCILE_REQUIRED` to `PaymentStatus`
 
-**23 new tests added across 8 spec files:**
+**Contract changes** — `IPaymentService`:
+- `PaymentInitRequest` now includes `mPaymentId`, `itemName`. Removed `notifyUrl` (sourced from `PayfastConfig`).
+- `PaymentInitResponse` rewritten to `{ actionUrl, fields }` — **breaking change** to checkout response shape. The frontend renders the field map as a hidden form and auto-submits to PayFast.
+- Added `refundPayment()` method with `RefundRequest` / `RefundResponse` types.
 
-| Suite | Added | What they cover |
-|-------|-------|-----------------|
-| CheckoutService | +6 | Empty addressId, empty items array, variant validation (not found + wrong product), rollback FK deletion order, order number collision retry |
-| CheckoutTotals | +3 | Empty items array, fractional commission rounding, same-store item grouping |
-| MerchantOrdersService | +3 | Backward transitions (READY_FOR_DISPATCH, DELIVERED, CANCELLED → throws 400) |
-| CartService | +3 | Zero capacity availability, abundant stock cap, variant stock availability |
-| AdminOrdersService | +3 | Empty string field values in edit, refund on CANCELLED order, refund on DISPATCHED |
-| BuyerOrdersService | +2 | Null payment relation, OTHER reason without notes |
-| ClaimService | +2 | Already-verified guest (idempotent), bcrypt.hash failure propagation |
-| OrderCleanupService | +1 | Pending order BATCH_SIZE loop termination |
-
-**Phase 10 plan documented** in `docs/order-module/order-module-foundation.md` sections 10.1–10.5.
-
-## Uncommitted changes
-
-Everything below is uncommitted on `main` (last commit: user's Phase 8+9 commit):
-
-```
-Modified:
-  CLAUDE.md                                      — Phase 10 complete, 246 tests
-  STATUS.md                                      — This file
-  docs/order-module/order-module-foundation.md   — Phase 8 + 9 + 10 decisions/plan
-  package.json / package-lock.json               — @nestjs/schedule dependency
-  src/app.module.ts                              — ScheduleModule.forRoot() registered
-  src/order/order.module.ts                      — OrderCleanupService, WishlistController, WishlistService
-  src/order/cron/order-cleanup.service.ts        — Bug fix: updatedAt bump on failure
-  src/order/cron/order-cleanup.service.spec.ts   — Updated test for bug fix + 1 new test
-  src/order/checkout/checkout.service.spec.ts    — +6 tests
-  src/order/checkout/totals.spec.ts              — +3 tests
-  src/order/merchant-orders/merchant-orders.service.spec.ts — +3 tests
-  src/order/cart/cart.service.spec.ts             — +3 tests
-  src/order/admin-orders/admin-orders.service.spec.ts — +3 tests
-  src/order/buyer-orders/buyer-orders.service.spec.ts — +2 tests
-  src/auth/claim/claim.service.spec.ts           — +2 tests
-
-Untracked:
-  src/order/cron/order-cleanup.service.ts
-  src/order/cron/order-cleanup.service.spec.ts
-  src/order/wishlist/wishlist.service.ts
-  src/order/wishlist/wishlist.controller.ts
-  src/order/wishlist/wishlist.service.spec.ts
-```
+**Wiring**:
+- `OrderModule` imports `PaymentsModule` and binds `PAYMENT_SERVICE` to the real `PaymentsService` via `useClass`.
+- `main.ts` configures `app.set('trust proxy', N)` from `PayfastConfig.trustProxy` (defaults to 1 for Railway).
 
 ## What's fragile
 
-1. **TS2502 errors in spec files**: `$transaction` mock pattern causes type errors in `address.service.spec.ts:55`, `cart.service.spec.ts:77`, `checkout.service.spec.ts:113`, and `order-cleanup.service.spec.ts`. Harmless — Jest/ts-jest runs fine. Do NOT fix.
+The Order-module fragility list (still applies):
+1. **TS2502 errors in spec files** — `$transaction` mock pattern. Harmless. Do NOT fix.
+2. **Cart compound unique with NULL variantId** — partial unique index migration exists.
+3. **Cron Logger output in tests** — error-resilience tests emit expected ERRORs.
+4. **`$transaction` mock re-binding** — re-bind in `beforeEach` after `clearAllMocks`.
+5. **Guest checkout stock reservation timing** — `cartItem.deleteMany` does NOT release stock; stock transfers to order at commit time.
+6. **Admin editOrder accepts empty strings** — intentional.
 
-2. **Cart compound unique with NULL variantId**: Postgres `NULLS DISTINCT` means `@@unique([cartId, productId, variantId])` doesn't enforce uniqueness when variantId is NULL. Partial unique index migration exists. Any new compound unique with nullable fields hits this.
+New fragility introduced this session:
 
-3. **Cron Logger output in tests**: Error-resilience tests produce expected ERROR log lines. Intentional.
+7. **Refund ITN field detection is heuristic.** We detect refund ITNs via `parsedBody.transaction_type === 'refund'`. PayFast's exact field name isn't publicly documented; first production refund will reveal whether this matches. One-line change in `payments-notify.service.ts` if it turns out to be a different field.
 
-4. **`$transaction` mock re-binding**: `jest.clearAllMocks()` wipes the `$transaction` mock. Must re-bind in `beforeEach`.
+8. **Refunds are sandbox-impossible.** `PayfastClient.createRefund` warns when called in sandbox mode but still attempts the call. Production smoke test required for first refund.
 
-5. **Guest checkout stock reservation timing**: Cart clearing at checkout does NOT release stock (uses raw `prisma.cartItem.deleteMany`, not `CartService.clear()`). Intentional — stock ownership transfers from cart to order at commit time.
+9. **`phpUrlencode` is load-bearing.** A single-byte mismatch with PHP's `urlencode()` causes silent signature failures in production. Vector tests in `url-encode.spec.ts` lock this in. Any change requires re-running the vector suite.
 
-6. **Admin editOrder accepts empty strings**: `editOrder({ shippingName: '' })` clears the field. The `!== undefined` check is intentional — admin can blank out fields. Documented in Phase 10 test.
+10. **The signature trap.** PayFast uses two algorithms with different field-ordering rules: form-flow uses fixed order with trim; API-flow uses ksort alphabetical without trim; ITN verification uses insertion order with break-at-signature. `PayfastSignatureService` exposes them as separate methods — never share code paths.
 
-7. **Admin refund allows CANCELLED orders**: `requestRefund()` does not reject CANCELLED orders — only PENDING, REFUNDED, and REFUND_REQUESTED are rejected. This may need a policy decision when Payments module ships.
+11. **Source-IP allowlist is fail-closed.** If DNS resolution fails at boot, the allowlist starts empty and rejects all ITNs. Recovery is automatic once DNS recovers, but operators should monitor for the boot-time error log.
 
 ## What to do next
 
-The Order module is complete. Next steps are separate modules:
+**Open follow-up items**:
 
-- **Payments module**: Real PayFast integration, ITN webhook, refund API. Replace `PaymentStubService`. Swap `useClass` in `order.module.ts`.
-- **Shipping module**: Real Courier Guy integration, tracking. Replace `ShippingStubService`. Swap `useClass` in `order.module.ts`.
-- **Notifications module**: Email verification for guest claim, order status emails.
-- **CORS config**: Needs to be added before frontend integration.
-- **e2e tests**: Only unit tests exist currently.
+- **Live sandbox smoke test for end-to-end checkout** (Phase 3+4 definition of done). Requires:
+  - `.env` with PayFast sandbox creds set
+  - ngrok tunnel exposing `/payments/notify` publicly
+  - `PAYFAST_SKIP_IP_CHECK=true` for dev (ngrok rewrites source IP)
+  - `PAYFAST_NOTIFY_URL=https://<ngrok-id>.ngrok.io/payments/notify`
+  - Manual checkout via the frontend
+  - Verify ITN arrives, order goes PENDING → CONFIRMED in DB
+
+- **Production smoke test for first refund** (Phase 5 definition of done — sandbox doesn't support refunds).
+
+- **Verify the refund-ITN field name** against a real PayFast refund ITN payload.
+
+- **Frontend contract update** — the checkout response now returns `payfast: { actionUrl, fields }` instead of `redirectUrl`. Frontend repo needs to render hidden form + auto-submit.
+
+**Other workstreams** (unchanged):
+- Shipping module (real Courier Guy integration; replace `ShippingStubService`).
+- Notifications module (email verification for guest claim, order status emails).
+- CORS config (needed before frontend integration).
+- e2e tests.
+
+**Deferred Phase 7 candidate** — automated daily reconciliation job that iterates all `PENDING > 24h` PaymentGroups and uses the manual reconciliation tool's logic to auto-resolve unambiguous cases. Not blocking v1.
 
 ## Do not touch
 
-- **Do not refactor existing Order module code** unless the user asks. It's working, tested, and decisions are documented.
-- **Do not fix the TS2502 errors** in spec files.
-- **Do not add CORS, e2e tests, or image upload** — separate workstreams.
-- **Do not implement real PayFast or Courier Guy integrations** — those are the Payments and Shipping modules.
-- **Do not change the shipping model** — `Order.shippingInCents = 0` is correct. Shipping lives on PaymentGroup.
-- **Do not add email verification to the claim flow** — blocked on Notifications module.
+- **Do not refactor existing Order or Payments code** unless the user asks. Tested, documented.
+- **Do not fix TS2502 errors** in spec files.
+- **Do not change `phpUrlencode`** without re-running vector tests.
+- **Do not change the signature primitives** in `PayfastSignatureService`. The trim/no-trim divergences between form, ITN, and API flows are deliberate and source-cited.
+- **Do not change the CANCELLED-stays-CANCELLED rule.** A late COMPLETED ITN must never resurrect a CANCELLED order — it goes to `RECONCILE_REQUIRED` for manual ops.
 - **Do not change cron cutoff values** — 24h for stale carts, 30 min for pending orders.
+- **Do not enable `PAYFAST_SKIP_IP_CHECK=true` in production.** `PayfastConfig` refuses to boot if `NODE_ENV=production` and skip is true.
+- **Do not implement Shipping or Notifications integrations** — separate workstreams.

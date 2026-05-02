@@ -11,6 +11,7 @@ import { AuthModule } from './auth/auth.module';
 import { StoreModule } from './store/store.module';
 import { ProductModule } from './product/product.module';
 import { OrderModule } from './order/order.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { OrderModule } from './order/order.module';
     StoreModule,
     ProductModule,
     OrderModule,
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [

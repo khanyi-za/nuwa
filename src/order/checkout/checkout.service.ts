@@ -31,8 +31,6 @@ import {
 } from './totals';
 
 const MAX_ORDER_NUMBER_RETRIES = 3;
-const PAYFAST_NOTIFY_URL =
-  process.env.PAYFAST_NOTIFY_URL ?? 'https://api.yiiva.co.za/payments/notify';
 
 // ─── Response types ─────────────────────────────────────────────────────────
 
@@ -40,9 +38,19 @@ export interface CheckoutQuoteView extends CheckoutTotals {
   shippingQuoteId: string;
 }
 
+/**
+ * Returned to the frontend after a successful checkout commit. The frontend
+ * renders `payfast.fields` as hidden inputs in a form with `action=payfast.actionUrl`
+ * and auto-submits, redirecting the buyer to PayFast's hosted checkout page.
+ */
 export interface CheckoutCommitResult {
   orderNumbers: string[];
-  redirectUrl: string;
+  paymentGroupId: string;
+  mPaymentId: string;
+  payfast: {
+    actionUrl: string;
+    fields: Record<string, string>;
+  };
 }
 
 // ─── Resolved item used internally ──────────────────────────────────────────
@@ -133,6 +141,7 @@ export class CheckoutService {
     let orderIds: string[];
     let orderNumbers: string[];
     let paymentGroupId: string;
+    let mPaymentId: string;
     let actualUserId: string;
     let actualAddressId: string;
     let guestReservedItems: ResolvedItem[] = [];
@@ -264,6 +273,7 @@ export class CheckoutService {
       orderIds = txResult.orderIds;
       orderNumbers = txResult.orderNumbers;
       paymentGroupId = txResult.paymentGroupId;
+      mPaymentId = txResult.mPaymentId;
       actualUserId = txResult.userId;
       actualAddressId = txResult.addressId;
     } catch (err) {
@@ -282,15 +292,21 @@ export class CheckoutService {
         select: { email: true, firstName: true, lastName: true },
       });
 
+      const itemName =
+        orderNumbers.length === 1
+          ? `YIIVA Order ${orderNumbers[0]}`
+          : `YIIVA Order (${orderNumbers.length} stores)`;
+
       const initReq: PaymentInitRequest = {
         orderIds,
+        mPaymentId,
         totalAmountInCents: totals.grandTotalInCents,
         buyerEmail: buyer!.email,
         buyerFirstName: buyer!.firstName,
         buyerLastName: buyer!.lastName,
+        itemName,
         returnUrl: dto.returnUrl,
         cancelUrl: dto.cancelUrl,
-        notifyUrl: PAYFAST_NOTIFY_URL,
       };
 
       paymentResponse = await this.payment.initializePayment(initReq);
@@ -311,7 +327,9 @@ export class CheckoutService {
 
     return {
       orderNumbers,
-      redirectUrl: paymentResponse.payfastRedirectUrl,
+      paymentGroupId,
+      mPaymentId,
+      payfast: paymentResponse,
     };
   }
 

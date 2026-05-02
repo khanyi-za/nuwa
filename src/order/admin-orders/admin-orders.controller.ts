@@ -15,6 +15,7 @@ import { AdminOrdersService } from './admin-orders.service';
 import { AdminOrderQueryDto } from '../dto/admin-order-query.dto';
 import { AdminCancelOrderDto } from '../dto/admin-cancel-order.dto';
 import { AdminEditOrderDto } from '../dto/admin-edit-order.dto';
+import { AdminRefundOrderDto } from '../dto/admin-refund-order.dto';
 
 @Controller('admin/orders')
 @Roles(UserRole.ADMIN)
@@ -56,7 +57,10 @@ export class AdminOrdersController {
 
   @Post(':orderId/refund')
   @HttpCode(HttpStatus.OK)
-  requestRefund(@Param('orderId') orderId: string) {
-    return this.adminOrders.requestRefund(orderId);
+  requestRefund(
+    @Param('orderId') orderId: string,
+    @Body() dto: AdminRefundOrderDto,
+  ) {
+    return this.adminOrders.requestRefund(orderId, dto);
   }
 }

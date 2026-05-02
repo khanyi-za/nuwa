@@ -71,6 +71,15 @@ enum PaymentStatus {
   CANCELLED
   REFUNDED
   PARTIALLY_REFUNDED
+  RECONCILE_REQUIRED // late ITN arrived after local cancel; ops must resolve manually
+}
+
+// Distinguishes the kind of PayFast event in a PaymentEvent row.
+// PAYMENT covers initial transaction status (PENDING/COMPLETED/FAILED/CANCELLED).
+// REFUND covers refund-specific ITNs (PARTIALLY_REFUNDED/REFUNDED).
+enum ItnTxType {
+  PAYMENT
+  REFUND
 }
 
 enum PaymentMethod {
@@ -210,7 +219,7 @@ model RefreshToken {
 }
 
 model Address {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   userId        String
   label         String? // e.g. "Home", "Work"
   recipientName String
@@ -818,6 +827,7 @@ model PaymentGroup {
   updatedAt DateTime  @updatedAt
 
   payments Payment[]
+  events   PaymentEvent[]
 
   @@index([mPaymentId])
   @@index([status])
@@ -856,6 +866,33 @@ model Payment {
   @@index([paymentGroupId])
   @@index([status])
   @@map("payments")
+}
+
+// Audit log of every PayFast ITN we receive. The unique constraint on itnHash
+// is the idempotency primitive: PayFast retries (up to 11 times over 2 days)
+// or accidental duplicates fail at INSERT and are acked as 200 no-ops.
+// PaymentGroup.status is the materialized projection of the latest accepted event.
+model PaymentEvent {
+  id              String        @id @default(cuid())
+  paymentGroupId  String
+  itnHash         String        @unique // sha256(canonicalize(payload)) — dedupe key
+  pfPaymentId     String?
+  status          PaymentStatus // status carried by this ITN
+  transactionType ItnTxType // PAYMENT or REFUND
+
+  payload   Json // full ITN body, parsed
+  signature String // PayFast's signature on this ITN
+  sourceIp  String?
+
+  receivedAt   DateTime @default(now())
+  processed    Boolean  @default(false)
+  processError String? // null if processed; reason string if rejected/skipped
+
+  paymentGroup PaymentGroup @relation(fields: [paymentGroupId], references: [id], onDelete: Cascade)
+
+  @@index([paymentGroupId, receivedAt])
+  @@index([pfPaymentId])
+  @@map("payment_events")
 }
 
 // ============================================================================

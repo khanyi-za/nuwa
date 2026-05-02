@@ -6,7 +6,15 @@ import {
 import { OrderStatus } from '@prisma/client';
 import { AdminOrdersService } from './admin-orders.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PAYMENT_SERVICE } from '../contracts/payment-contract';
 import { AdminCancelReason } from '../dto/admin-cancel-order.dto';
+import { AdminRefundOrderDto } from '../dto/admin-refund-order.dto';
+
+const refundDto: AdminRefundOrderDto = {
+  amountInCents: 90_000,
+  reason: 'Buyer changed mind',
+  accType: 'savings',
+};
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -74,12 +82,26 @@ const baseOrderRow = {
 
 // ─── Mocks ─────────────────────────────────────────────────────────────────
 
-const mockPrisma = {
+const mockPrisma: any = {
   order: {
     findMany: jest.fn(),
     findUnique: jest.fn(),
     update: jest.fn(),
   },
+  payment: {
+    findUnique: jest.fn(),
+    update: jest.fn(),
+  },
+  $transaction: jest.fn((fn: any) => fn(mockPrisma)),
+};
+
+const mockPaymentService = {
+  initializePayment: jest.fn(),
+  refundPayment: jest.fn().mockResolvedValue({
+    refundId: 'pf-uuid-456',
+    status: 'PROCESSING',
+    raw: {},
+  }),
 };
 
 // ─── Suite ─────────────────────────────────────────────────────────────────
@@ -92,11 +114,18 @@ describe('AdminOrdersService', () => {
       providers: [
         AdminOrdersService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: PAYMENT_SERVICE, useValue: mockPaymentService },
       ],
     }).compile();
 
     service = module.get<AdminOrdersService>(AdminOrdersService);
     jest.clearAllMocks();
+    mockPrisma.$transaction.mockImplementation((fn: any) => fn(mockPrisma));
+    mockPaymentService.refundPayment.mockResolvedValue({
+      refundId: 'pf-uuid-456',
+      status: 'PROCESSING',
+      raw: {},
+    });
   });
 
   // ─── listOrders ─────────────────────────────────────────────────────────
@@ -484,19 +513,127 @@ describe('AdminOrdersService', () => {
   // ─── requestRefund ──────────────────────────────────────────────────────
 
   describe('requestRefund', () => {
-    it('sets status to REFUND_REQUESTED', async () => {
+    const paymentRow = {
+      id: 'pay-1',
+      orderId: ORDER_ID,
+      amountGrossInCents: 90_000,
+      refundedAmountInCents: 0,
+      refundedAt: null,
+      paymentGroup: { pfPaymentId: 'pf-uuid-456' },
+    };
+
+    it('full refund: calls PayFast, transitions Order → REFUNDED', async () => {
       mockPrisma.order.findUnique.mockResolvedValue({
         id: ORDER_ID,
         status: OrderStatus.CONFIRMED,
       });
+      mockPrisma.payment.findUnique.mockResolvedValue(paymentRow);
+      mockPrisma.order.update.mockResolvedValue({
+        id: ORDER_ID,
+        status: OrderStatus.REFUNDED,
+      });
+
+      const result = await service.requestRefund(ORDER_ID, refundDto);
+
+      expect(mockPaymentService.refundPayment).toHaveBeenCalledWith({
+        pfPaymentId: 'pf-uuid-456',
+        amountInCents: 90_000,
+        reason: 'Buyer changed mind',
+        accType: 'savings',
+        notifyBuyer: undefined,
+      });
+      expect(result.status).toBe(OrderStatus.REFUNDED);
+      expect(result.cumulativeRefundedInCents).toBe(90_000);
+      expect(result.refundedThisCallInCents).toBe(90_000);
+      expect(result.refundId).toBe('pf-uuid-456');
+    });
+
+    it('partial refund: transitions Order → REFUND_REQUESTED, accumulates Payment.refundedAmountInCents', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue({
+        id: ORDER_ID,
+        status: OrderStatus.CONFIRMED,
+      });
+      mockPrisma.payment.findUnique.mockResolvedValue(paymentRow);
       mockPrisma.order.update.mockResolvedValue({
         id: ORDER_ID,
         status: OrderStatus.REFUND_REQUESTED,
       });
 
-      const result = await service.requestRefund(ORDER_ID);
+      const result = await service.requestRefund(ORDER_ID, {
+        ...refundDto,
+        amountInCents: 30_000,
+      });
 
       expect(result.status).toBe(OrderStatus.REFUND_REQUESTED);
+      expect(result.cumulativeRefundedInCents).toBe(30_000);
+      expect(mockPrisma.payment.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'pay-1' },
+          data: expect.objectContaining({
+            refundedAmountInCents: { increment: 30_000 },
+            refundedAt: expect.any(Date),
+          }),
+        }),
+      );
+    });
+
+    it('second partial refund: cumulative tracking against existing refundedAmountInCents', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue({
+        id: ORDER_ID,
+        status: OrderStatus.REFUND_REQUESTED,
+      });
+      mockPrisma.payment.findUnique.mockResolvedValue({
+        ...paymentRow,
+        refundedAmountInCents: 30_000, // first partial already done
+        refundedAt: new Date('2026-04-30'),
+      });
+      mockPrisma.order.update.mockResolvedValue({
+        id: ORDER_ID,
+        status: OrderStatus.REFUNDED,
+      });
+
+      const result = await service.requestRefund(ORDER_ID, {
+        ...refundDto,
+        amountInCents: 60_000, // brings total to 90_000 = full
+      });
+
+      expect(result.status).toBe(OrderStatus.REFUNDED);
+      expect(result.cumulativeRefundedInCents).toBe(90_000);
+    });
+
+    it('rejects when refund amount exceeds remaining payment', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue({
+        id: ORDER_ID,
+        status: OrderStatus.CONFIRMED,
+      });
+      mockPrisma.payment.findUnique.mockResolvedValue({
+        ...paymentRow,
+        refundedAmountInCents: 70_000, // 70k already refunded
+      });
+
+      await expect(
+        service.requestRefund(ORDER_ID, {
+          ...refundDto,
+          amountInCents: 30_000, // 70k + 30k = 100k > 90k gross
+        }),
+      ).rejects.toThrow(/exceeds remaining/);
+      expect(mockPaymentService.refundPayment).not.toHaveBeenCalled();
+    });
+
+    it('rejects when no pfPaymentId on PaymentGroup (ITN not yet received)', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue({
+        id: ORDER_ID,
+        status: OrderStatus.CONFIRMED,
+      });
+      mockPrisma.payment.findUnique.mockResolvedValue({
+        ...paymentRow,
+        paymentGroup: { pfPaymentId: null },
+      });
+
+      await expect(
+        service.requestRefund(ORDER_ID, refundDto),
+      ).rejects.toThrow(/No PayFast transaction recorded/);
+      expect(mockPaymentService.refundPayment).not.toHaveBeenCalled();
     });
 
     it('rejects refund on PENDING order (cancel instead)', async () => {
@@ -505,39 +642,40 @@ describe('AdminOrdersService', () => {
         status: OrderStatus.PENDING,
       });
 
-      await expect(service.requestRefund(ORDER_ID)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        service.requestRefund(ORDER_ID, refundDto),
+      ).rejects.toThrow(BadRequestException);
     });
 
-    it('rejects refund on already refunded order', async () => {
+    it('rejects refund on already-fully-refunded order', async () => {
       mockPrisma.order.findUnique.mockResolvedValue({
         id: ORDER_ID,
         status: OrderStatus.REFUNDED,
       });
 
-      await expect(service.requestRefund(ORDER_ID)).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('rejects duplicate refund request', async () => {
-      mockPrisma.order.findUnique.mockResolvedValue({
-        id: ORDER_ID,
-        status: OrderStatus.REFUND_REQUESTED,
-      });
-
-      await expect(service.requestRefund(ORDER_ID)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        service.requestRefund(ORDER_ID, refundDto),
+      ).rejects.toThrow('already fully refunded');
     });
 
     it('throws 404 when order does not exist', async () => {
       mockPrisma.order.findUnique.mockResolvedValue(null);
 
-      await expect(service.requestRefund('nonexistent')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.requestRefund('nonexistent', refundDto),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws 404 when no Payment row exists for the order', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue({
+        id: ORDER_ID,
+        status: OrderStatus.CONFIRMED,
+      });
+      mockPrisma.payment.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.requestRefund(ORDER_ID, refundDto),
+      ).rejects.toThrow(/Payment record not found/);
     });
 
     it('allows refund on CANCELLED order (not explicitly rejected)', async () => {
@@ -545,14 +683,14 @@ describe('AdminOrdersService', () => {
         id: ORDER_ID,
         status: OrderStatus.CANCELLED,
       });
+      mockPrisma.payment.findUnique.mockResolvedValue(paymentRow);
       mockPrisma.order.update.mockResolvedValue({
         id: ORDER_ID,
-        status: OrderStatus.REFUND_REQUESTED,
+        status: OrderStatus.REFUNDED,
       });
 
-      const result = await service.requestRefund(ORDER_ID);
-
-      expect(result.status).toBe(OrderStatus.REFUND_REQUESTED);
+      const result = await service.requestRefund(ORDER_ID, refundDto);
+      expect(result.status).toBe(OrderStatus.REFUNDED);
     });
 
     it('allows refund on DISPATCHED order', async () => {
@@ -560,14 +698,42 @@ describe('AdminOrdersService', () => {
         id: ORDER_ID,
         status: OrderStatus.DISPATCHED,
       });
+      mockPrisma.payment.findUnique.mockResolvedValue(paymentRow);
+      mockPrisma.order.update.mockResolvedValue({
+        id: ORDER_ID,
+        status: OrderStatus.REFUNDED,
+      });
+
+      const result = await service.requestRefund(ORDER_ID, refundDto);
+      expect(result.status).toBe(OrderStatus.REFUNDED);
+    });
+
+    it('preserves refundedAt across multiple partial refunds', async () => {
+      const firstRefundAt = new Date('2026-04-30');
+      mockPrisma.order.findUnique.mockResolvedValue({
+        id: ORDER_ID,
+        status: OrderStatus.REFUND_REQUESTED,
+      });
+      mockPrisma.payment.findUnique.mockResolvedValue({
+        ...paymentRow,
+        refundedAmountInCents: 30_000,
+        refundedAt: firstRefundAt,
+      });
       mockPrisma.order.update.mockResolvedValue({
         id: ORDER_ID,
         status: OrderStatus.REFUND_REQUESTED,
       });
 
-      const result = await service.requestRefund(ORDER_ID);
+      await service.requestRefund(ORDER_ID, {
+        ...refundDto,
+        amountInCents: 20_000,
+      });
 
-      expect(result.status).toBe(OrderStatus.REFUND_REQUESTED);
+      expect(mockPrisma.payment.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ refundedAt: firstRefundAt }),
+        }),
+      );
     });
   });
 

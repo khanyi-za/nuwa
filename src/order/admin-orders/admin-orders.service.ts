@@ -1,13 +1,17 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { OrderStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PAYMENT_SERVICE } from '../contracts/payment-contract';
+import type { IPaymentService } from '../contracts/payment-contract';
 import { AdminOrderQueryDto } from '../dto/admin-order-query.dto';
 import { AdminCancelOrderDto, AdminCancelReason } from '../dto/admin-cancel-order.dto';
 import { AdminEditOrderDto } from '../dto/admin-edit-order.dto';
+import { AdminRefundOrderDto } from '../dto/admin-refund-order.dto';
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
@@ -105,7 +109,10 @@ export interface PaginatedAdminOrders {
 
 @Injectable()
 export class AdminOrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(PAYMENT_SERVICE) private readonly paymentService: IPaymentService,
+  ) {}
 
   /**
    * Cross-store order list with store, status, order number, and buyer email filters.
@@ -372,21 +379,32 @@ export class AdminOrdersService {
   }
 
   /**
-   * Stub: trigger a full refund request. Sets status to REFUND_REQUESTED.
-   * Actual refund processing (PayFast API call, Payment updates) deferred
-   * to Payments module.
+   * Issue a refund via PayFast's REST API. Supports partial refunds; multiple
+   * partial refunds are allowed as long as cumulative ≤ Payment.amountGrossInCents.
+   *
+   * The flow is synchronous on the admin side: we call PayFast, on success
+   * we accumulate `Payment.refundedAmountInCents` and transition Order status.
+   * PayFast asynchronously confirms via a refund ITN, which `PaymentsNotifyService`
+   * records for audit (see `transactionType: REFUND` PaymentEvent rows).
+   *
+   * Order status transitions:
+   *   - cumulative refund < gross  → REFUND_REQUESTED
+   *   - cumulative refund == gross → REFUNDED
    */
   async requestRefund(
     orderId: string,
-  ): Promise<{ id: string; status: OrderStatus }> {
+    dto: AdminRefundOrderDto,
+  ): Promise<{
+    id: string;
+    status: OrderStatus;
+    refundId: string;
+    refundedThisCallInCents: number;
+    cumulativeRefundedInCents: number;
+  }> {
     const order = await this.findOrderOrThrow(orderId);
 
     if (order.status === OrderStatus.REFUNDED) {
-      throw new BadRequestException('Order is already refunded.');
-    }
-
-    if (order.status === OrderStatus.REFUND_REQUESTED) {
-      throw new BadRequestException('Refund already requested for this order.');
+      throw new BadRequestException('Order is already fully refunded.');
     }
 
     if (order.status === OrderStatus.PENDING) {
@@ -395,15 +413,72 @@ export class AdminOrdersService {
       );
     }
 
-    const updated = await this.prisma.order.update({
-      where: { id: orderId },
-      data: {
-        status: OrderStatus.REFUND_REQUESTED,
+    const payment = await this.prisma.payment.findUnique({
+      where: { orderId },
+      include: {
+        paymentGroup: { select: { pfPaymentId: true } },
       },
-      select: { id: true, status: true },
     });
 
-    return updated;
+    if (!payment) {
+      throw new NotFoundException('Payment record not found for order.');
+    }
+
+    if (!payment.paymentGroup.pfPaymentId) {
+      throw new BadRequestException(
+        'No PayFast transaction recorded yet; cannot refund via API. ' +
+          'Wait for the payment ITN to confirm before refunding.',
+      );
+    }
+
+    const cumulativeAfter =
+      payment.refundedAmountInCents + dto.amountInCents;
+
+    if (cumulativeAfter > payment.amountGrossInCents) {
+      throw new BadRequestException(
+        `Refund amount exceeds remaining payment. ` +
+          `Already refunded: ${payment.refundedAmountInCents}c. ` +
+          `Gross: ${payment.amountGrossInCents}c. ` +
+          `Requested this call: ${dto.amountInCents}c.`,
+      );
+    }
+
+    // Call PayFast (synchronous). Throws on network/API failure → admin sees 500.
+    const refundResponse = await this.paymentService.refundPayment({
+      pfPaymentId: payment.paymentGroup.pfPaymentId,
+      amountInCents: dto.amountInCents,
+      reason: dto.reason,
+      accType: dto.accType,
+      notifyBuyer: dto.notifyBuyer,
+    });
+
+    const isFullRefund = cumulativeAfter === payment.amountGrossInCents;
+    const newStatus = isFullRefund
+      ? OrderStatus.REFUNDED
+      : OrderStatus.REFUND_REQUESTED;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.payment.update({
+        where: { id: payment.id },
+        data: {
+          refundedAmountInCents: { increment: dto.amountInCents },
+          refundedAt: payment.refundedAt ?? new Date(),
+        },
+      });
+
+      return tx.order.update({
+        where: { id: orderId },
+        data: { status: newStatus },
+        select: { id: true, status: true },
+      });
+    });
+
+    return {
+      ...updated,
+      refundId: refundResponse.refundId,
+      refundedThisCallInCents: dto.amountInCents,
+      cumulativeRefundedInCents: cumulativeAfter,
+    };
   }
 
   // ─── Private ─────────────────────────────────────────────────────────────

@@ -15,7 +15,7 @@ const releaseStockMock = stock.releaseStock as jest.Mock;
 
 // ─── Prisma mock ────────────────────────────────────────────────────────────
 
-const mockPrisma = {
+const mockPrisma: any = {
   cart: {
     findMany: jest.fn(),
     update: jest.fn(),
@@ -24,10 +24,11 @@ const mockPrisma = {
     findMany: jest.fn(),
     update: jest.fn(),
   },
+  paymentGroup: {
+    count: jest.fn().mockResolvedValue(0),
+  },
   $executeRaw: jest.fn(),
-  $transaction: jest.fn((fn: (tx: typeof mockPrisma) => unknown) =>
-    fn(mockPrisma),
-  ),
+  $transaction: jest.fn((fn: any) => fn(mockPrisma)),
 };
 
 // ─── Suite ──────────────────────────────────────────────────────────────────
@@ -280,6 +281,32 @@ describe('OrderCleanupService', () => {
       // Both methods called.
       expect(mockPrisma.cart.findMany).toHaveBeenCalled();
       expect(mockPrisma.order.findMany).toHaveBeenCalled();
+    });
+
+    it('emits a structured payment_cleanup_summary log line each cycle', async () => {
+      mockPrisma.cart.findMany.mockResolvedValue([]);
+      mockPrisma.order.findMany.mockResolvedValue([]);
+      mockPrisma.paymentGroup.count
+        .mockResolvedValueOnce(7) // pendingCount
+        .mockResolvedValueOnce(2) // reconcileRequiredCount
+        .mockResolvedValueOnce(3); // olderThan30Min
+
+      const logSpy = jest.spyOn(service['logger'], 'log');
+
+      await service.handleCleanup();
+
+      const summaryCall = logSpy.mock.calls.find((c) =>
+        String(c[0]).includes('payment_cleanup_summary'),
+      );
+      expect(summaryCall).toBeDefined();
+      const payload = JSON.parse(summaryCall![0] as string);
+      expect(payload).toMatchObject({
+        event: 'payment_cleanup_summary',
+        pendingCount: 7,
+        reconcileRequiredCount: 2,
+        cancelledThisCycle: 0,
+        olderThan30Min: 3,
+      });
     });
   });
 });

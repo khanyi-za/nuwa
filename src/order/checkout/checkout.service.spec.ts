@@ -129,10 +129,16 @@ const mockShipping: IShippingService = {
 
 const mockPayment: IPaymentService = {
   initializePayment: jest.fn().mockResolvedValue({
-    paymentGroupId: 'pg-1',
-    mPaymentId: 'm-pay-1',
-    payfastRedirectUrl: 'https://sandbox.payfast.co.za/eng/process?m=1',
+    actionUrl: 'https://sandbox.payfast.co.za/eng/process',
+    fields: {
+      merchant_id: '10000100',
+      m_payment_id: 'm-stub',
+      amount: '550.00',
+      item_name: 'YIIVA Order YV-2026-001234',
+      signature: 'stub-sig',
+    },
   }),
+  refundPayment: jest.fn(),
 };
 
 // ─── Suite ──────────────────────────────────────────────────────────────────
@@ -315,7 +321,10 @@ describe('CheckoutService', () => {
       });
 
       expect(result.orderNumbers).toHaveLength(1);
-      expect(result.redirectUrl).toContain('sandbox.payfast');
+      expect(result.payfast.actionUrl).toContain('sandbox.payfast');
+      expect(result.payfast.fields.signature).toBeDefined();
+      expect(result.paymentGroupId).toBeDefined();
+      expect(result.mPaymentId).toBeDefined();
 
       // Order created with snapshot — no shipping at order level.
       expect(mockPrisma.order.create).toHaveBeenCalledWith(
@@ -527,7 +536,8 @@ describe('CheckoutService', () => {
       const result = await service.commit(null, guestCommitDto);
 
       expect(result.orderNumbers).toHaveLength(1);
-      expect(result.redirectUrl).toContain('sandbox.payfast');
+      expect(result.payfast.actionUrl).toContain('sandbox.payfast');
+      expect(result.payfast.fields.signature).toBeDefined();
 
       // Guest user created.
       expect(mockPrisma.user.create).toHaveBeenCalledWith(

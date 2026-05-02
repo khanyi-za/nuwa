@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { StoreModule } from '../store/store.module';
 import { ProductModule } from '../product/product.module';
+import { PaymentsModule } from '../payments/payments.module';
+import { PaymentsService } from '../payments/payments.service';
 
 import { OrderController } from './order.controller';
 import { OrderService } from './order.service';
@@ -30,20 +32,21 @@ import { WishlistService } from './wishlist/wishlist.service';
 
 import { PAYMENT_SERVICE } from './contracts/payment-contract';
 import { SHIPPING_SERVICE } from './contracts/shipping-contract';
-import { PaymentStubService } from './contracts/stubs/payment-stub.service';
 import { ShippingStubService } from './contracts/stubs/shipping-stub.service';
 
 /**
- * OrderModule — owns orders, cart, checkout, addresses, and (later) wishlist.
+ * OrderModule — owns orders, cart, checkout, addresses, and wishlist.
  *
  * Payments and Shipping are consumed via injection-token contracts
- * (`PAYMENT_SERVICE`, `SHIPPING_SERVICE`). Until those modules land, the
- * tokens resolve to stub services that throw `NotImplementedException`.
- * Swap the `useClass` binding when the real implementations ship; no
- * consumer code changes.
+ * (`PAYMENT_SERVICE`, `SHIPPING_SERVICE`).
+ *
+ * - PAYMENT_SERVICE: bound to the real `PaymentsService` (Phase 3 onward).
+ *   PaymentsModule is imported so PaymentsService's deps (PayfastConfig,
+ *   PayfastSignatureService) resolve from PaymentsModule's exports.
+ * - SHIPPING_SERVICE: still on `ShippingStubService` until Shipping module ships.
  */
 @Module({
-  imports: [StoreModule, ProductModule],
+  imports: [StoreModule, ProductModule, PaymentsModule],
   controllers: [
     OrderController,
     AddressController,
@@ -65,7 +68,7 @@ import { ShippingStubService } from './contracts/stubs/shipping-stub.service';
     OrderCleanupService,
     WishlistService,
     { provide: SHIPPING_SERVICE, useClass: ShippingStubService },
-    { provide: PAYMENT_SERVICE, useClass: PaymentStubService },
+    { provide: PAYMENT_SERVICE, useClass: PaymentsService },
   ],
   exports: [OrderService],
 })

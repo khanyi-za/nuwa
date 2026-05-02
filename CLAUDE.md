@@ -18,6 +18,7 @@ AppModule
  ├── StoreModule       — Store CRUD, admin review, employee invites, store addresses
  ├── ProductModule     — Products, variants, images, collections, tags, categories
  ├── OrderModule       — Cart, checkout, orders (buyer + merchant + admin views), addresses, wishlist, cron cleanup
+ ├── PaymentsModule    — PayFast integration: signing, ITN webhook, refunds, reconciliation
  ├── PrismaModule      — Database singleton (global)
  ├── EmailModule       — Transactional email via Resend
  ├── ScheduleModule    — @nestjs/schedule for cron jobs (global)
@@ -27,15 +28,17 @@ AppModule
 
 **Key dependency rules:**
 - OrderModule imports StoreModule + ProductModule directly.
-- OrderModule consumes Payments and Shipping via **injection-token contracts** (`PAYMENT_SERVICE`, `SHIPPING_SERVICE`). Stubs are bound until those modules ship. Swap `useClass` in `order.module.ts` — zero consumer code changes.
-- No circular dependencies. If Payments/Shipping later need Order, they import OrderService directly.
+- OrderModule imports PaymentsModule and binds `PAYMENT_SERVICE` to the real `PaymentsService` via `useClass`. PaymentsService's deps (`PayfastConfig`, `PayfastSignatureService`) resolve from PaymentsModule's exports.
+- OrderModule consumes Shipping via **injection-token contract** (`SHIPPING_SERVICE`). Still on `ShippingStubService` until Shipping module ships.
+- AdminOrdersService injects `IPaymentService` via `PAYMENT_SERVICE` token (for refund flow).
+- No circular dependencies. PaymentsModule reads from `OrderModule`-owned tables (PaymentGroup, Payment, Order) but does not import OrderModule.
 - PrismaModule is global — every module injects PrismaService without importing PrismaModule.
 
 ### Why it's structured this way
 
-Each module owns its own controllers, services, DTOs, and specs. Sub-features within a module get their own subdirectory (e.g., `order/cart/`, `order/checkout/`, `order/merchant-orders/`). This keeps feature boundaries clear and allows parallel development.
+Each module owns its own controllers, services, DTOs, and specs. Sub-features within a module get their own subdirectory (e.g., `order/cart/`, `order/checkout/`, `order/merchant-orders/`, `payments/payfast/`). This keeps feature boundaries clear and allows parallel development.
 
-The contract/stub pattern for Payments and Shipping lets the full checkout flow be coded and tested end-to-end without those modules existing. When they ship, only the module-level binding changes.
+The contract/stub pattern (`PAYMENT_SERVICE`, `SHIPPING_SERVICE` tokens) lets the full checkout flow be coded and tested end-to-end without those modules existing. When they ship, only the module-level binding changes — zero consumer code changes. Payments shipped this way; Shipping is still on its stub.
 
 ### Global middleware and guards
 
@@ -146,7 +149,38 @@ All cancel reasons are stored in `Order.cancelReason`. The prefix indicates the 
 | Buyer | `REASON` | `CHANGED_MIND`, `ORDERED_BY_MISTAKE`, `FOUND_CHEAPER` |
 | Merchant | `REASON` | `OUT_OF_STOCK`, `CANNOT_FULFILL` |
 | Admin | `ADMIN:REASON` | `ADMIN:FRAUD`, `ADMIN:POLICY_VIOLATION` |
-| System | `SYSTEM:REASON` | `SYSTEM:PAYMENT_TIMEOUT` |
+| System | `SYSTEM:REASON` | `SYSTEM:PAYMENT_TIMEOUT`, `SYSTEM:PAYMENT_FAILED`, `SYSTEM:PAYMENT_CANCELLED` |
+
+### PayFast integration patterns
+
+PayFast uses **two distinct signature algorithms** that must not be confused:
+
+| Mode | Used for | Field ordering | Trim |
+|---|---|---|---|
+| Form flow | Initiating a redirect payment | Fixed (FORM_FIELD_ORDER) | Yes |
+| API flow | Refunds, transaction history, postback | Alphabetical (ksort) | No |
+| ITN verify | Verifying incoming webhook | Insertion order, **break at signature** | No |
+
+`PayfastSignatureService` exposes them as separate methods (`signFormPayload`, `signApiRequest`, `verifyItnSignature`, `buildPostbackBody`). Never share code paths. The `phpUrlencode()` helper in `payments/payfast/url-encode.ts` byte-matches PHP's `urlencode()` — any change requires re-running the vector tests.
+
+**ITN webhook (POST /payments/notify):**
+1. Validate signature → IP allowlist → look up PaymentGroup → amount match → postback to PayFast → INSERT PaymentEvent (idempotency key: SHA-256 itnHash) → state transition under CAS → return 200.
+2. The `PaymentEvent` table is the audit log + idempotency primitive. Replays fail the unique constraint and are acked as 200 no-ops.
+3. State transitions use optimistic CAS (`updateMany` with status guard) — no row locks held.
+4. **CANCELLED-stays-CANCELLED rule**: a late COMPLETED ITN never resurrects a cancelled order. Sets `PaymentGroup.status = RECONCILE_REQUIRED` for manual ops handling.
+
+**Source IP allowlist** (`PayfastIpAllowlistService`):
+- DNS-resolved at boot from `PAYFAST_NOTIFY_HOSTS`, refreshed hourly.
+- Fail-closed: empty allowlist rejects all ITNs.
+- Dev bypass: `PAYFAST_SKIP_IP_CHECK=true` (refused at boot if `NODE_ENV=production`).
+- IPv4-mapped IPv6 (`::ffff:1.2.3.4`) normalized before comparison.
+
+**Refund flow (`AdminOrdersService.requestRefund`):**
+- Synchronous on the admin side — calls PayFast, accumulates `Payment.refundedAmountInCents`, transitions Order status (`REFUND_REQUESTED` for partial; `REFUNDED` when cumulative = gross).
+- Refund ITN handling is confirmation-only — does NOT mutate `refundedAmountInCents` (already done synchronously).
+- **Refunds are sandbox-impossible**: PayFast rejects refund API calls in sandbox. Production smoke test required for first refund.
+
+**Trust proxy:** `app.set('trust proxy', N)` in `main.ts` from `PayfastConfig.trustProxy`. Defaults to 1 (Railway's edge hop). Override via `TRUST_PROXY` env var. Without correct config, `req.ip` is the LB's IP and the allowlist rejects everything.
 
 ### Cursor-based pagination
 
@@ -186,11 +220,11 @@ src/
     image/image.service.ts         — Image management
 
   order/
-    order.module.ts                — Registers all sub-features, contract bindings
+    order.module.ts                — Registers sub-features, imports PaymentsModule
     contracts/
       payment-contract.ts          — IPaymentService interface + PAYMENT_SERVICE token
       shipping-contract.ts         — IShippingService interface + SHIPPING_SERVICE token
-      stubs/                       — Deterministic stub implementations
+      stubs/                       — Deterministic stub implementations (Shipping only now)
     cart/
       cart.service.ts              — Cart CRUD, stock reservation
       stock.ts                     — reserveStock/releaseStock (raw SQL)
@@ -202,21 +236,39 @@ src/
     buyer-orders/
       buyer-orders.service.ts      — List, detail, buyer cancel
     admin-orders/
-      admin-orders.service.ts      — Cross-store list, detail, force-confirm, cancel, edit, refund stub
+      admin-orders.service.ts      — Cross-store list, detail, force-confirm, cancel, edit, real refund
     cron/
-      order-cleanup.service.ts     — @Cron every 5 min: stale cart release + pending order expiry
+      order-cleanup.service.ts     — @Cron every 5 min: stale carts, pending expiry, summary log
     wishlist/
       wishlist.service.ts          — Add, remove, list with product details
     address/
       address.service.ts           — Buyer address CRUD (soft delete)
-    dto/                           — All order-related DTOs
+    dto/                           — All order-related DTOs (incl. admin-refund-order.dto.ts)
     utils/
       order-number.ts              — YV-YYYY-XXXXXX generator
       phone.ts                     — SA phone normalization (+27...)
 
+  payments/
+    payments.module.ts             — Registers controllers + services
+    payments.service.ts            — IPaymentService impl: initializePayment, refundPayment
+    payments.controller.ts         — POST /payments/notify (public ITN webhook)
+    payments-admin.controller.ts   — GET /admin/payments/groups/:id/reconcile (admin-only)
+    payments-notify.service.ts     — Four-step ITN validation, state machine, CAS apply
+    payments-reconcile.service.ts  — Read-only reconciliation tool
+    payfast/
+      payfast-config.ts            — Env validation at boot, sandbox toggle, host list
+      payfast-signature.service.ts — signFormPayload, signApiRequest, verifyItnSignature, buildPostbackBody
+      payfast-client.service.ts    — verifyItnPostback, createRefund, fetchTransactionHistory
+      payfast-ip-allowlist.service.ts — DNS-resolved IP allowlist, hourly refresh, fail-closed
+      payfast-types.ts             — ItnPayload, status mapping (COMPLETE → COMPLETED)
+      url-encode.ts                — phpUrlencode() helper, byte-matches PHP urlencode
+      field-order.ts               — Canonical FORM_FIELD_ORDER from PayFast SDK
+
 docs/
   order-module/
     order-module-foundation.md     — ALL phase decisions, schema changes, architecture
+  payments-module/
+    payments-module-foundation.md  — PayFast integration design, schema, phase plan
 ```
 
 ## Database schema (key models)
@@ -229,8 +281,9 @@ Read `prisma/schema.prisma` for the full schema. Key models:
 - **Cart/CartItem** — One cart per user, lazy-created on first add
 - **Order** — One per store per checkout. Status: PENDING→CONFIRMED→PROCESSING→READY_FOR_DISPATCH→DISPATCHED→IN_TRANSIT→DELIVERED
 - **OrderItem** — Snapshot of product details at order time
-- **PaymentGroup** — One PayFast transaction, covers N orders. Holds shippingInCents.
-- **Payment** — Per-order slice with commission math. One-to-one with Order.
+- **PaymentGroup** — One PayFast transaction, covers N orders. Holds shippingInCents. Status: PENDING→COMPLETED|FAILED|CANCELLED, COMPLETED→PARTIALLY_REFUNDED|REFUNDED, plus RECONCILE_REQUIRED terminal.
+- **Payment** — Per-order slice with commission math. One-to-one with Order. `refundedAmountInCents` accumulates per partial refund.
+- **PaymentEvent** — Audit log of every received ITN. `itnHash` unique constraint enforces idempotency. `transactionType: PAYMENT | REFUND`.
 - **Address** — Buyer delivery addresses, soft delete, max 4, one default
 - **WishlistItem** — Product-level bookmark, @@unique([userId, productId])
 
@@ -240,9 +293,11 @@ Read `prisma/schema.prisma` for the full schema. Key models:
 - **No e2e tests** — only unit tests exist. `test/` directory has config but no test files.
 - **Pre-existing TS2502 errors** in spec files (address, cart, checkout, cron) from `$transaction` mock pattern. These don't affect test execution — Jest uses ts-jest which is more lenient.
 - **No rate limiting per-endpoint** — only global throttle (100/60s).
-- **Payments and Shipping are stubs** — `PaymentStubService` and `ShippingStubService` return deterministic fake data. Real integrations not yet built.
+- **Shipping is a stub** — `ShippingStubService` returns deterministic fake data. Real Courier Guy integration not yet built. (Payments is real as of this session.)
+- **PayFast refunds are sandbox-impossible** — PayFast's API rejects refunds in test mode. End-to-end refund flow only verifiable in production. Signature/payload structure is fixture-tested.
+- **PayFast end-to-end smoke test pending** — Phase 3+4 sandbox checkout (form submit → PayFast page → return → ITN delivered → order CONFIRMED) requires manual verification with ngrok.
+- **Refund-ITN field detection is heuristic** — we detect refund ITNs via `transaction_type === 'refund'`. If PayFast uses a different field name, refund ITNs are processed as initial-payment ITNs and rejected. First production refund will reveal the actual field.
 - **Guest account claim has no email verification** — stubbed with `emailVerified: true`. Needs Notifications module.
-- **Refund is a stub** — `POST /admin/orders/:orderId/refund` only sets `REFUND_REQUESTED` status. Real PayFast refund API call deferred to Payments module.
 - **No image upload** — ProductImage stores URLs, actual upload mechanism not implemented.
 - **noImplicitAny: false** in tsconfig — some untyped code exists (controller `@Req() req: any`).
 
@@ -263,10 +318,23 @@ The order module is built in 10 phases. All decisions documented in `docs/order-
 | 9 | Wishlist | Complete |
 | 10 | Consolidated Testing | Complete |
 
+## Payments module phase status
+
+The payments module is built in 6 phases. All decisions documented in `docs/payments-module/payments-module-foundation.md`.
+
+| Phase | Name | Status |
+|-------|------|--------|
+| 1 | Foundation (schema, scaffold, env config) | Complete |
+| 2 | Signature primitives (phpUrlencode, signing service) | Complete |
+| 3 | Real `initializePayment` + frontend contract change | Complete |
+| 4 | ITN webhook (allowlist, notify, controller, trust-proxy) | Complete |
+| 5 | Refund API (REST client, admin wiring, refund-ITN handling) | Complete |
+| 6 | Reconciliation tooling + cleanup-cron summary | Complete |
+
 ## Commands
 
 ```bash
-npx jest --no-coverage              # Run all tests (~2s, 246 tests)
+npx jest --no-coverage              # Run all tests (~2s, 480 tests, 26 suites)
 npx jest --testPathPatterns="cart"   # Run tests matching pattern
 npx tsc --noEmit                    # Type check (expect TS2502 in some specs — harmless)
 npx prisma generate                 # Regenerate Prisma client after schema changes
