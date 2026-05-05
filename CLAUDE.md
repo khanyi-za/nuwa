@@ -42,6 +42,7 @@ The contract/stub pattern (`PAYMENT_SERVICE`, `SHIPPING_SERVICE` tokens) lets th
 
 ### Global middleware and guards
 
+- **CORS** (global, `main.ts`): `app.enableCors(buildCorsOptions())` from `src/cors.config.ts`. Env-driven `CORS_ORIGINS` allowlist (comma-separated). Production fails to boot if `CORS_ORIGINS` is empty. `credentials: true` to support the refresh-token cookie. PayFast ITN webhook is server-to-server and unaffected.
 - **ValidationPipe** (global, `main.ts`): `whitelist: true`, `forbidNonWhitelisted: true`, `transform: true`. DTOs use class-validator decorators.
 - **JwtAuthGuard** (global APP_GUARD): Every route requires JWT unless decorated with `@Public()`. Handles `TokenExpiredError` vs `JsonWebTokenError` distinctly for frontend silent-refresh flow.
 - **ThrottlerGuard** (global APP_GUARD): 100 requests per 60 seconds.
@@ -289,7 +290,6 @@ Read `prisma/schema.prisma` for the full schema. Key models:
 
 ## Constraints and limitations
 
-- **No CORS config** — needs to be added before frontend integration.
 - **No e2e tests** — only unit tests exist. `test/` directory has config but no test files.
 - **Pre-existing TS2502 errors** in spec files (address, cart, checkout, cron) from `$transaction` mock pattern. These don't affect test execution — Jest uses ts-jest which is more lenient.
 - **No rate limiting per-endpoint** — only global throttle (100/60s).
@@ -334,13 +334,91 @@ The payments module is built in 6 phases. All decisions documented in `docs/paym
 ## Commands
 
 ```bash
-npx jest --no-coverage              # Run all tests (~2s, 480 tests, 26 suites)
+npx jest --no-coverage              # Run all tests (~2.6s, 494 tests, 27 suites)
 npx jest --testPathPatterns="cart"   # Run tests matching pattern
 npx tsc --noEmit                    # Type check (expect TS2502 in some specs — harmless)
 npx prisma generate                 # Regenerate Prisma client after schema changes
 npx prisma migrate dev              # Apply pending migrations
 npm run start:dev                   # Dev server with hot reload
 ```
+
+## PayFast sandbox smoke test
+
+Manual end-to-end verification of Phases 3 + 4. Run this once before starting any module that depends on Payments (Notifications, Shipping), or after any change to signature/notify code. Catches wire-format bugs that unit tests can't reach.
+
+### Prerequisites
+
+- PayFast public sandbox creds (also documented in `.env.example`):
+  ```
+  PAYFAST_MERCHANT_ID=10000100
+  PAYFAST_MERCHANT_KEY=46f0cd694581a
+  PAYFAST_PASSPHRASE=jt7NOE43FZPn
+  PAYFAST_SANDBOX=true
+  ```
+- ngrok or equivalent tunnel exposing local API publicly
+- Local dev DB with at least one merchant + product seeded
+
+### Setup
+
+In `.env`:
+```
+PAYFAST_NOTIFY_URL=https://<your-ngrok-id>.ngrok.io/payments/notify
+PAYFAST_SKIP_IP_CHECK=true   # ngrok rewrites the source IP
+```
+
+Start tunnel and dev server:
+```bash
+ngrok http 3000
+npm run start:dev
+```
+
+### Steps
+
+1. Run a checkout via the frontend (or curl-simulate `POST /checkout/commit` with a valid cart).
+2. Confirm the response payload has shape `{ payfast: { actionUrl, fields }, paymentGroupId, mPaymentId, orderNumbers }`.
+3. Build an HTML form from `payfast.fields` (or use the frontend's auto-submit page) and POST it to `actionUrl`.
+4. Complete the checkout on PayFast's hosted page using the sandbox card flow.
+5. PayFast redirects the buyer to `PAYFAST_RETURN_URL` AND posts an ITN to `PAYFAST_NOTIFY_URL`.
+
+### Verify
+
+In the dev server logs, confirm:
+- One `payment_cleanup_summary` line per cron tick (`pendingCount` should drop after the ITN)
+- No "ITN rejected" warnings (signature, IP, amount, postback)
+
+In the database:
+```sql
+SELECT id, status, "pfPaymentId", "paidAt" FROM payment_groups
+  WHERE "mPaymentId" = '<the m_payment_id from the response>';
+-- Expect: status=COMPLETED, pfPaymentId set, paidAt populated
+
+SELECT id, status FROM orders
+  WHERE id = ANY ((SELECT array_agg("orderId") FROM payments WHERE "paymentGroupId" = '<pg-id>'));
+-- Expect: all status=CONFIRMED
+
+SELECT "transactionType", status, processed, "processError" FROM payment_events
+  WHERE "paymentGroupId" = '<pg-id>';
+-- Expect: one row, transactionType=PAYMENT, status=COMPLETED, processed=true, processError=null
+```
+
+### Common failure modes
+
+| Symptom | Likely cause |
+|---|---|
+| All ITNs rejected, "source IP not in allowlist" | `PAYFAST_SKIP_IP_CHECK` not set, or `TRUST_PROXY` mismatch |
+| All ITNs rejected, "invalid signature" | Passphrase mismatch, or `phpUrlencode` regression |
+| Postback returns INVALID | Body reconstruction lost a field — verify `buildPostbackBody` against received payload |
+| `Required env var PAYFAST_*` at boot | Missing variable — see `.env.example` |
+| No ITN ever arrives | ngrok URL incorrect, or PayFast notify URL not set |
+
+### Refund flow (production-only)
+
+PayFast's REST refund API rejects sandbox calls — `PayfastClient.createRefund` logs a warning and the call returns 400-shaped errors. Refund flow is verifiable only against real merchant credentials in production. Do this manually on the first real refund:
+
+1. `POST /admin/orders/:orderId/refund` with `{ amountInCents, reason, accType: 'savings' | 'current' }`.
+2. Confirm 200 response with `{ refundId, status: 'PROCESSING', cumulativeRefundedInCents }`.
+3. Watch for the refund ITN — verify it arrives and the assumed field name (`transaction_type === 'refund'`) actually matches PayFast's payload. If not, adjust `PaymentsNotifyService.handle()` accordingly.
+4. Verify `PaymentGroup.status` transitions COMPLETED → PARTIALLY_REFUNDED or REFUNDED based on cumulative.
 
 ## Session Protocol
 
