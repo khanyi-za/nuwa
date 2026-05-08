@@ -6,18 +6,13 @@ import {
   Param,
   Patch,
   Post,
-  UseGuards,
 } from '@nestjs/common';
-import { RolesGuard } from '../../auth/guards/roles.guard';
-import { Roles } from '../../auth/decorators/roles.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
-import { UserRole } from '@prisma/client';
 import { CollectionService } from './collection.service';
 import { CreateCollectionDto } from '../dto/create-collection.dto';
 import { UpdateCollectionDto } from '../dto/update-collection.dto';
 
-@UseGuards(RolesGuard)
-@Roles(UserRole.MERCHANT)
+// Authz handled service-side via canManageStore + store-status check.
 @Controller('stores/:storeId/collections')
 export class CollectionController {
   constructor(private readonly collectionService: CollectionService) {}

@@ -119,9 +119,10 @@ export class ImageService {
     await this.assertCanMutateProducts(userId, storeId);
     await this.assertProductBelongsToStore(productId, storeId);
 
+    // Load full scalar shape so the no-op early-return matches the success
+    // path's prisma.productImage.update() result.
     const image = await this.prisma.productImage.findUnique({
       where: { id: imageId },
-      select: { id: true, productId: true, isPrimary: true },
     });
     if (!image || image.productId !== productId) {
       throw new NotFoundException('Image not found');

@@ -8,10 +8,12 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import { CreateStoreDto } from './dto/create-store.dto';
 import { UpdateStoreDto } from './dto/update-store.dto';
 import { ListPendingStoresDto } from './dto/list-pending-stores.dto';
@@ -23,6 +25,7 @@ import { InviteEmployeeDto } from './dto/invite-employee.dto';
 import { StoreService } from './store.service';
 
 @Controller('stores')
+@UseGuards(RolesGuard)
 export class StoreController {
   constructor(private readonly storeService: StoreService) {}
 

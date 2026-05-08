@@ -9,20 +9,17 @@ import {
   Query,
   HttpCode,
   HttpStatus,
-  UseGuards,
 } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
 import { ProductService } from './product.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ListProductsDto } from './dto/list-products.dto';
-import { RolesGuard } from '../auth/guards/roles.guard';
-import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
+// Authz: service-layer canManageStore() (owner OR active accepted employee) +
+// store-status check are the actual gate. No @Roles guard here so employees
+// (who retain role=BUYER after accepting an invite) can manage products.
 @Controller('stores/:storeId/products')
-@UseGuards(RolesGuard)
-@Roles(UserRole.MERCHANT)
 export class ProductController {
   constructor(private readonly productService: ProductService) {}
 

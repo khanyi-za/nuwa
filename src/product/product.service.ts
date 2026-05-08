@@ -98,7 +98,10 @@ export class ProductService {
     }
 
     if (product.status === ProductStatus.ACTIVE) {
-      return product;
+      // Strip the validation extras so the no-op response shape matches the
+      // success path (prisma.product.update with no include/select).
+      const { _count, variants, ...scalar } = product;
+      return scalar;
     }
 
     if (product.status === ProductStatus.ARCHIVED) {
@@ -150,9 +153,10 @@ export class ProductService {
   async archive(userId: string, storeId: string, productId: string) {
     await this.assertCanMutateProducts(userId, storeId);
 
+    // Load full scalar shape so the no-op early-return matches the success
+    // path's prisma.product.update() result.
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
-      select: { id: true, storeId: true, status: true },
     });
     if (!product || product.storeId !== storeId) {
       throw new NotFoundException('Product not found');

@@ -141,7 +141,7 @@ POST /auth/register
 
 ```json
 {
-  "message": "Registration successful. Please check your email to verify your account."
+  "message": "Account created. Please check your email to verify your account."
 }
 ```
 
@@ -149,7 +149,7 @@ POST /auth/register
 
 | Status | Message | Cause |
 |---|---|---|
-| `409 Conflict` | `"An account with this email already exists"` | Email is taken |
+| `409 Conflict` | `"Email already registered"` | Email is taken |
 | `400 Bad Request` | validation errors array | Invalid input (bad email, weak password, missing fields) |
 | `429 Too Many Requests` | rate limit error | More than 3 requests/minute from this IP |
 
@@ -280,8 +280,8 @@ Same shape as verify-email success. Store tokens and redirect user based on `rol
 |---|---|---|
 | `401 Unauthorized` | `"Invalid credentials"` | Wrong email OR wrong password (intentionally the same message) |
 | `403 Forbidden` | `"Please verify your email before logging in"` | Account is `PENDING_VERIFICATION` |
-| `403 Forbidden` | `"Your account has been suspended. Please contact support."` | Account is `SUSPENDED` |
-| `403 Forbidden` | `"Your account has been deactivated."` | Account is `DEACTIVATED` |
+| `403 Forbidden` | `"Your account has been suspended. Contact support."` | Account is `SUSPENDED` |
+| `403 Forbidden` | `"This account has been deactivated."` | Account is `DEACTIVATED` |
 | `429 Too Many Requests` | rate limit error | More than 5 requests/minute |
 
 **Important:** The backend intentionally returns the same `"Invalid credentials"` message for both wrong email and wrong password. Do not try to distinguish them — display that message as-is.
@@ -334,7 +334,7 @@ Same shape as login. Update the access token in memory and set the new refresh t
 | Status | Message | Cause |
 |---|---|---|
 | `401 Unauthorized` | `"Invalid or expired refresh token"` | Token not found, revoked, or expired |
-| `403 Forbidden` | `"Your account has been suspended..."` | Account status changed to non-ACTIVE since token was issued |
+| `403 Forbidden` | `"Account is not active. Please log in again."` | Account status changed to non-ACTIVE since token was issued |
 | `429 Too Many Requests` | rate limit error | More than 10 requests/minute |
 
 On any error from this endpoint → clear all auth state and redirect to `/login`.
@@ -445,7 +445,7 @@ This is returned in all cases — even if the email doesn't exist.
 
 ```json
 {
-  "message": "If an account with that email exists, a password reset link has been sent."
+  "message": "If an account with that email exists, we've sent a password reset link."
 }
 ```
 
@@ -544,18 +544,20 @@ This response includes more fields than the login/verify-email response, includi
 }
 ```
 
-The `store` field reflects the user's current position in the merchant onboarding lifecycle:
+The `store` field reflects the user's current position in the merchant onboarding lifecycle. The simplified examples below show only `id` and `status` for routing clarity — the full shape also includes `displayName`, `slug`, `logoUrl`, and `rejectionReason` (see the field table below):
 
 ```json
-"store": null                              // BUYER — no store application started
-"store": { "id": "clxyz456", "status": "DRAFT" }            // started application, not submitted
-"store": { "id": "clxyz456", "status": "PENDING_REVIEW" }   // submitted, awaiting admin approval
-"store": { "id": "clxyz456", "status": "ACTIVE" }           // approved — full merchant access
-"store": { "id": "clxyz456", "status": "SUSPENDED" }        // store suspended by admin
-"store": { "id": "clxyz456", "status": "CLOSED" }           // store closed
+"store": null                                                // BUYER — no store application started
+"store": { "id": "clxyz456", "status": "DRAFT" }             // started application, not submitted
+"store": { "id": "clxyz456", "status": "PENDING_REVIEW" }    // submitted, awaiting first admin review
+"store": { "id": "clxyz456", "status": "APPROVED" }          // approved — full merchant dashboard access, not yet live to buyers
+"store": { "id": "clxyz456", "status": "PENDING_GO_LIVE" }   // go-live request submitted, awaiting second admin review
+"store": { "id": "clxyz456", "status": "ACTIVE" }            // store is live and visible to buyers
+"store": { "id": "clxyz456", "status": "SUSPENDED" }         // store suspended by admin
+"store": { "id": "clxyz456", "status": "CLOSED" }            // store closed
 ```
 
-Use `user.store?.status` to determine which screen to show on any session, any device.
+Use `user.store?.status` together with `user.role` and `user.store?.rejectionReason` to determine which screen to show on any session, any device.
 
 **Full user profile shape**
 
@@ -572,7 +574,7 @@ Use `user.store?.status` to determine which screen to show on any session, any d
 | `phoneVerified` | boolean | |
 | `accountStatus` | `"ACTIVE"` \| `"SUSPENDED"` \| `"DEACTIVATED"` \| `"PENDING_VERIFICATION"` | |
 | `createdAt` | ISO 8601 datetime string | |
-| `store` | `{ id: string, status: StoreStatus }` \| `null` | `null` if no store application exists |
+| `store` | `{ id, displayName, slug, status, logoUrl, rejectionReason } \| null` | `null` if no store application exists. `rejectionReason` is non-null when an admin has rejected an initial review or go-live request — display it prominently so the merchant knows what to fix. See `auth-module-api.md` for exact field types. |
 
 **Error responses**
 
@@ -595,7 +597,7 @@ This endpoint uses the global rate limit (100 req/60s) — no stricter per-route
 ```
 User fills form → POST /auth/register
        │
-       ├─ 409 → "An account with this email already exists" → show inline error
+       ├─ 409 → "Email already registered" → show inline error
        ├─ 400 → show field-level validation errors
        └─ 201 → show "Check your email" screen
                      │
@@ -649,7 +651,7 @@ User fills login form → POST /auth/login
        ├─ 403 "Your account has been suspended..."
        │      → show the message returned by the backend
        │
-       ├─ 403 "Your account has been deactivated."
+       ├─ 403 "This account has been deactivated."
        │      → show the message returned by the backend
        │
        └─ 200 → store accessToken in memory

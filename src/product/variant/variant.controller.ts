@@ -6,18 +6,13 @@ import {
   Param,
   Patch,
   Post,
-  UseGuards,
 } from '@nestjs/common';
-import { RolesGuard } from '../../auth/guards/roles.guard';
-import { Roles } from '../../auth/decorators/roles.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
-import { UserRole } from '@prisma/client';
 import { VariantService } from './variant.service';
 import { CreateVariantDto } from '../dto/create-variant.dto';
 import { UpdateVariantDto } from '../dto/update-variant.dto';
 
-@UseGuards(RolesGuard)
-@Roles(UserRole.MERCHANT)
+// Authz handled service-side via canManageStore + store-status check.
 @Controller('stores/:storeId/products/:productId/variants')
 export class VariantController {
   constructor(private readonly variantService: VariantService) {}
