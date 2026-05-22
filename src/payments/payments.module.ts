@@ -31,6 +31,6 @@ import { PaymentsReconcileService } from './payments-reconcile.service';
     PaymentsNotifyService,
     PaymentsReconcileService,
   ],
-  exports: [PayfastConfig, PayfastSignatureService],
+  exports: [PayfastConfig, PayfastSignatureService, PayfastClient],
 })
 export class PaymentsModule {}

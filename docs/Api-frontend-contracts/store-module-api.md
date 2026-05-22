@@ -95,6 +95,14 @@ Two distinct permission levels exist within the store module:
 
 ---
 
+## Cloudinary URL constraint
+
+All image-URL fields on this module's mutation endpoints (`logoUrl`, `bannerUrl` in `UpdateStoreDto`) must point at YIIVA's configured Cloudinary cloud. The backend validates the `https://res.cloudinary.com/<cloudName>/` prefix on every submission and returns `400` with `"Image URL must be uploaded to YIIVA Cloudinary"` if a different domain is submitted.
+
+The upload flow is: frontend fetches a signed payload from `POST /uploads/cloudinary-signature`, uploads directly to Cloudinary, then sends the resulting `secure_url` back via `PATCH /stores/:id`. See [`uploads-module-api.md`](./uploads-module-api.md) for the full signing-endpoint contract.
+
+---
+
 ## Shared Response Shapes
 
 ### Store Object
@@ -274,8 +282,8 @@ If the store ID does not exist, the response is `403` (not `404`) — this preve
 | `description` | string | max 500 chars |
 | `story` | string | max 2000 chars |
 | `websiteUrl` | string | valid URL |
-| `logoUrl` | string | valid URL — upload image to cloud storage first, pass the resulting URL here |
-| `bannerUrl` | string | valid URL — same as above |
+| `logoUrl` | string | valid URL — must be a Cloudinary URL from YIIVA's configured cloud (see [Cloudinary URL constraint](#cloudinary-url-constraint)). Upload via the `store_logo` context first, then pass the returned `secure_url` here. |
+| `bannerUrl` | string | valid URL — must be a Cloudinary URL from YIIVA's configured cloud. Upload via the `store_banner` context first, then pass the returned `secure_url` here. |
 | `contactEmail` | string | valid email |
 | `contactPhone` | string | — |
 | `businessRegNo` | string | — |
@@ -836,7 +844,9 @@ Display this field prominently on the merchant dashboard when it is non-null so 
 
 ### Image and media fields (logoUrl, bannerUrl)
 
-The backend does not handle file uploads. `logoUrl` and `bannerUrl` are plain URL strings. The frontend is responsible for uploading images to cloud storage first and then passing the resulting URL to `PATCH /stores/:id`.
+The backend does not handle file uploads. `logoUrl` and `bannerUrl` are plain URL strings hosted on **Cloudinary**. The frontend uploads via the signed-direct-upload pattern: fetch a signature from `POST /uploads/cloudinary-signature`, upload the file to Cloudinary, then pass the returned `secure_url` to `PATCH /stores/:id`.
+
+The backend validates that the submitted URL begins with `https://res.cloudinary.com/<cloudName>/` — see [Cloudinary URL constraint](#cloudinary-url-constraint) above. See [`uploads-module-api.md`](./uploads-module-api.md) for the signing-endpoint contract, [`store-frontend-flows.md` §7.3](./store-frontend-flows.md#73-image-upload--cloudinary-signed-direct-upload) for the frontend UX pattern.
 
 ### Employee invite — full sequence
 

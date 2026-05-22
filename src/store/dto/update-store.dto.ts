@@ -7,6 +7,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { IsCloudinaryUrl } from '../../uploads/validators/is-cloudinary-url.validator';
 
 export class UpdateStoreDto {
   // Brand identity
@@ -39,13 +40,16 @@ export class UpdateStoreDto {
   @IsUrl()
   websiteUrl?: string;
 
-  // Visual branding — URLs provided by frontend after uploading to cloud storage
+  // Visual branding — URLs returned by Cloudinary after a signed-direct upload.
+  // @IsUrl() validates the URL shape; @IsCloudinaryUrl() enforces our cloud prefix.
   @IsOptional()
   @IsUrl()
+  @IsCloudinaryUrl()
   logoUrl?: string;
 
   @IsOptional()
   @IsUrl()
+  @IsCloudinaryUrl()
   bannerUrl?: string;
 
   // Contact

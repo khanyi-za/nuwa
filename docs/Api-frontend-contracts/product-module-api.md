@@ -118,6 +118,24 @@ The `:storeId` in all merchant paths is the store's **ID** (not slug). Use `GET 
 
 ---
 
+## Cloudinary URL constraint
+
+All image-URL fields on this module's mutation endpoints must point at YIIVA's configured Cloudinary cloud. The backend validates the `https://res.cloudinary.com/<cloudName>/` prefix on every submission and returns `400` with `"Image URL must be uploaded to YIIVA Cloudinary"` if a different domain is submitted.
+
+Affected fields:
+
+| Endpoint | Field |
+|---|---|
+| `POST /stores/:storeId/products/:productId/images` | `url` |
+| `POST /stores/:storeId/collections` | `imageUrl` |
+| `PATCH /stores/:storeId/collections/:collectionId` | `imageUrl` |
+| `POST /categories` (admin) | `imageUrl` |
+| `PATCH /categories/:id` (admin) | `imageUrl` |
+
+The upload flow is: frontend fetches a signed payload from `POST /uploads/cloudinary-signature` (using the appropriate `uploadContext` — `product_image`, `product_video`, `collection_image`, or `category_image`), uploads directly to Cloudinary, then sends the resulting `secure_url` back to YIIVA. See [`uploads-module-api.md`](./uploads-module-api.md) for the full signing-endpoint contract.
+
+---
+
 ## Shared Response Shapes
 
 ### Product Object (full — returned by `GET /stores/:storeId/products/:id`)
@@ -513,7 +531,7 @@ Adds an image or video to the product. The first image added is automatically se
 
 | Field | Type | Required | Rules |
 |---|---|---|---|
-| `url` | string | yes | valid URL — upload to cloud storage first |
+| `url` | string | yes | valid URL — must be a Cloudinary URL from YIIVA's configured cloud (see [Cloudinary URL constraint](#cloudinary-url-constraint)). Upload via the `product_image` or `product_video` context first. |
 | `altText` | string | no | max 200 chars |
 | `isPrimary` | boolean | no | if true, demotes any existing primary image |
 | `mediaType` | `"IMAGE"` \| `"VIDEO"` | no | default `"IMAGE"` |
@@ -727,7 +745,7 @@ Creates a new collection for the store.
 |---|---|---|---|
 | `name` | string | yes | 2–80 chars |
 | `description` | string | no | max 500 chars |
-| `imageUrl` | string | no | valid URL |
+| `imageUrl` | string | no | valid URL — must be a Cloudinary URL via the `collection_image` context (see [Cloudinary URL constraint](#cloudinary-url-constraint)) |
 | `sortOrder` | integer | no | min 0, default 0 |
 
 **Success — `201`** — Returns the full StoreCollection object `{ id, storeId, name, slug, description, imageUrl, sortOrder, createdAt, updatedAt }`.
@@ -751,7 +769,7 @@ Updates a collection. All fields optional. The slug is not re-generated when the
 |---|---|---|
 | `name` | string | 2–80 chars |
 | `description` | string | max 500 chars |
-| `imageUrl` | string | valid URL |
+| `imageUrl` | string | valid URL — must be a Cloudinary URL via the `collection_image` context (see [Cloudinary URL constraint](#cloudinary-url-constraint)) |
 | `sortOrder` | integer | min 0 |
 
 **Success — `200`** — Returns the updated StoreCollection object.
@@ -884,7 +902,7 @@ Creates a new platform category. Slug is auto-generated from the name. Optionall
 |---|---|---|---|
 | `name` | string | yes | 2–80 chars |
 | `description` | string | no | max 500 chars |
-| `imageUrl` | string | no | valid URL |
+| `imageUrl` | string | no | valid URL — must be a Cloudinary URL via the `category_image` context (see [Cloudinary URL constraint](#cloudinary-url-constraint)) |
 | `parentId` | string | no | ID of parent category |
 | `sortOrder` | integer | no | min 0, default 0 |
 
@@ -911,7 +929,7 @@ Updates a category. All fields optional. Setting `parentId: null` moves the cate
 |---|---|---|
 | `name` | string | 2–80 chars |
 | `description` | string | max 500 chars |
-| `imageUrl` | string | valid URL |
+| `imageUrl` | string | valid URL — must be a Cloudinary URL via the `category_image` context (see [Cloudinary URL constraint](#cloudinary-url-constraint)) |
 | `parentId` | string \| null | null = make root; string = new parent ID |
 | `sortOrder` | integer | min 0 |
 

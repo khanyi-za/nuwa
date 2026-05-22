@@ -1,4 +1,5 @@
 import { IsInt, IsOptional, IsString, IsUrl, Length, Min } from 'class-validator';
+import { IsCloudinaryUrl } from '../../uploads/validators/is-cloudinary-url.validator';
 
 export class CreateCollectionDto {
   @IsString()
@@ -12,6 +13,7 @@ export class CreateCollectionDto {
 
   @IsOptional()
   @IsUrl()
+  @IsCloudinaryUrl()
   imageUrl?: string;
 
   @IsOptional()

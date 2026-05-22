@@ -42,7 +42,9 @@ import { ShippingStubService } from './contracts/stubs/shipping-stub.service';
  *
  * - PAYMENT_SERVICE: bound to the real `PaymentsService` (Phase 3 onward).
  *   PaymentsModule is imported so PaymentsService's deps (PayfastConfig,
- *   PayfastSignatureService) resolve from PaymentsModule's exports.
+ *   PayfastSignatureService, PayfastClient) resolve from PaymentsModule's
+ *   exports. All three must stay exported — `useClass` constructs a fresh
+ *   PaymentsService here, so every constructor dep must be visible.
  * - SHIPPING_SERVICE: still on `ShippingStubService` until Shipping module ships.
  */
 @Module({

@@ -1124,18 +1124,46 @@ Action: [ Cancel ]   [ Delete category ]
 
 ## 11. Edge cases & coordination
 
-### 11.1 Image upload — cross-reference to store flows §7.3
+### 11.1 Image upload — Cloudinary signed direct upload
 
-The image upload pattern is identical to the one documented in [`store-frontend-flows.md` §7.3](./store-frontend-flows.md#73-image-upload--cloud-storage-first-patch-the-url-second): frontend uploads to cloud storage first, then sends the resulting URL to `POST /stores/:storeId/products/:productId/images` (or `PATCH /stores/:storeId/products/:id` for `logoUrl`/`bannerUrl` on the store).
+The image/video upload pattern is identical to the one documented in [`store-frontend-flows.md` §7.3](./store-frontend-flows.md#73-image-upload--cloudinary-signed-direct-upload): frontend fetches a backend-issued Cloudinary signature, uploads the file directly to Cloudinary, then PATCHes the resulting `secure_url` to YIIVA (`POST /stores/:storeId/products/:productId/images` for product images / videos). See [`uploads-module-api.md`](./uploads-module-api.md) for the full signing-endpoint contract.
 
-**Product-specific recommendations:**
+**Upload contexts for the product editor:**
 
-| Field | Recommended client-side validation |
+| Field type | Upload context value | Cloudinary preset | Resource type |
+|---|---|---|---|
+| Product image (mediaType: IMAGE) | `product_image` | `product_image` | image |
+| Product video (mediaType: VIDEO) | `product_video` | `product_video` | video |
+| Collection cover (from §4.7 picker) | `collection_image` | `collection_image` | image |
+
+The signing-endpoint request body includes both `storeId` and `productId` (or `collectionId`) so the backend can verify the user can manage the relevant store + that the product/collection belongs to it.
+
+**Product-specific client-side validation (soft and hard):**
+
+| Field | Recommended dimensions (soft) | File limits (hard) |
+|---|---|---|
+| Product image | Square preferred, at least 800×800 (soft warning if smaller) | max 10 MB, JPG/PNG/WebP |
+| Product video | — (no dimension recommendation) | max 60 seconds (informational; not enforced), max 50 MB, MP4/WebM |
+
+Same soft/hard rule as the store flow: dimensions are guidance; file size and format are enforced by the Cloudinary preset (and the frontend should surface a clean error before upload to avoid wasted bytes on mobile).
+
+**Display transformations for product surfaces:**
+
+| Surface | Transformation string |
 |---|---|
-| Product images | Min 800×800 (square preferred but not enforced), max 10MB, JPG/PNG/WebP |
-| Product videos (`mediaType: VIDEO`) | Max 60 seconds, max 50MB, MP4/WebM |
+| Inventory-table thumbnail (200×200) | `c_fill,w_200,h_200,q_auto,f_auto` |
+| Standard product card thumbnail (500×500) | `c_fill,w_500,h_500,q_auto,f_auto` |
+| Product editor preview (≤800px) | `c_limit,w_800,h_800,q_auto,f_auto` |
+| Product detail page display (≤1200px) | `c_limit,w_1200,h_1200,q_auto,f_auto` |
 
-These are not enforced by the backend (which just stores the URL), so the frontend is the gate.
+Use `<CldImage>` from `next-cloudinary` — it applies `f_auto` + `q_auto` automatically and integrates with Next.js's `<Image>` for responsive `srcSet` generation. Full transformation reference in [`../cloudinary-setup.md` §8](../cloudinary-setup.md#8-transformation-url-patterns).
+
+**Video specifics:**
+
+- **Upload endpoint:** the signing endpoint returns `resourceType: "video"` for `product_video` contexts. The frontend then POSTs to `https://api.cloudinary.com/v1_1/<cloudName>/video/upload` (different path from image uploads).
+- **Display via `<CldVideoPlayer>`:** Cloudinary's hosted player supports adaptive bitrate streaming, captions, and event listeners. Production-grade; recommended over rolling your own with HTML5 `<video>`.
+- **Video thumbnail extraction (for inventory previews):** request the video's `public_id` as an *image* with a `so_<seconds>` transformation to pick a frame: `/image/upload/so_2,w_500,h_500,c_fill/<videoPublicId>.jpg` grabs the frame at 2 seconds.
+- **Free-tier cost note:** video transformations bill **per delivered second of output**, not per render. Be conservative with how many transformation variants are applied to a single video. Cached derivatives reuse on subsequent requests (no re-billing), but each unique transformation is a fresh cost on first delivery.
 
 ### 11.2 Activation gate vs editor open — what's enabled when
 

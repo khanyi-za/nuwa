@@ -1,4 +1,5 @@
 import { IsString, IsOptional, IsUrl, IsInt, Min, Length } from 'class-validator';
+import { IsCloudinaryUrl } from '../../uploads/validators/is-cloudinary-url.validator';
 
 export class UpdateCategoryDto {
   @IsOptional()
@@ -13,6 +14,7 @@ export class UpdateCategoryDto {
 
   @IsOptional()
   @IsUrl()
+  @IsCloudinaryUrl()
   imageUrl?: string;
 
   @IsOptional()

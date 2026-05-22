@@ -1266,40 +1266,60 @@ When `/auth/me` returns the upgraded role + new `store.status`, smoothly transit
 
 The asymmetry between DRAFT and APPROVED is the most important UX subtlety in this module. **Surface it directly in the APPROVED rejection banner copy:** *"This message will go away when you request go-live again."* (See [§2.7](#27-final-review-waiting-state-and-go-live-rejection-recovery).)
 
-### 7.3 Image upload — cloud storage first, PATCH the URL second
+### 7.3 Image upload — Cloudinary signed direct upload
 
-**The backend does not handle file uploads.** `logoUrl` and `bannerUrl` are plain URL strings in the database. The frontend handles the entire upload flow against cloud storage (S3, Cloudinary, etc., per the project's chosen provider) and then sends the resulting URL to the backend.
+**The backend does not handle file uploads.** `logoUrl` and `bannerUrl` are plain URL strings in the database. YIIVA uses **Cloudinary** as the hosting provider; the frontend uploads files directly to Cloudinary after fetching a backend-issued signature, then sends the resulting `secure_url` to the backend.
 
-**Pattern:**
+**Recommended integration package:** [`next-cloudinary`](https://next.cloudinary.dev/) — provides `<CldUploadWidget>` for uploads and `<CldImage>` for responsive display with auto-format and auto-quality. See [`uploads-module-api.md`](./uploads-module-api.md) for the full signing-endpoint contract and [`../cloudinary-setup.md`](../cloudinary-setup.md) for operational config.
+
+**Pattern (signed direct upload):**
 
 ```
 1. User picks an image in the file input
-2. Frontend validates: file size, type, dimensions
-3. Frontend uploads to cloud storage (or to a Next.js API route that proxies to cloud storage)
-4. Cloud storage returns the public URL
-5. Frontend calls PATCH /stores/:id with { logoUrl: <url> } (or bannerUrl)
-6. Backend stores the URL
+2. Frontend validates: file size, type, dimensions (soft warnings for dimensions)
+3. Frontend calls POST /uploads/cloudinary-signature with the upload context
+   (e.g. { uploadContext: "store_logo", storeId: "..." })
+4. Backend verifies the user can manage the store, signs the upload, returns
+   { signature, timestamp, apiKey, cloudName, preset, folder, resourceType }
+5. Frontend POSTs the file + signed payload to Cloudinary
+   (https://api.cloudinary.com/v1_1/<cloudName>/image/upload)
+6. Cloudinary verifies the signature, applies preset constraints (file size/format),
+   stores the file, returns { secure_url, public_id, ... }
+7. Frontend calls PATCH /stores/:id with { logoUrl: <secure_url> } (or bannerUrl)
+8. Backend validates the URL prefix (https://res.cloudinary.com/<cloudName>/) and stores it
 ```
 
 **UX during this flow:**
 
 - Show an in-progress preview using `URL.createObjectURL(file)` while upload is in flight
 - Show upload progress (percentage or indeterminate) — uploads can be slow on mobile networks
-- On upload failure (network, file too large, invalid type) — surface a retry option
+- On upload failure (network, file too large, invalid type, signature expired) — surface a retry option. **Signature expiry retry:** if Cloudinary rejects with a signature-validity error (rare, only on slow networks taking >1 hour), re-fetch a fresh signature from `/uploads/cloudinary-signature` and retry the upload once. Don't loop indefinitely.
 - Only after `PATCH` returns 200, mark the section as "saved"
 
 **Validation rules** (frontend-side before upload):
 
 | Field | Recommended dimensions (soft) | File limits (hard) |
 |---|---|---|
-| Logo | Square (1:1), at least 500×500 | max 5MB, JPG/PNG/WebP |
-| Banner | Wide (3:1 or similar), at least 1500×500 | max 10MB, JPG/PNG/WebP |
+| Logo | Square (1:1), at least 500×500 | max 5 MB, JPG/PNG/WebP |
+| Banner | Wide (3:1 or similar), at least 1500×500 | max 10 MB, JPG/PNG/WebP |
 
 **Dimensions are soft warnings, not hard rejections.** If a logo is below 500×500 or non-square, **surface a warning** (*"This logo might look pixelated on buyer screens — try a higher-resolution version"*) but allow the upload to proceed. Many SA brands don't have studio-quality assets at hand; blocking submission on dimensions creates an unnecessary drop-off point.
 
-**File size and format are hard limits** (enforced by the storage provider) — surface clear errors when those fail. The backend just stores the URL, so it doesn't validate dimensions; the frontend is the only gate, and the gate should be lenient on quality and strict only on transport (size, format).
+**File size and format are hard limits** — enforced **twice**: client-side before upload (for fast feedback) and by Cloudinary's preset constraints (defense-in-depth). The backend's URL-prefix validation is a third layer that catches non-Cloudinary URLs in `PATCH` payloads. Surface clean errors when any layer rejects; the gate should be lenient on quality and strict only on transport (size, format).
 
-> **Coordination note for the team:** the merchant's expectation is "I picked an image and it's saved." The split between "uploaded to storage" and "URL stored in backend" is invisible to them. If either step fails, the user-facing error should just be *"Image upload failed — try again."* Don't expose cloud-provider error details in the UI.
+**Display transformations (Cloudinary URL params):**
+
+The backend stores the **base `secure_url`** returned by Cloudinary. The frontend appends transformation parameters at render time to produce responsive, optimized variants. `<CldImage>` from `next-cloudinary` applies `f_auto` + `q_auto` automatically; for custom variants:
+
+| Use case | Transformation string |
+|---|---|
+| Store logo in dashboard / search results | `c_fill,w_500,h_500,q_auto,f_auto` |
+| Store banner display | `c_fill,w_1600,h_400,q_auto,f_auto` |
+| Auto-format + auto-quality only | `f_auto,q_auto` |
+
+Full reference table is in [`../cloudinary-setup.md` §8](../cloudinary-setup.md#8-transformation-url-patterns).
+
+> **Coordination note for the team:** the merchant's expectation is "I picked an image and it's saved." The three-step flow (sign → upload → PATCH) is invisible to them. If any step fails, the user-facing error should just be *"Image upload failed — try again."* Don't expose Cloudinary error details, signature mechanics, or backend validation messages in the UI. Log details server-side or in dev tools for engineering debugging only.
 
 ### 7.4 Multi-tab merchant setup
 
