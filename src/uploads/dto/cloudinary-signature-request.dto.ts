@@ -7,6 +7,7 @@ import { IsEnum, IsNotEmpty, IsString, ValidateIf } from 'class-validator';
 export enum UploadContext {
   STORE_LOGO = 'store_logo',
   STORE_BANNER = 'store_banner',
+  STORE_BANNER_VIDEO = 'store_banner_video',
   PRODUCT_IMAGE = 'product_image',
   PRODUCT_VIDEO = 'product_video',
   COLLECTION_IMAGE = 'collection_image',
@@ -17,6 +18,7 @@ export enum UploadContext {
 const STORE_SCOPED_CONTEXTS: UploadContext[] = [
   UploadContext.STORE_LOGO,
   UploadContext.STORE_BANNER,
+  UploadContext.STORE_BANNER_VIDEO,
   UploadContext.PRODUCT_IMAGE,
   UploadContext.PRODUCT_VIDEO,
   UploadContext.COLLECTION_IMAGE,

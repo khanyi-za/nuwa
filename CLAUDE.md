@@ -15,10 +15,11 @@ The API serves a Next.js frontend (separate repo). This is the backend only.
 ```
 AppModule
  ├── AuthModule        — JWT auth, registration, login, password reset, account claim
- ├── StoreModule       — Store CRUD, admin review, employee invites, store addresses
+ ├── StoreModule       — Store CRUD, admin review, employee invites, addresses, banner media
  ├── ProductModule     — Products, variants, images, collections, tags, categories
  ├── OrderModule       — Cart, checkout, orders (buyer + merchant + admin views), addresses, wishlist, cron cleanup
  ├── PaymentsModule    — PayFast integration: signing, ITN webhook, refunds, reconciliation
+ ├── UploadsModule     — Cloudinary signed-upload signing endpoint + IsCloudinaryUrl validator (global)
  ├── PrismaModule      — Database singleton (global)
  ├── EmailModule       — Transactional email via Resend
  ├── ScheduleModule    — @nestjs/schedule for cron jobs (global)
@@ -33,6 +34,8 @@ AppModule
 - AdminOrdersService injects `IPaymentService` via `PAYMENT_SERVICE` token (for refund flow).
 - No circular dependencies. PaymentsModule reads from `OrderModule`-owned tables (PaymentGroup, Payment, Order) but does not import OrderModule.
 - PrismaModule is global — every module injects PrismaService without importing PrismaModule.
+- UploadsModule is @Global — exports `CloudinaryConfig` and `IsCloudinaryUrlConstraint` so any DTO across modules can use `@IsCloudinaryUrl()` without importing UploadsModule. Imports StoreModule for `canManageStore` in the signing endpoint's per-context authz.
+- PaymentsModule must export PayfastConfig, PayfastSignatureService, AND PayfastClient. OrderModule binds `PAYMENT_SERVICE` via `useClass: PaymentsService` — that constructs PaymentsService in OrderModule's context, so every constructor dep of PaymentsService must be visible there.
 
 ### Why it's structured this way
 
@@ -44,6 +47,7 @@ The contract/stub pattern (`PAYMENT_SERVICE`, `SHIPPING_SERVICE` tokens) lets th
 
 - **CORS** (global, `main.ts`): `app.enableCors(buildCorsOptions())` from `src/cors.config.ts`. Env-driven `CORS_ORIGINS` allowlist (comma-separated). Production fails to boot if `CORS_ORIGINS` is empty. `credentials: true` to support the refresh-token cookie. PayFast ITN webhook is server-to-server and unaffected.
 - **ValidationPipe** (global, `main.ts`): `whitelist: true`, `forbidNonWhitelisted: true`, `transform: true`. DTOs use class-validator decorators.
+- **`useContainer(app.select(AppModule), { fallbackOnErrors: true })`** in `main.ts` — wires class-validator to NestJS DI so custom validators (e.g. `IsCloudinaryUrl`) can inject providers. Required for any DI-based validator going forward.
 - **JwtAuthGuard** (global APP_GUARD): Every route requires JWT unless decorated with `@Public()`. Handles `TokenExpiredError` vs `JsonWebTokenError` distinctly for frontend silent-refresh flow.
 - **ThrottlerGuard** (global APP_GUARD): 100 requests per 60 seconds.
 
@@ -183,6 +187,29 @@ PayFast uses **two distinct signature algorithms** that must not be confused:
 
 **Trust proxy:** `app.set('trust proxy', N)` in `main.ts` from `PayfastConfig.trustProxy`. Defaults to 1 (Railway's edge hop). Override via `TRUST_PROXY` env var. Without correct config, `req.ip` is the LB's IP and the allowlist rejects everything.
 
+### Cloudinary integration patterns
+
+Image and video hosting uses **Cloudinary signed direct uploads** — browser uploads files directly to Cloudinary after fetching a backend signature; backend never touches the file. Implemented in `src/uploads/`.
+
+**Architecture:**
+- One Cloudinary cloud per environment (`yiiva-dev`, `yiiva-prod`). Seven signed presets per cloud — see `docs/cloudinary-setup.md` for the spec.
+- `POST /uploads/cloudinary-signature` issues per-upload signatures after per-context authz (`canManageStore` for store/product/collection contexts; `ADMIN` role for `category_image`).
+- `CloudinaryConfig` reads `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` at boot. Fails fast if missing (PayfastConfig pattern).
+- Signature algorithm: `sha1(folder + source=uw + timestamp + upload_preset + apiSecret)` — alphabetical key order. **`source=uw` is required** because the frontend uploads via Cloudinary's Upload Widget which injects this param; omitting it produces `401 Invalid Signature` from Cloudinary. Locked in by a regression-guard test in `uploads.service.spec.ts`.
+
+**The `@IsCloudinaryUrl()` validator:**
+- Custom class-validator decorator on every DTO field that accepts an image URL. Validates the URL starts with `https://res.cloudinary.com/<configuredCloudName>/`.
+- Currently applied to: `UpdateStoreDto.logoUrl`, `AddImageDto.url`, `CreateCollectionDto.imageUrl` / `UpdateCollectionDto.imageUrl`, `CreateCategoryDto.imageUrl` / `UpdateCategoryDto.imageUrl`, `AddBannerMediaDto.url`.
+- Defense-in-depth — signed-upload authz is the primary security boundary, but the regex catches mistakes like a frontend bug submitting a placeholder URL.
+- Resolves CloudinaryConfig via NestJS DI, enabled by the `useContainer` call in `main.ts`.
+
+**Banner media (multi-item store banner):**
+- `Store.bannerUrl` was replaced with `StoreBannerMedia[]` (May 2026). Up to 5 items per store, mix of images and videos. First item by `sortOrder` is the cover (`isPrimary: true`).
+- Managed via dedicated endpoints under `/stores/:storeId/banner-media/` (POST, DELETE, PATCH /reorder) — never via `PATCH /stores/:id`.
+- Two upload contexts: `store_banner` (image) and `store_banner_video` (video) share the same folder `stores/{storeId}/banner` in Cloudinary.
+- Status-aware delete protection: PENDING_GO_LIVE / ACTIVE stores must retain at least one banner item (mirrors the last-image-on-active-product rule).
+- Implemented in `src/store/banner-media/`.
+
 ### Cursor-based pagination
 
 Used in merchant-orders, buyer-orders, admin-orders, and wishlist. Pattern: fetch `take + 1` rows, if `length > take`, trim to `take` and set `nextCursor` to last item's ID. Default page size 20, max 50.
@@ -214,6 +241,16 @@ src/
   store/
     store.service.ts               — Store CRUD, canManageStore, employee management
     store.module.ts                — Exports StoreService
+    banner-media/
+      banner-media.controller.ts   — POST/DELETE/PATCH /stores/:storeId/banner-media
+      banner-media.service.ts      — Gallery cap, sortOrder renumbering, cover maintenance, status-aware delete
+
+  uploads/
+    uploads.module.ts              — @Global; exports CloudinaryConfig + IsCloudinaryUrlConstraint
+    uploads.controller.ts          — POST /uploads/cloudinary-signature
+    uploads.service.ts             — Per-context authz + Cloudinary signature computation (signs source=uw)
+    cloudinary-config.ts           — Env-var validation at boot, urlPrefix getter
+    validators/is-cloudinary-url.validator.ts — @IsCloudinaryUrl() decorator
 
   product/
     product.service.ts             — Product CRUD, merchant + buyer views
@@ -277,7 +314,8 @@ docs/
 Read `prisma/schema.prisma` for the full schema. Key models:
 
 - **User** — BUYER/MERCHANT/ADMIN, isGuestAccount flag, auth tokens
-- **Store** — DRAFT→PENDING_REVIEW→APPROVED→PENDING_GO_LIVE→ACTIVE lifecycle
+- **Store** — DRAFT→PENDING_REVIEW→APPROVED→PENDING_GO_LIVE→ACTIVE lifecycle. `bannerUrl` was removed (May 2026); banner is now `StoreBannerMedia[]`.
+- **StoreBannerMedia** — Multi-item store banner gallery (max 5, image+video mix). FK on storeId. `sortOrder` ascending; lowest is the cover (`isPrimary: true`).
 - **Product** — DRAFT/ACTIVE/OUT_OF_STOCK/ARCHIVED, independent stock per bare+variant
 - **Cart/CartItem** — One cart per user, lazy-created on first add
 - **Order** — One per store per checkout. Status: PENDING→CONFIRMED→PROCESSING→READY_FOR_DISPATCH→DISPATCHED→IN_TRANSIT→DELIVERED

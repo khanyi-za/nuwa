@@ -5,7 +5,13 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
-import { StoreStatus, ProductStatus, MediaType, Prisma } from '@prisma/client';
+import {
+  StoreStatus,
+  ProductStatus,
+  MediaType,
+  Prisma,
+  UserRole,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StoreService } from '../store/store.service';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -87,7 +93,10 @@ export class ProductService {
         _count: {
           select: {
             images: { where: { mediaType: MediaType.IMAGE } },
-            categories: true,
+            // Collections (merchant-managed) replaced the platform-category
+            // requirement in May 2026 — categories are now a post-go-live
+            // admin concern, not part of the merchant activation flow.
+            collections: true,
           },
         },
         variants: { select: { priceInCents: true, stock: true } },
@@ -124,8 +133,8 @@ export class ProductService {
       errors.push('Product must have at least one image');
     }
 
-    if (product._count.categories < 1) {
-      errors.push('Product must be linked to at least one platform category');
+    if (product._count.collections < 1) {
+      errors.push('Product must be in at least one collection to activate.');
     }
 
     if (product.variants.length > 0) {
@@ -199,12 +208,22 @@ export class ProductService {
     return { success: true };
   }
 
-  async listProducts(userId: string, storeId: string, dto: ListProductsDto) {
-    const canManage = await this.storeService.canManageStore(userId, storeId);
-    if (!canManage) {
-      throw new ForbiddenException(
-        'You do not have permission to manage this store',
+  async listProducts(
+    userId: string,
+    userRole: UserRole,
+    storeId: string,
+    dto: ListProductsDto,
+  ) {
+    if (userRole !== UserRole.ADMIN) {
+      const canManage = await this.storeService.canManageStore(
+        userId,
+        storeId,
       );
+      if (!canManage) {
+        throw new ForbiddenException(
+          'You do not have permission to manage this store',
+        );
+      }
     }
 
     const where: Prisma.ProductWhereInput = { storeId };
@@ -498,12 +517,22 @@ export class ProductService {
     };
   }
 
-  async getProduct(userId: string, storeId: string, productId: string) {
-    const canManage = await this.storeService.canManageStore(userId, storeId);
-    if (!canManage) {
-      throw new ForbiddenException(
-        'You do not have permission to manage this store',
+  async getProduct(
+    userId: string,
+    userRole: UserRole,
+    storeId: string,
+    productId: string,
+  ) {
+    if (userRole !== UserRole.ADMIN) {
+      const canManage = await this.storeService.canManageStore(
+        userId,
+        storeId,
       );
+      if (!canManage) {
+        throw new ForbiddenException(
+          'You do not have permission to manage this store',
+        );
+      }
     }
 
     const product = await this.prisma.product.findUnique({

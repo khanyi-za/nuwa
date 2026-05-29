@@ -18,6 +18,13 @@ export class CreateAddressDto {
   @MaxLength(100)
   buildingName?: string;
 
+  // SA address component — sits between building name and city (e.g. "Rosebank")
+  @IsOptional()
+  @Transform(({ value }) => (value as string).trim())
+  @IsString()
+  @MaxLength(100)
+  suburb?: string;
+
   @Transform(({ value }) => (value as string).trim())
   @IsString()
   @MinLength(2)

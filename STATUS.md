@@ -1,122 +1,142 @@
-# STATUS.md — Last updated 2026-05-05
+# STATUS.md — Last updated 2026-05-29
 
 ## Where we are
 
-**Payments module is complete and committed. CORS config landed (uncommitted).** 494 tests across 27 suites, all passing in ~2.6s.
+**Frontend integration is in progress.** The merchant Next.js app is wired against the backend; M1–M8 smoke testing has surfaced fixes across uploads, banner, payments DI, and address schema. The M10 merchant journey pivoted to collections-first; the backend just landed the three coordinated changes that unblock it, plus two follow-on admin-read tweaks for the launch-review screen.
 
-`main` is up to date with `origin/main`. Last committed work:
+- **Tests:** 554 across 32 suites, all passing in ~3s
+- **Type check:** clean (pre-existing TS2502 in three order spec files only — harmless, documented in CLAUDE.md)
+- `main` last committed: `5caac7d cloudinary integration V1` (still unchanged — the user commits this work themselves)
 
-- `9a3f54a payment module v1` — All 6 Payments phases + Order/Payments wiring + docs
+## Uncommitted on `main`
 
-**Uncommitted on `main`** (to be folded into the next commit):
+A meaningful pile sitting on `main` since `5caac7d`. Grouped by integration sub-cycle:
 
-- `src/cors.config.ts` + `src/cors.config.spec.ts` (NEW) — CORS env-driven allowlist with production guard
-- `src/main.ts` — `app.enableCors(buildCorsOptions())` wired after trust-proxy
-- `.env.example` — `CORS_ORIGINS` entry with format note + production-required behavior
-- `CLAUDE.md`, `STATUS.md` — leftover doc updates from the previous session (PayFast sandbox runbook, Payments handoff state) plus this CORS update
+### A. Multi-media banner (M1–M8 smoke)
+- `prisma/schema.prisma` — `Store.bannerUrl` removed; new `StoreBannerMedia` model + relation
+- `prisma/migrations/20260526144209_multi_media_store_banner/` (NEW) — applied
+- `src/store/banner-media/` (NEW) — controller, service, 2 DTOs, spec (17 tests)
+- `src/store/store.module.ts` — registered BannerMediaController + Service
+- `src/store/store.service.ts` — dropped bannerUrl from storeSelect; getMyStore + listPendingGoLive + getPublicStore include bannerMedia; requestGoLive validates `_count.bannerMedia` instead of `!bannerUrl`
+- `src/store/dto/update-store.dto.ts` — `bannerUrl` field removed (now in `forbidNonWhitelisted` 400 territory if a client sends it)
+- `src/uploads/dto/cloudinary-signature-request.dto.ts` — added `STORE_BANNER_VIDEO` enum value
+- `src/uploads/uploads.service.ts` — added `store_banner_video` preset; **added `source=uw` to the signature string-to-sign** (Cloudinary widget fix)
+- `src/uploads/uploads.service.spec.ts` — tests for `STORE_BANNER_VIDEO` + regression guard for `source=uw`
+- Earlier in the session: `src/payments/payments.module.ts` exports `PayfastClient` (was missing — caused `UnknownDependenciesException` at boot). Comment updated in `src/order/order.module.ts`.
 
-## What's in `9a3f54a`
+### B. Store address — suburb field
+- `prisma/schema.prisma` — `StoreAddress.suburb String? @db.VarChar(100)` (between `buildingName` and `city`)
+- `prisma/migrations/20260527100733_add_store_address_suburb/` (NEW) — applied
+- `src/store/dto/create-address.dto.ts` + `update-address.dto.ts` — optional `suburb` with `@MaxLength(100)`, `@Transform` trim
+- `src/store/store.service.ts` — `addAddress` plumbs `suburb` through to create
 
-All decisions documented in [`docs/payments-module/payments-module-foundation.md`](docs/payments-module/payments-module-foundation.md).
+### C. Merchant collections pivot (M10)
+Three coordinated changes per `docs/backend-handoffs/merchant-collections.md`:
 
-| Phase | Name | Tests added |
-|-------|------|---|
-| 1 | Foundation (schema, scaffold, env config) | +45 |
-| 2 | Signature primitives (`phpUrlencode`, signing service) | +74 |
-| 3 | Real `initializePayment` + frontend contract change | +18 |
-| 4 | ITN webhook (allowlist, notify service, controller, trust-proxy) | +46 |
-| 5 | Refund API (REST client, admin wiring, refund-ITN handling) | +28 |
-| 6 | Reconciliation tooling + cleanup-cron summary log | +23 |
+1. **Activation requirement** — `src/product/product.service.ts` `activate()`: `_count.categories` → `_count.collections`; new error string `"Product must be in at least one collection to activate."`. The "≥1 platform category" gate is dropped; categories remain in schema and admin endpoints but no longer activation-gating.
+2. **`GET /stores/:storeId/collections`** — new merchant endpoint:
+   - `src/product/collection/collection.controller.ts` — `@Get()` route
+   - `src/product/collection/collection.service.ts` — `listForMerchant(userId, userRole, storeId)`: returns collections with `_count.products`, ordered by `sortOrder, name`. No store-status gate. 403 (enumeration-safe) when not owner/employee.
+3. **Last-collection-on-ACTIVE rule** — `src/product/collection/collection.service.ts` `removeProduct`: 400 with the handoff doc's exact message when product is `ACTIVE` and `_count.collections <= 1`.
 
-Schema migration `20260501101905_add_payments_module_foundation` adds `payment_events` table + `ItnTxType` enum + `RECONCILE_REQUIRED` value on `PaymentStatus`.
+New `src/product/collection/collection.service.spec.ts` covers all three (7 tests).
 
-`OrderModule` now imports `PaymentsModule` and binds `PAYMENT_SERVICE` to the real `PaymentsService` via `useClass`. `PaymentInitResponse` shape is `{ actionUrl, fields }` (replaced the old `payfastRedirectUrl` — breaking change to checkout response, frontend cutover required).
+### D. Admin GET access on merchant catalogue (follow-on to C)
+Two small authz tweaks per the two backend handoffs in `docs/backend-handoffs/`:
 
-## CORS config (this session)
+- `src/product/product.controller.ts` + `product.service.ts` — `listProducts` and `getProduct` now take `userRole`; `canManageStore` short-circuits when `userRole === UserRole.ADMIN`. Mutations untouched.
+- `src/product/collection/collection.controller.ts` + `collection.service.ts` — `listForMerchant` takes `userRole`; same ADMIN short-circuit. Mutations untouched.
+- New `src/product/product.service.spec.ts` (5 tests covering ADMIN bypass + non-admin 403 + MERCHANT happy path on both list and detail). `collection.service.spec.ts` extended with an ADMIN-bypass case.
 
-App-wide CORS via `app.enableCors(buildCorsOptions())` in `main.ts`. Without it, browsers block every cross-origin request from the frontend; the PayFast ITN webhook is server-to-server and unaffected.
+### Doc changes (uncommitted)
+- `docs/Api-frontend-contracts/product-module-api.md`:
+  - Endpoint summary table includes `GET /stores/:storeId/collections`
+  - Activation requirements rewritten: "≥1 collection" with the exact error string, plus a May 2026 note explaining the platform-category demotion
+  - New endpoint section: `GET /stores/:storeId/collections` (request/response/errors)
+  - `DELETE /collections/:id/products/:id` documents the new last-collection-on-ACTIVE 400
+  - New "Admin read access (May 2026)" subsection covering the two products GETs **and** the collections GET
+  - GET endpoint headers updated: "Owner or active accepted employee, OR any `ADMIN` user"
+- `docs/Api-frontend-contracts/store-frontend-flows.md` — §7.3a banner gallery + table updates (frontend's edit)
+- `docs/Api-frontend-contracts/store-module-api.md` — Banner Media section, `BannerMedia` shape, updated request-go-live (frontend's edit)
+- `docs/Api-frontend-contracts/uploads-module-api.md` — `store_banner_video` in upload-contexts/authz tables; "What gets signed" explicitly includes `source=uw`
+- `docs/cloudinary-setup.md` — 7th preset; "six" → "seven" throughout; shared banner folder note
+- `docs/Api-frontend-contracts/store-banner-media.md` (NEW) — frontend's banner handoff
+- `docs/Api-frontend-contracts/uploads-source-uw-signature.md` (NEW) — frontend's `source=uw` handoff
+- `docs/backend-handoffs/` (NEW directory) — frontend's collections, admin-products, admin-collections handoffs
+- `CLAUDE.md` — updates for UploadsModule patterns, banner media, useContainer, PayfastClient export rule (from earlier in the integration cycle)
 
-- **`CORS_ORIGINS`** — comma-separated origin allowlist (`https://yiiva.co.za,https://staging.yiiva.co.za`). Required in production.
-- **Production guard** — boot fails if `NODE_ENV=production` and `CORS_ORIGINS` resolves empty (matches the same fail-closed posture as `PayfastConfig.skipIpCheck`).
-- **Dev fallback** — outside production, defaults to `http://localhost:3000,http://localhost:3001`.
-- **`credentials: true`** — required for the refresh-token httpOnly cookie. Forces explicit origin listing (browsers refuse `*` with credentials).
-- **`maxAge: 86400`** — 24h preflight cache to reduce OPTIONS traffic.
+## What's been completed this integration cycle
 
-14 tests in `cors.config.spec.ts` cover parsing, dev fallback, production guard, credentials, and maxAge.
+### Pre-integration (committed)
+- `9a3f54a` Payments module v1
+- `0a54e92` CORS config + .env.example
+- `322fd86` Frontend integration docs
+- `5caac7d` Cloudinary integration v1
+
+### This integration cycle (uncommitted)
+1. **Frontend smoke testing** started — auth + onboarding mostly proven
+2. **PayfastClient DI boot fix** (Payments Phase 5 latent bug)
+3. **Cloudinary `source=uw` signature fix** + regression guard
+4. **Multi-media banner shipped** — `bannerUrl` → `StoreBannerMedia[]`, 3 new endpoints, status-aware delete protection
+5. **Address `suburb` field** added end-to-end (schema, migration, DTOs, service)
+6. **Merchant collections pivot (M10)** — activation requirement, new GET endpoint, last-collection-on-ACTIVE rule
+7. **Admin GET access** on `GET /stores/:storeId/products` (+ `:productId`) and `GET /stores/:storeId/collections` — powers the launch-review screen catalogue strip and the per-product collection drill-down. Mutations stay locked.
+
+## What's next (when work resumes)
+
+### Active frontend integration
+M1–M8 banner gallery + M10 merchant collections journey + admin launch-review screen are all now backend-unblocked.
+
+### Recommended sequence on resume
+1. **User commits the pile** (still uncommitted — see breakdown above)
+2. **Restart backend dev server** with the latest code (`npm run start:dev`)
+3. **Manual smoke tests against a running server**:
+   - The handoff curl recipes for **collections pivot**, **admin-products GET**, and **admin-collections GET** — none of these have been exercised against a live server yet, only unit tests
+   - Multi-media banner happy path + status-aware delete on an ACTIVE store
+   - request-go-live with an empty banner gallery (expect 400)
+4. **Continue M10+ smoke** — collection editor, product activation, admin launch-review screen end-to-end
+5. **Rotate the Cloudinary API secret** before any production deploy (disclosed in chat earlier this session)
 
 ## What's fragile
 
-Order-module fragility list (still applies):
-1. **TS2502 errors in spec files** — `$transaction` mock pattern. Harmless. Do NOT fix.
-2. **Cart compound unique with NULL variantId** — partial unique index migration exists.
-3. **Cron Logger output in tests** — error-resilience tests emit expected ERRORs.
-4. **`$transaction` mock re-binding** — re-bind in `beforeEach` after `clearAllMocks`.
-5. **Guest checkout stock reservation timing** — `cartItem.deleteMany` does NOT release stock; stock transfers to order at commit time.
-6. **Admin editOrder accepts empty strings** — intentional.
+(Order/payments/banner/uploads fragility list still applies — unchanged.)
 
-Payments-specific fragility:
-7. **Refund ITN field detection is heuristic.** We detect refund ITNs via `parsedBody.transaction_type === 'refund'`. PayFast's exact field name isn't publicly documented; first production refund will reveal whether this matches. One-line change in `payments-notify.service.ts` if it turns out to be a different field.
-8. **Refunds are sandbox-impossible.** `PayfastClient.createRefund` warns when called in sandbox mode but still attempts the call. Production smoke test required for first refund.
-9. **`phpUrlencode` is load-bearing.** A single-byte mismatch with PHP's `urlencode()` causes silent signature failures in production. Vector tests in `url-encode.spec.ts` lock this in. Any change requires re-running the vector suite.
-10. **The signature trap.** PayFast uses two algorithms with different field-ordering rules: form-flow uses fixed order with trim; API-flow uses ksort alphabetical without trim; ITN verification uses insertion order with break-at-signature. `PayfastSignatureService` exposes them as separate methods — never share code paths.
-11. **Source-IP allowlist is fail-closed.** If DNS resolution fails at boot, the allowlist starts empty and rejects all ITNs. Recovery is automatic once DNS recovers, but operators should monitor for the boot-time error log.
+Added this session:
 
-## What to do next
+16. **Admin GET short-circuit ordering matters**. In `ProductService.listProducts`/`getProduct` and `CollectionService.listForMerchant`, the `userRole === ADMIN` check **must** precede the `canManageStore` lookup — otherwise we'd do a DB hit per admin call and lose the intended cost saving. Tests assert `canManageStore` is *not* called for admins.
+17. **Activation no longer requires categories**. Code paths that previously assumed every ACTIVE product has ≥1 category are now wrong. The schema-level relation still exists and the "last category on ACTIVE" rule on `DELETE /products/:id/categories/:categoryId` is preserved, but it's rarely hit in practice — ACTIVE products may now have zero categories. Don't reintroduce a category requirement in `activate()` without coordinating with the M10 merchant journey owner.
+18. **`listForMerchant` has no store-status gate** (unlike the mutation endpoints in the same service). It's intentional — the merchant editor and the admin review screen both need to load collections on `DRAFT`/`PENDING_REVIEW` stores. Don't add `assertCanMutateProducts`-style status checks to read paths.
 
-CORS just landed — the gate to frontend integration is open. Reordered path:
+## Backend follow-ups accumulated across integration
 
-### 1. Frontend integration begins (out of repo)
+### Priority 1 (security / correctness gaps)
+- **Bank-fields owner-only authz** — both owner and employee can edit `bankName/bankAccountNo/...` via `PATCH /stores/:id`. Frontend hides the section from employees but that's a UI gate, not security. Needs a service-level role check.
 
-Next.js can now make cross-origin requests against the API once `CORS_ORIGINS` is set. First wire-up tasks the frontend repo will tackle:
-- Auth flows (login/register/refresh) with `credentials: 'include'` on fetch
-- Product browsing
-- Cart operations
-- Checkout — render `payfast.fields` as a hidden form and auto-submit to `payfast.actionUrl` (the v2 contract from Phase 3)
+### Priority 2 (UX-affecting)
+- **`POST /auth/resend-verification`** — no recovery path for missed verification emails
+- **`GET /auth/me/employments`** — replaces localStorage workaround for employees on returning sessions
+- **Admin moderate / force-suspend endpoint** — once a store is APPROVED+, no admin endpoint reverses it; schema supports SUSPENDED
+- **`StoreReview` audit table** — solves rejection-history-not-preserved + admin-action-audit
+- **Chunked-upload signature endpoint** — when product video uploads ship, Cloudinary chunks files >100MB. Add `POST /uploads/cloudinary-widget-signature` accepting `paramsToSign: Record<string, unknown>`.
 
-### 2. PayFast sandbox smoke test (~30 min, organic)
+### Priority 3 (quality of life)
+- **Structured `missing[]` array** on activation 400 (vs comma-separated string)
+- **`_count.activeProducts` on `GET /stores/me`** — for go-live readiness checklist
+- **`GET /stores/admin/:id`** — admin detail-screen direct-URL access
+- **Batch variant-reorder endpoint**
 
-Folded into frontend integration: the smoke test naturally happens when the frontend wires up the checkout flow. Run a checkout end-to-end via the integrated frontend with sandbox creds + ngrok and verify:
-- Form submit lands the buyer on PayFast's hosted checkout page
-- ITN arrives at our `/payments/notify` endpoint
-- All four validations pass (signature, IP via skip, postback, amount)
-- `PaymentGroup.status` flips PENDING → COMPLETED
-- Each child `Order.status` flips PENDING → CONFIRMED
-- A `PaymentEvent` row is recorded with `processed: true`
-
-The full pre-flight runbook is still in `CLAUDE.md` under "PayFast sandbox smoke test" if a discrete check is wanted before frontend work begins.
-
-### 3. Notifications module (medium build)
-
-Unblocks downstream features that are currently stubbed or absent:
-- Email verification for guest account claim (currently stubbed `emailVerified: true` in `claim.service.ts`)
-- Order confirmation email on `PaymentGroup` → COMPLETED transition (no firing yet; the foundation doc's Pattern 6 explicitly defers this to Notifications)
-- Order status emails (CONFIRMED, DISPATCHED, DELIVERED)
-- Refund confirmation emails (Phase 5 hint — PayFast emails the buyer if `notifyBuyer: true`, but our own confirmation is still owed)
-
-Already has `EmailModule` scaffold + Resend wired. The work: `NotificationsService` owning templates + dispatch, a contract pattern similar to `IPaymentService` so OrderModule and PaymentsModule can fire `notifications.send(...)` events without direct coupling.
-
-### Recommended path
-
-**Frontend integration → smoke test (organic) → Notifications.** That gets us to "frontend can integrate, real money flows, real emails go out" without doing the bigger Shipping rebuild.
-
-### Lower priority follow-ups
-
-- **Shipping module** — real Courier Guy integration. Replaces R110 flat fee with real rates. Bigger piece; current stub works for v1.
-- **e2e tests** — now that CORS is in, can be set up against a real running API instance.
-- **Production smoke test for first refund** — sandbox doesn't support refunds; do this on first real refund.
-- **Verify the refund-ITN field name** against a real PayFast refund ITN payload (heuristic check).
-- **Frontend contract update** (out of repo) — Next.js needs to render `payfast.fields` as a hidden form and auto-submit instead of consuming `redirectUrl`.
-- **Phase 7 candidate** — automated daily reconciliation worker. Iterates `PENDING > 24h` PaymentGroups with the manual reconciliation tool's logic. Skip until real-world misses surface.
+### Operational
+- **Unused-asset cleanup cron** for orphaned Cloudinary assets
+- **Rotate `CLOUDINARY_API_SECRET`** before any prod deploy (disclosed in chat)
+- **Migrate to a paid Cloudinary plan** when the 80% alert fires
 
 ## Do not touch
 
-- **Do not refactor existing Order or Payments code** unless the user asks. Tested, documented, committed.
-- **Do not fix TS2502 errors** in spec files.
-- **Do not change `phpUrlencode`** without re-running vector tests.
-- **Do not change the signature primitives** in `PayfastSignatureService`. The trim/no-trim divergences between form, ITN, and API flows are deliberate and source-cited.
-- **Do not change the CANCELLED-stays-CANCELLED rule.** A late COMPLETED ITN must never resurrect a CANCELLED order — it goes to `RECONCILE_REQUIRED` for manual ops.
-- **Do not change cron cutoff values** — 24h for stale carts, 30 min for pending orders.
-- **Do not enable `PAYFAST_SKIP_IP_CHECK=true` in production.** `PayfastConfig` refuses to boot if `NODE_ENV=production` and skip is true.
-- **Do not leave `CORS_ORIGINS` unset in production.** `buildCorsOptions` refuses to boot. Use the env var for every environment that's not local dev.
-- **Do not use `origin: '*'` for CORS** — the refresh-token cookie requires `credentials: true`, which is incompatible with wildcard origins.
-- **Do not implement Shipping or Notifications integrations** — separate workstreams.
+(Existing list still applies.)
+
+Added this session:
+
+- **Do not remove the `userRole` parameter** from `ProductService.listProducts`, `ProductService.getProduct`, or `CollectionService.listForMerchant`. The ADMIN short-circuit depends on it; controllers pass it via `@CurrentUser('role')`. Removing it silently re-locks admins out of the launch-review screen.
+- **Do not add `userRole`-based bypass to any mutation method** in product/collection services. Admin write access to merchant catalogues is explicitly out of scope per both handoff docs.
+- **Do not re-introduce the `≥1 platform category` activation requirement** without checking with the M10 merchant journey owner — the M10 pivot was a deliberate UX call, not a temporary state.
+- **Do not put a store-status gate on `CollectionService.listForMerchant`** — the merchant editor and admin review screen need it to work on pre-ACTIVE stores.

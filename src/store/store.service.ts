@@ -33,7 +33,6 @@ const storeSelect = {
   story: true,
   websiteUrl: true,
   logoUrl: true,
-  bannerUrl: true,
   status: true,
   rejectionReason: true,
   contactEmail: true,
@@ -382,7 +381,7 @@ export class StoreService {
   // ─── Merchant: Request Go-Live ───────────────────────────────────────────────
 
   async requestGoLive(userId: string, storeId: string) {
-    // 1. Find the store with addresses and active product count
+    // 1. Find the store with addresses, active product count, and banner media count
     const store = await this.prisma.store.findUnique({
       where: { id: storeId },
       include: {
@@ -390,6 +389,7 @@ export class StoreService {
         _count: {
           select: {
             products: { where: { status: 'ACTIVE' } },
+            bannerMedia: true,
           },
         },
       },
@@ -451,7 +451,9 @@ export class StoreService {
     if (!store.bankAccountType) missingRequirements.push('bankAccountType');
 
     // Additional go-live fields
-    if (!store.bannerUrl) missingRequirements.push('bannerUrl');
+    if (store._count.bannerMedia === 0) {
+      missingRequirements.push('at least one banner item (image or video)');
+    }
     if (!store.story) missingRequirements.push('story');
 
     // Relation requirements
@@ -505,9 +507,11 @@ export class StoreService {
             },
           },
           addresses: true,
+          bannerMedia: { orderBy: { sortOrder: 'asc' } },
           _count: {
             select: {
               products: { where: { status: 'ACTIVE' } },
+              bannerMedia: true,
             },
           },
         },
@@ -535,6 +539,7 @@ export class StoreService {
       where: { ownerId: userId },
       include: {
         addresses: true,
+        bannerMedia: { orderBy: { sortOrder: 'asc' } },
         employees: {
           where: { isActive: true },
           include: {
@@ -580,7 +585,16 @@ export class StoreService {
         description: true,
         story: true,
         logoUrl: true,
-        bannerUrl: true,
+        bannerMedia: {
+          orderBy: { sortOrder: 'asc' },
+          select: {
+            id: true,
+            url: true,
+            mediaType: true,
+            sortOrder: true,
+            isPrimary: true,
+          },
+        },
         websiteUrl: true,
         averageRating: true,
         followerCount: true,
@@ -624,7 +638,7 @@ export class StoreService {
       description: store.description,
       story: store.story,
       logoUrl: store.logoUrl,
-      bannerUrl: store.bannerUrl,
+      bannerMedia: store.bannerMedia,
       websiteUrl: store.websiteUrl,
       averageRating: store.averageRating,
       followerCount: store.followerCount,
@@ -829,6 +843,7 @@ export class StoreService {
         streetNumber: dto.streetNumber,
         streetName: dto.streetName,
         buildingName: dto.buildingName,
+        suburb: dto.suburb,
         city: dto.city,
         postalCode: dto.postalCode,
       },

@@ -3,8 +3,9 @@ import {
   ForbiddenException,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
-import { StoreStatus } from '@prisma/client';
+import { ProductStatus, StoreStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StoreService } from '../../store/store.service';
 import { CreateCollectionDto } from '../dto/create-collection.dto';
@@ -33,6 +34,28 @@ export class CollectionService {
         sortOrder: dto.sortOrder ?? 0,
       },
     });
+  }
+
+  async listForMerchant(userId: string, userRole: UserRole, storeId: string) {
+    if (userRole !== UserRole.ADMIN) {
+      const canManage = await this.storeService.canManageStore(
+        userId,
+        storeId,
+      );
+      if (!canManage) {
+        throw new ForbiddenException(
+          'You do not have permission to manage this store',
+        );
+      }
+    }
+
+    const data = await this.prisma.storeCollection.findMany({
+      where: { storeId },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      include: { _count: { select: { products: true } } },
+    });
+
+    return { data };
   }
 
   async update(
@@ -107,6 +130,23 @@ export class CollectionService {
     });
     if (!link) {
       throw new NotFoundException('Product is not in this collection');
+    }
+
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+      select: {
+        status: true,
+        _count: { select: { collections: true } },
+      },
+    });
+    if (
+      product &&
+      product.status === ProductStatus.ACTIVE &&
+      product._count.collections <= 1
+    ) {
+      throw new BadRequestException(
+        'Cannot remove the last collection from an active product. Add another collection first, or archive the product.',
+      );
     }
 
     await this.prisma.productCollection.delete({

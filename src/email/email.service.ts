@@ -196,7 +196,7 @@ export class EmailService {
     storeName: string,
     rawToken: string,
   ): Promise<EmailResult> {
-    const inviteUrl = `${this.frontendUrl}/employees/invite?token=${rawToken}`;
+    const inviteUrl = `${this.frontendUrl}/invites/accept?token=${rawToken}`;
 
     try {
       const { data, error } = await this.resend.emails.send({

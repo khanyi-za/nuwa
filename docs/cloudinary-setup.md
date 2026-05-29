@@ -96,7 +96,7 @@ For now, `yiiva-dev` is the only configured cloud.
 
 When provisioning a new environment cloud (e.g. `yiiva-prod` when launch time comes), set up the following in the Cloudinary dashboard:
 
-1. The **six upload presets** (see [§3](#3-upload-preset-spec)) — each configured as **Signed** mode
+1. The **seven upload presets** (see [§3](#3-upload-preset-spec)) — each configured as **Signed** mode
 2. **API key + API secret** generated and recorded for the backend env vars
 3. **Billing alert** set at 80% of free-tier credits (see [§9](#9-free-tier-monitoring))
 4. **Auto-backup** off (free tier doesn't include backups and we don't need them at v1)
@@ -106,22 +106,25 @@ When provisioning a new environment cloud (e.g. `yiiva-prod` when launch time co
 
 ## 3. Upload preset spec
 
-All six presets must be configured with **Signed** mode in the Cloudinary dashboard. The `folder` field in the preset config must be left **empty** — the backend passes the folder dynamically per upload (Cloudinary's precedence rule: preset values override frontend params if both are set, so an empty preset folder lets the frontend's value win).
+All seven presets must be configured with **Signed** mode in the Cloudinary dashboard. The `folder` field in the preset config must be left **empty** — the backend passes the folder dynamically per upload (Cloudinary's precedence rule: preset values override frontend params if both are set, so an empty preset folder lets the frontend's value win).
 
-### The six presets
+### The seven presets
 
 | Preset name | Mode | Resource type | Max file size | Allowed formats | Eager transformations |
 |---|---|---|---|---|---|
 | `store_logo` | Signed | image | 5 MB | jpg, png, webp | `q_auto`, `f_auto` |
 | `store_banner` | Signed | image | 10 MB | jpg, png, webp | `q_auto`, `f_auto` |
+| `store_banner_video` | Signed | video | 50 MB | mp4, webm | **none** (see note below) |
 | `product_image` | Signed | image | 10 MB | jpg, png, webp | `q_auto`, `f_auto` |
 | `product_video` | Signed | video | 50 MB | mp4, webm | **none** (see note below) |
 | `collection_image` | Signed | image | 5 MB | jpg, png, webp | `q_auto`, `f_auto` |
 | `category_image` | Signed | image | 5 MB | jpg, png, webp | `q_auto`, `f_auto` |
 
-> **Why no eager transformations on `product_video`:** video transformations bill **per delivered second of output**, not per render. Pre-computing eager transforms at upload time would burn through the free-tier credit budget. Apply video transforms only on-demand at display time.
+> **Why no eager transformations on the two video presets:** video transformations bill **per delivered second of output**, not per render. Pre-computing eager transforms at upload time would burn through the free-tier credit budget. Apply video transforms only on-demand at display time.
+>
+> **`store_banner` and `store_banner_video` share the same folder** (`stores/{storeId}/banner`) so the multi-media banner gallery's contents live together in Cloudinary's tree — only the preset (and therefore the upload endpoint resource-type) differs.
 
-### Common settings for all six presets
+### Common settings for all seven presets
 
 | Setting | Value |
 |---|---|
@@ -148,7 +151,7 @@ In the Cloudinary dashboard:
    - Use `f_auto,q_auto` as the transformation string
 9. **Save**
 
-Repeat for all six presets. Once done, the cloud is ready for the backend to start signing uploads.
+Repeat for all seven presets. Once done, the cloud is ready for the backend to start signing uploads.
 
 ---
 
@@ -359,9 +362,9 @@ When an alert fires, the most likely causes are:
 Run through this before going live with images/videos in production (i.e. before connecting `yiiva-prod`):
 
 ### Cloudinary configuration
-- [ ] `yiiva-prod` cloud exists with the same six presets as `yiiva-dev`
-- [ ] All six presets are in **Signed** mode
-- [ ] All six presets have **empty folder** field
+- [ ] `yiiva-prod` cloud exists with the same seven presets as `yiiva-dev`
+- [ ] All seven presets are in **Signed** mode
+- [ ] All seven presets have **empty folder** field
 - [ ] Eager transformations `q_auto,f_auto` are set on the five image presets (not on `product_video`)
 - [ ] File-size limits match the spec in [§3](#3-upload-preset-spec)
 - [ ] Allowed-format lists are correct

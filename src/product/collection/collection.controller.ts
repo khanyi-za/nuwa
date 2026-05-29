@@ -2,20 +2,37 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   HttpCode,
   Param,
   Patch,
   Post,
 } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { CollectionService } from './collection.service';
 import { CreateCollectionDto } from '../dto/create-collection.dto';
 import { UpdateCollectionDto } from '../dto/update-collection.dto';
 
 // Authz handled service-side via canManageStore + store-status check.
+// GET (list) additionally allows ADMIN for any store — see service for the
+// short-circuit. Mutations stay owner/employee-only.
 @Controller('stores/:storeId/collections')
 export class CollectionController {
   constructor(private readonly collectionService: CollectionService) {}
+
+  // GET /stores/:storeId/collections — owner, active employee, OR any ADMIN.
+  // Returns the store's collections ordered by sortOrder, name, with product
+  // counts for the merchant editor's collection picker and the admin
+  // launch-review drill-down.
+  @Get()
+  list(
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: UserRole,
+    @Param('storeId') storeId: string,
+  ) {
+    return this.collectionService.listForMerchant(userId, userRole, storeId);
+  }
 
   @Post()
   @HttpCode(201)

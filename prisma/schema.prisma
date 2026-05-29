@@ -257,7 +257,6 @@ model Store {
   story           String? // Brand story for discovery/community
   websiteUrl      String? // Brand's external website. Optional throughout entire lifecycle.
   logoUrl         String?
-  bannerUrl       String?
   status          StoreStatus @default(DRAFT)
   rejectionReason String? // Set by admin on rejection. Cleared on edit or resubmission.
 
@@ -295,6 +294,7 @@ model Store {
   employees         StoreEmployee[]
   collections       StoreCollection[]
   dispatchAddresses StoreDispatchAddress[]
+  bannerMedia       StoreBannerMedia[]
 
   @@index([slug])
   @@index([status])
@@ -314,6 +314,25 @@ model StoreFollower {
   @@map("store_followers")
 }
 
+// Banner gallery: up to 5 items per store, mix of images and videos.
+// Replaces the legacy single Store.bannerUrl field. Cover is the item with
+// the lowest sortOrder (isPrimary: true). Mutations renumber sortOrder to
+// stay contiguous (0..N-1). See docs/Api-frontend-contracts/store-banner-media.md.
+model StoreBannerMedia {
+  id        String    @id @default(cuid())
+  storeId   String
+  url       String
+  mediaType MediaType
+  sortOrder Int       @default(0)
+  isPrimary Boolean   @default(false)
+  createdAt DateTime  @default(now())
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, sortOrder])
+  @@map("store_banner_media")
+}
+
 // Physical locations for the store's public profile (not shipping logistics)
 model StoreAddress {
   id           String   @id @default(cuid())
@@ -321,6 +340,7 @@ model StoreAddress {
   streetNumber String
   streetName   String
   buildingName String? // Building, complex, mall, or shopping centre name
+  suburb       String? @db.VarChar(100) // SA address component — sits between building and city
   city         String
   postalCode   String
   createdAt    DateTime @default(now())

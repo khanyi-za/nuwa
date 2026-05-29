@@ -29,6 +29,7 @@
 | `DELETE` | `/stores/:storeId/products/:productId/tags/:tagId` | Remove a tag |
 | `POST` | `/stores/:storeId/products/:productId/categories/:categoryId` | Link a platform category |
 | `DELETE` | `/stores/:storeId/products/:productId/categories/:categoryId` | Unlink a platform category |
+| `GET` | `/stores/:storeId/collections` | List the store's collections (with product counts) |
 | `POST` | `/stores/:storeId/collections` | Create a collection |
 | `PATCH` | `/stores/:storeId/collections/:collectionId` | Update a collection |
 | `DELETE` | `/stores/:storeId/collections/:collectionId` | Delete a collection |
@@ -113,6 +114,18 @@ If the store is `DRAFT` or `PENDING_REVIEW`, all product mutations return:
 ```
 
 The **read endpoints** (`GET /stores/:storeId/products` and `GET /stores/:storeId/products/:id`) only require `canManageStore` — they work regardless of store status.
+
+### Admin read access (May 2026)
+
+`ADMIN` users may call the following **GET** endpoints against any store, regardless of ownership:
+
+- `GET /stores/:storeId/products`
+- `GET /stores/:storeId/products/:id`
+- `GET /stores/:storeId/collections`
+
+This powers the admin launch-review screen — the catalogue strip on the store detail page (the first two endpoints), and the per-product collection drill-down in the product review modal (the third). The `canManageStore` lookup is short-circuited for admins on each — no DB hit for the ownership check.
+
+Mutations (`POST` / `PATCH` / `DELETE`, activate, archive, variants, images, tags, category links, collection CRUD, collection product-links) remain locked to the owner or active employee. Admins call these `GET`s as themselves; the response shape is identical to what merchants see.
 
 The `:storeId` in all merchant paths is the store's **ID** (not slug). Use `GET /stores/me` to obtain it.
 
@@ -231,7 +244,7 @@ The endpoint uses `include` (not `select`) so all scalar fields on the Product m
 
 ### `GET /stores/:storeId/products`
 
-**Protected. `MERCHANT` role. Owner or active employee.**
+**Protected. Owner or active employee, OR any `ADMIN` user.** See [Admin read access](#admin-read-access-may-2026).
 
 Returns a paginated, filterable list of the store's products. Works regardless of store status.
 
@@ -271,7 +284,7 @@ Returns a paginated, filterable list of the store's products. Works regardless o
 
 ### `GET /stores/:storeId/products/:id`
 
-**Protected. `MERCHANT` role. Owner or active employee.**
+**Protected. Owner or active employee, OR any `ADMIN` user.** See [Admin read access](#admin-read-access-may-2026).
 
 Returns the full product detail including all images, variants, categories, tags, and collections. Works regardless of store status.
 
@@ -361,10 +374,12 @@ Publishes the product — moves status to `ACTIVE`. If the product is already `A
 - `title` is at least 2 characters
 - `priceInCents` is greater than zero
 - At least 1 image of type `IMAGE` added (videos alone do not count)
-- At least 1 platform category linked
+- At least 1 of the store's collections linked — error message: `"Product must be in at least one collection to activate."`
 - If variants exist: any variant price override must be greater than zero (null overrides are fine — they inherit the base price)
 
 All failing requirements are returned together in a single `400` error array.
+
+> **Note (May 2026):** The previous "≥1 platform category" requirement was replaced with "≥1 collection" as part of the M10 merchant-journey pivot. Platform categories are no longer surfaced in the merchant editor; they remain in the schema and admin-side endpoints, and the per-product link endpoints still work, but they are no longer activation-gating. The "last category on an ACTIVE product" rule (see Category Link Endpoints) is preserved for backward compatibility but is rarely reached in practice — ACTIVE products may now have zero categories.
 
 **Success — `200`** — Returns the updated product with `status: "ACTIVE"` and `publishedAt` set.
 
@@ -731,7 +746,45 @@ Removes a category link from the product.
 
 Collections are **store-scoped** groupings (e.g. "Summer 2025", "Limited Edition"). They have no effect on platform-wide discovery — they are for organising a store's own storefront. The slug is auto-generated from the collection name and is unique per store.
 
-All collection endpoints require `MERCHANT` role, ownership or active employment, and store `APPROVED`+.
+Most collection endpoints require ownership or active employment, and store `APPROVED`+. The merchant list endpoint (`GET /stores/:storeId/collections`) requires ownership or active employment only — no store-status gate.
+
+---
+
+### `GET /stores/:storeId/collections`
+
+Lists the store's collections, ordered by `sortOrder` ascending then `name` ascending. Each row includes `_count.products` so the frontend can render product-count badges without an extra round-trip. Used by the merchant editor's collection picker, the collections dashboard, and the admin launch-review product modal's collection drill-down.
+
+**Protected. Owner or active accepted employee, OR any `ADMIN` user.** See [Admin read access](#admin-read-access-may-2026). No store-status gate — works on `DRAFT`/`PENDING_REVIEW` stores too.
+
+**No query parameters.**
+
+**Success — `200`**
+```json
+{
+  "data": [
+    {
+      "id": "string",
+      "storeId": "string",
+      "name": "string",
+      "slug": "string",
+      "description": "string | null",
+      "imageUrl": "string | null",
+      "sortOrder": 0,
+      "createdAt": "ISO 8601",
+      "updatedAt": "ISO 8601",
+      "_count": { "products": 12 }
+    }
+  ]
+}
+```
+
+Empty store returns `{ "data": [] }`.
+
+**Errors**
+
+| Status | Message | Cause |
+|---|---|---|
+| `403` | `"You do not have permission to manage this store"` | Not owner or active employee — also returned when the store doesn't exist (enumeration prevention) |
 
 ---
 
@@ -828,6 +881,8 @@ Adds a product to a collection. If already in the collection, returns the existi
 
 Removes a product from a collection.
 
+Mirrors the "last image on ACTIVE" pattern: if the product is `ACTIVE` and this is its only collection, the unlink is blocked with `400`. For non-`ACTIVE` products (`DRAFT`, `OUT_OF_STOCK`, `ARCHIVED`) the unlink is unconditional. The frontend already disables the `×` button client-side in this scenario; the backend 400 is a defensive fallback for race conditions (e.g. two tabs unlinking simultaneously).
+
 **No request body.**
 
 **Success — `200`**
@@ -839,6 +894,7 @@ Removes a product from a collection.
 
 | Status | Message | Cause |
 |---|---|---|
+| `400` | `"Cannot remove the last collection from an active product. Add another collection first, or archive the product."` | Product is `ACTIVE` and this is its only collection |
 | `403` | `"You do not have permission to manage this store"` | Not owner or active employee |
 | `403` | `"Cannot manage collections on a store with status <STATUS>..."` | Store not yet approved |
 | `404` | `"Collection not found"` | Collection does not exist or belongs to a different store |

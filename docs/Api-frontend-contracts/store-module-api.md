@@ -95,14 +95,6 @@ Two distinct permission levels exist within the store module:
 
 ---
 
-## Cloudinary URL constraint
-
-All image-URL fields on this module's mutation endpoints (`logoUrl`, `bannerUrl` in `UpdateStoreDto`) must point at YIIVA's configured Cloudinary cloud. The backend validates the `https://res.cloudinary.com/<cloudName>/` prefix on every submission and returns `400` with `"Image URL must be uploaded to YIIVA Cloudinary"` if a different domain is submitted.
-
-The upload flow is: frontend fetches a signed payload from `POST /uploads/cloudinary-signature`, uploads directly to Cloudinary, then sends the resulting `secure_url` back via `PATCH /stores/:id`. See [`uploads-module-api.md`](./uploads-module-api.md) for the full signing-endpoint contract.
-
----
-
 ## Shared Response Shapes
 
 ### Store Object
@@ -120,7 +112,7 @@ Returned by create, update, submit, request-go-live, and most other store respon
 | `story` | string \| null |
 | `websiteUrl` | string \| null |
 | `logoUrl` | string \| null |
-| `bannerUrl` | string \| null |
+| `bannerMedia` | `BannerMedia[]` | Multi-media store banner (≤5 items, image + video mix). See [Banner Media Object](#banner-media-object). Replaces the legacy single `bannerUrl` field. |
 | `status` | `StoreStatus` |
 | `rejectionReason` | string \| null |
 | `contactEmail` | string \| null |
@@ -138,6 +130,25 @@ Returned by create, update, submit, request-go-live, and most other store respon
 | `createdAt` | ISO 8601 string |
 | `updatedAt` | ISO 8601 string |
 
+### Banner Media Object
+
+A single media item within a store's banner gallery. Stores can have up to 5 of these — any mix of images and videos.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | string | |
+| `storeId` | string | |
+| `url` | string | Cloudinary `secure_url`. Backend validates the URL prefix matches the configured cloud. |
+| `mediaType` | `'IMAGE' \| 'VIDEO'` | |
+| `sortOrder` | integer | Ascending; the first item (lowest sortOrder) is the cover. |
+| `isPrimary` | boolean | `true` for exactly one item in the gallery when the array is non-empty — the cover used in single-image contexts (search results, admin queue rows, etc.). The first item by sortOrder. |
+| `createdAt` | ISO 8601 string | |
+
+**Constraints:**
+- Maximum 5 items per store
+- When the array is non-empty, exactly one item has `isPrimary: true` (the first by sortOrder)
+- `sortOrder` values are normalised by the backend on reorder operations (the array is returned in stable ascending order)
+
 ### Store Address Object
 
 | Field | Type |
@@ -147,6 +158,7 @@ Returned by create, update, submit, request-go-live, and most other store respon
 | `streetNumber` | string |
 | `streetName` | string |
 | `buildingName` | string \| null |
+| `suburb` | string \| null |
 | `city` | string |
 | `postalCode` | string |
 | `createdAt` | ISO 8601 string |
@@ -202,7 +214,7 @@ The `_count.products` reflects **all products** regardless of status (DRAFT, ACT
   "description": "string | null",
   "story": "string | null",
   "logoUrl": "string | null",
-  "bannerUrl": "string | null",
+  "bannerMedia": "BannerMedia[]",
   "websiteUrl": "string | null",
   "contactEmail": "string | null",
   "contactPhone": "string | null",
@@ -282,8 +294,7 @@ If the store ID does not exist, the response is `403` (not `404`) — this preve
 | `description` | string | max 500 chars |
 | `story` | string | max 2000 chars |
 | `websiteUrl` | string | valid URL |
-| `logoUrl` | string | valid URL — must be a Cloudinary URL from YIIVA's configured cloud (see [Cloudinary URL constraint](#cloudinary-url-constraint)). Upload via the `store_logo` context first, then pass the returned `secure_url` here. |
-| `bannerUrl` | string | valid URL — must be a Cloudinary URL from YIIVA's configured cloud. Upload via the `store_banner` context first, then pass the returned `secure_url` here. |
+| `logoUrl` | string | valid URL — upload image to cloud storage first, pass the resulting URL here |
 | `contactEmail` | string | valid email |
 | `contactPhone` | string | — |
 | `businessRegNo` | string | — |
@@ -346,7 +357,7 @@ Requests the second admin review to move the store from `APPROVED` → live. All
 
 **Requirements for go-live** (all must be met):
 - All initial submission fields (description, logoUrl, contactEmail, contactPhone, businessRegNo, bankName, bankAccountNo, bankBranchCode, bankAccountType)
-- `bannerUrl` populated
+- At least one item in `bannerMedia` (image or video)
 - `story` populated
 - At least one store address added
 - At least 7 active products listed
@@ -369,6 +380,94 @@ Requests the second admin review to move the store from `APPROVED` → live. All
 
 ---
 
+## Banner Media
+
+The store banner is a gallery of up to 5 media items — any combination of images and videos. Replaces the legacy single `bannerUrl` field. The first item by `sortOrder` is the cover (used wherever a single image was previously shown — search results, admin queue rows, etc.).
+
+Uploads go through the Cloudinary signing flow with two upload contexts:
+- `store_banner` — images (existing context, unchanged limits)
+- `store_banner_video` — videos (new context — see `uploads-module-api.md`)
+
+After the upload completes, the frontend posts the resulting `secure_url` + `mediaType` to `POST /stores/:storeId/banner-media`.
+
+---
+
+### `POST /stores/:storeId/banner-media`
+
+**Protected. Store owner or active accepted employee.**
+
+Adds a media item to the store's banner gallery. Rejected when the gallery is already at the 5-item cap.
+
+**Request body**
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `url` | string | yes | Cloudinary `secure_url`. Backend validates the URL prefix matches the configured cloud. |
+| `mediaType` | `'IMAGE' \| 'VIDEO'` | yes | — |
+
+The item is appended to the end of the gallery (largest `sortOrder + 1`). If the gallery was empty, this item becomes the cover (`isPrimary: true`).
+
+**Success — `201`** — returns the created [BannerMedia](#banner-media-object) object.
+
+**Errors**
+
+| Status | Message | Cause |
+|---|---|---|
+| `403` | `"You do not have permission to manage this store"` | Not owner or active employee |
+| `400` | `"Banner gallery is at the 5-item limit. Remove an item before adding a new one."` | Gallery full |
+| `400` | `"Banner URL must be a Cloudinary secure URL"` | URL prefix mismatch |
+| `400` | validation errors | Invalid `mediaType` or missing fields |
+
+---
+
+### `DELETE /stores/:storeId/banner-media/:id`
+
+**Protected. Store owner or active accepted employee.**
+
+Removes a banner item. The remaining items' `sortOrder` values are renumbered so they stay contiguous (0..N-1). If the removed item was the cover, the next item by sortOrder becomes the new cover.
+
+**No request body.**
+
+**Success — `200`**
+```json
+{ "message": "Banner media removed" }
+```
+
+**Errors**
+
+| Status | Message | Cause |
+|---|---|---|
+| `403` | `"You do not have permission to manage this store"` | Not owner or active employee |
+| `404` | `"Banner media not found"` | Item does not exist or belongs to a different store |
+| `400` | `"At least one banner item is required while the store is in PENDING_GO_LIVE or ACTIVE"` | Removing would violate the readiness invariant (see below) |
+
+> **Status-aware delete protection:** for `PENDING_GO_LIVE` and `ACTIVE` stores, the backend rejects a delete that would empty the gallery (analogous to the "last image" rule on ACTIVE products). For `APPROVED` and `DRAFT` stores, all items can be removed.
+
+---
+
+### `PATCH /stores/:storeId/banner-media/reorder`
+
+**Protected. Store owner or active accepted employee.**
+
+Reorders the entire gallery in a single call. The request body must list the exact set of current item ids — backend rejects any miscount, duplicates, or unknown ids.
+
+**Request body**
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `ids` | string[] | yes | Exact set of the gallery's current item ids, in the desired order. First id becomes the cover (`isPrimary: true`). |
+
+**Success — `200`** — returns the reordered gallery as `BannerMedia[]`.
+
+**Errors**
+
+| Status | Message | Cause |
+|---|---|---|
+| `403` | `"You do not have permission to manage this store"` | Not owner or active employee |
+| `400` | `"Reorder ids must contain exactly the current set of banner items"` | Miscount, duplicates, or unknown id |
+
+---
+
 ## Store Addresses
 
 ---
@@ -386,6 +485,7 @@ Adds a physical location to the store. Can be added at any status except `CLOSED
 | `streetNumber` | string | yes | max 20 chars |
 | `streetName` | string | yes | 2–100 chars |
 | `buildingName` | string | no | max 100 chars |
+| `suburb` | string | no | max 100 chars |
 | `city` | string | yes | 2–100 chars |
 | `postalCode` | string | yes | 4–10 chars |
 
@@ -842,11 +942,19 @@ Display this field prominently on the merchant dashboard when it is non-null so 
 
 **Implication for go-live rejections:** A go-live rejection sets `rejectionReason` on an `APPROVED` store. Because edits while `APPROVED` do not auto-clear the reason, the dashboard banner will keep displaying until the merchant calls `POST /stores/:id/request-go-live` again — that's when the reason is cleared. Frontends should communicate this clearly: "fix the issue, then re-request go-live to dismiss this notice."
 
-### Image and media fields (logoUrl, bannerUrl)
+### Image and media fields (logoUrl, bannerMedia)
 
-The backend does not handle file uploads. `logoUrl` and `bannerUrl` are plain URL strings hosted on **Cloudinary**. The frontend uploads via the signed-direct-upload pattern: fetch a signature from `POST /uploads/cloudinary-signature`, upload the file to Cloudinary, then pass the returned `secure_url` to `PATCH /stores/:id`.
+The backend does not handle file uploads. The frontend is responsible for uploading to Cloudinary first and then passing the resulting URL back to the appropriate endpoint.
 
-The backend validates that the submitted URL begins with `https://res.cloudinary.com/<cloudName>/` — see [Cloudinary URL constraint](#cloudinary-url-constraint) above. See [`uploads-module-api.md`](./uploads-module-api.md) for the signing-endpoint contract, [`store-frontend-flows.md` §7.3](./store-frontend-flows.md#73-image-upload--cloudinary-signed-direct-upload) for the frontend UX pattern.
+- **`logoUrl`** is a single URL string. Updated via `PATCH /stores/:id { logoUrl }`.
+- **`bannerMedia`** is a collection. **Do not** mutate it via `PATCH /stores/:id` — the dedicated endpoints below are the only correct surface:
+  - `POST /stores/:storeId/banner-media` — add an item
+  - `DELETE /stores/:storeId/banner-media/:id` — remove an item
+  - `PATCH /stores/:storeId/banner-media/reorder` — reorder (first id = cover)
+
+This mirrors how product images work (see product-module-api §"Product Images") and keeps the multi-item invariants (≤5 items, exactly one `isPrimary`) enforceable server-side.
+
+The legacy `bannerUrl` field is removed in this revision — existing data is migrated server-side into a single `bannerMedia` entry with `isPrimary: true`.
 
 ### Employee invite — full sequence
 

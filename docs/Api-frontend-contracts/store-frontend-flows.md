@@ -146,7 +146,7 @@ The wizard groups fields by purpose. Mark required-for-submission fields clearly
 | | `description` | yes | yes |
 | | `story` | no | **yes** |
 | | `logoUrl` | yes | yes |
-| | `bannerUrl` | no | **yes** |
+| | `bannerMedia` (≥1 item) | no | **yes** |
 | | `websiteUrl` | no | no (stays optional through go-live) |
 | **Contact** | `contactEmail` | yes | yes |
 | | `contactPhone` | yes | yes |
@@ -214,7 +214,7 @@ This matches how creators are used to working on Instagram, Notion, etc. — no 
 - Helper text: *"Tell buyers about your brand. Where you started, what you stand for, what makes you different. Optional now, required at go-live."*
 - This is a YIIVA-specific field — the platform leans into brand storytelling. Don't make it feel like a chore.
 
-**Image fields (`logoUrl`, `bannerUrl`):** see [§7.3 Image upload pattern](#73-image-upload--cloud-storage-first-patch-the-url-second). The wizard shows them as drop-zones with preview, not URL text inputs.
+**Image fields (`logoUrl`, `bannerMedia`):** see [§7.3 Image upload pattern](#73-image-upload--cloud-storage-first-patch-the-url-second). Logo is a single drop-zone with preview. Banner is a multi-item gallery — see [§7.3a Banner media gallery](#73a-banner-media-gallery-multi-item).
 
 **Bank details:** see [§8 UX patterns — Bank details masking](#bank-details-masking-and-confirm-on-edit) for how to handle account number masking, confirm-on-edit, and the security tone.
 
@@ -1301,7 +1301,8 @@ The asymmetry between DRAFT and APPROVED is the most important UX subtlety in th
 | Field | Recommended dimensions (soft) | File limits (hard) |
 |---|---|---|
 | Logo | Square (1:1), at least 500×500 | max 5 MB, JPG/PNG/WebP |
-| Banner | Wide (3:1 or similar), at least 1500×500 | max 10 MB, JPG/PNG/WebP |
+| Banner image | Wide (3:1 or similar), at least 1500×500 | max 10 MB, JPG/PNG/WebP |
+| Banner video | — (no dimension recommendation) | max 50 MB, MP4/WebM, ~60s informational |
 
 **Dimensions are soft warnings, not hard rejections.** If a logo is below 500×500 or non-square, **surface a warning** (*"This logo might look pixelated on buyer screens — try a higher-resolution version"*) but allow the upload to proceed. Many SA brands don't have studio-quality assets at hand; blocking submission on dimensions creates an unnecessary drop-off point.
 
@@ -1320,6 +1321,68 @@ The backend stores the **base `secure_url`** returned by Cloudinary. The fronten
 Full reference table is in [`../cloudinary-setup.md` §8](../cloudinary-setup.md#8-transformation-url-patterns).
 
 > **Coordination note for the team:** the merchant's expectation is "I picked an image and it's saved." The three-step flow (sign → upload → PATCH) is invisible to them. If any step fails, the user-facing error should just be *"Image upload failed — try again."* Don't expose Cloudinary error details, signature mechanics, or backend validation messages in the UI. Log details server-side or in dev tools for engineering debugging only.
+
+### 7.3a Banner media gallery (multi-item)
+
+The banner is **a gallery of up to 5 media items** — any combination of images and videos. Distinct from the single-image `logoUrl` flow:
+
+- **`logoUrl`** is one URL on the store record, set via `PATCH /stores/:id { logoUrl }`
+- **`bannerMedia`** is a collection. Each item is added/removed/reordered via dedicated endpoints (see [store-module-api.md §Banner Media](./store-module-api.md#banner-media)). **Never** mutate it through `PATCH /stores/:id`
+
+#### Cover semantics
+
+The first item by `sortOrder` is the **cover** (`isPrimary: true`). It's the one shown in single-image contexts: search results, the admin queue row, the buyer-app preview. The merchant can drag any item to position 0 to make it the cover.
+
+#### Upload contexts
+
+Two distinct Cloudinary upload contexts (see `uploads-module-api.md`):
+
+- `store_banner` — images. Existing preset, 10 MB cap, JPG/PNG/WebP.
+- `store_banner_video` — videos. New preset, 50 MB cap, MP4/WebM, ~60s informational.
+
+The frontend picks the context from the merchant's "Add image" vs "Add video" affordance, runs the standard signed-upload flow, then POSTs `{ url, mediaType }` to `POST /stores/:storeId/banner-media`.
+
+#### Gallery UX
+
+```
+Banner media                                          [ + Add image ] [ + Add video ]
+0 of 5 items uploaded.    Drag to reorder. First item is the cover.
+
+┌────────────┬────────────┬────────────┬────────────┬────────────┐
+│            │            │            │            │            │
+│  [cover]   │            │            │            │            │
+│   image    │   video    │   image    │   empty    │   empty    │
+│            │            │            │            │            │
+│        [×] │        [×] │        [×] │            │            │
+└────────────┴────────────┴────────────┴────────────┴────────────┘
+```
+
+- 5 slots visible at all times. Empty slots are subtly dashed-outline placeholders.
+- Each filled slot shows the thumbnail (image: Cloudinary `c_fill,w_400,h_400`; video: a `so_2` frame thumbnail with a small ▶ play badge).
+- Per-item `[×]` removes with confirmation modal.
+- Drag-to-reorder (uses pointer events; works on mobile). The first slot is marked "Cover".
+- The "+ Add image" / "+ Add video" buttons disable when 5 items are present, with a tooltip explaining the cap.
+
+#### Status-aware delete protection
+
+For `PENDING_GO_LIVE` and `ACTIVE` stores, removing the last item is blocked server-side (analogous to the last-image rule on ACTIVE products) — the response is a 400 with a clear message. The frontend should pre-empt this by graying the `[×]` on the only remaining item with a tooltip *"Add a replacement first — your store can't be live without a banner."* For `APPROVED` and `DRAFT` stores, all items can be removed freely.
+
+#### Empty state
+
+```
+[ illustration ]
+
+Add your first banner
+
+Up to 5 images or videos. The first one becomes
+your store's cover image.
+
+[ + Add image ]   [ + Add video ]
+```
+
+#### Readiness checklist mapping (§2.5)
+
+The "Banner image" checkbox on the go-live readiness checklist now reflects `bannerMedia.length >= 1`. Copy stays as "Banner image" for continuity (and because "image" reads well to merchants even when they upload a video as the cover); change to "Banner media" if user testing reveals confusion.
 
 ### 7.4 Multi-tab merchant setup
 

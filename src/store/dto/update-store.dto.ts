@@ -42,15 +42,14 @@ export class UpdateStoreDto {
 
   // Visual branding — URLs returned by Cloudinary after a signed-direct upload.
   // @IsUrl() validates the URL shape; @IsCloudinaryUrl() enforces our cloud prefix.
+  //
+  // NOTE: bannerUrl was removed in May 2026. Multi-media banners are managed
+  // through dedicated endpoints (see banner-media controller). With ValidationPipe's
+  // forbidNonWhitelisted: true, attempting to PATCH bannerUrl now returns 400.
   @IsOptional()
   @IsUrl()
   @IsCloudinaryUrl()
   logoUrl?: string;
-
-  @IsOptional()
-  @IsUrl()
-  @IsCloudinaryUrl()
-  bannerUrl?: string;
 
   // Contact
   @IsOptional()

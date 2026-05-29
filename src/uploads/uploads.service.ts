@@ -31,6 +31,7 @@ const PRESETS: Record<
 > = {
   [UploadContext.STORE_LOGO]: { name: 'store_logo', resourceType: 'image' },
   [UploadContext.STORE_BANNER]: { name: 'store_banner', resourceType: 'image' },
+  [UploadContext.STORE_BANNER_VIDEO]: { name: 'store_banner_video', resourceType: 'video' },
   [UploadContext.PRODUCT_IMAGE]: { name: 'product_image', resourceType: 'image' },
   [UploadContext.PRODUCT_VIDEO]: { name: 'product_video', resourceType: 'video' },
   [UploadContext.COLLECTION_IMAGE]: { name: 'collection_image', resourceType: 'image' },
@@ -87,6 +88,9 @@ export class UploadsService {
         return `stores/${dto.storeId}/logo`;
 
       case UploadContext.STORE_BANNER:
+      case UploadContext.STORE_BANNER_VIDEO:
+        // Image and video banner uploads share the same folder so the gallery's
+        // contents live together in Cloudinary's tree. Only the preset differs.
         await this.assertCanManageStore(userId, dto.storeId!);
         return `stores/${dto.storeId}/banner`;
 
@@ -189,7 +193,15 @@ export class UploadsService {
    * Cloudinary signature algorithm (per their docs):
    *   sha1(params_sorted_by_key_joined_with_& + api_secret).hex
    *
-   * Params we sign: folder, timestamp, upload_preset (alphabetical order).
+   * Params we sign (alphabetical order):
+   *   folder, source, timestamp, upload_preset
+   *
+   * `source=uw` is required because YIIVA's frontend uploads through Cloudinary's
+   * Upload Widget (next-cloudinary's <CldUploadWidget>). The widget always injects
+   * `source=uw` into the upload form-data and Cloudinary includes that param in
+   * signature verification. Omitting it produces `401 Invalid Signature` from
+   * Cloudinary. See docs/Api-frontend-contracts/uploads-source-uw-signature.md.
+   *
    * Excluded from signing: api_key, file, resource_type, cloud_name, signature itself.
    *
    * The frontend MUST pass these exact param values to Cloudinary. Any tampering
@@ -200,7 +212,7 @@ export class UploadsService {
     preset: string;
     timestamp: number;
   }): string {
-    const paramsString = `folder=${params.folder}&timestamp=${params.timestamp}&upload_preset=${params.preset}`;
+    const paramsString = `folder=${params.folder}&source=uw&timestamp=${params.timestamp}&upload_preset=${params.preset}`;
     return createHash('sha1')
       .update(paramsString + this.cloudinaryConfig.apiSecret)
       .digest('hex');

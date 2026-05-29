@@ -20,6 +20,13 @@ export class UpdateAddressDto {
   @MaxLength(100)
   buildingName?: string;
 
+  // SA address component — sits between building name and city
+  @IsOptional()
+  @Transform(({ value }) => (value as string).trim())
+  @IsString()
+  @MaxLength(100)
+  suburb?: string;
+
   @IsOptional()
   @Transform(({ value }) => (value as string).trim())
   @IsString()

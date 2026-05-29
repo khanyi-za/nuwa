@@ -117,6 +117,35 @@ describe('UploadsService', () => {
     });
   });
 
+  describe('generateSignature — store_banner_video', () => {
+    it('resolves to the same banner folder as image, but with video resource type and preset', async () => {
+      mockPrisma.store.findUnique.mockResolvedValue({ id: STORE_ID });
+      mockStoreService.canManageStore.mockResolvedValue(true);
+
+      const result = await service.generateSignature(USER_ID, UserRole.MERCHANT, {
+        uploadContext: UploadContext.STORE_BANNER_VIDEO,
+        storeId: STORE_ID,
+      });
+
+      expect(result.preset).toBe('store_banner_video');
+      // Same folder as store_banner — image + video banner assets live together
+      expect(result.folder).toBe(`stores/${STORE_ID}/banner`);
+      expect(result.resourceType).toBe('video');
+    });
+
+    it('throws 403 when user cannot manage the store', async () => {
+      mockPrisma.store.findUnique.mockResolvedValue({ id: STORE_ID });
+      mockStoreService.canManageStore.mockResolvedValue(false);
+
+      await expect(
+        service.generateSignature(USER_ID, UserRole.MERCHANT, {
+          uploadContext: UploadContext.STORE_BANNER_VIDEO,
+          storeId: STORE_ID,
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
   describe('generateSignature — product_image', () => {
     it('returns signed payload when product belongs to the user\'s store', async () => {
       mockPrisma.store.findUnique.mockResolvedValue({ id: STORE_ID });
@@ -346,7 +375,7 @@ describe('UploadsService', () => {
       expect(a.timestamp).not.toBe(b.timestamp);
     });
 
-    it('matches the documented Cloudinary algorithm (manual hash check)', async () => {
+    it('matches the documented Cloudinary algorithm (manual hash check, includes source=uw)', async () => {
       jest.spyOn(Date, 'now').mockReturnValue(1700000000000);
       mockPrisma.store.findUnique.mockResolvedValue({ id: STORE_ID });
       mockStoreService.canManageStore.mockResolvedValue(true);
@@ -357,13 +386,39 @@ describe('UploadsService', () => {
       });
 
       // Manually compute the expected SHA-1 to lock the algorithm down.
+      // Params must be alphabetical: folder, source, timestamp, upload_preset.
+      // `source=uw` is required because the frontend uploads via Cloudinary's
+      // Upload Widget which injects this param and Cloudinary verifies it.
       const { createHash } = require('crypto');
-      const expectedParams = `folder=stores/${STORE_ID}/logo&timestamp=${result.timestamp}&upload_preset=store_logo`;
+      const expectedParams = `folder=stores/${STORE_ID}/logo&source=uw&timestamp=${result.timestamp}&upload_preset=store_logo`;
       const expected = createHash('sha1')
         .update(expectedParams + API_SECRET)
         .digest('hex');
 
       expect(result.signature).toBe(expected);
+    });
+
+    it('produces an INVALID signature without source=uw (regression guard)', async () => {
+      // Locks in the fix from M1-M8 testing: if someone ever removes source=uw
+      // from the string-to-sign, this test fails — preventing silent regression.
+      jest.spyOn(Date, 'now').mockReturnValue(1700000000000);
+      mockPrisma.store.findUnique.mockResolvedValue({ id: STORE_ID });
+      mockStoreService.canManageStore.mockResolvedValue(true);
+
+      const result = await service.generateSignature(USER_ID, UserRole.MERCHANT, {
+        uploadContext: UploadContext.STORE_LOGO,
+        storeId: STORE_ID,
+      });
+
+      const { createHash } = require('crypto');
+      // Compute a signature WITHOUT source=uw — this is what we were doing
+      // before the fix and what Cloudinary rejected with 401 Invalid Signature.
+      const paramsWithoutSource = `folder=stores/${STORE_ID}/logo&timestamp=${result.timestamp}&upload_preset=store_logo`;
+      const signatureWithoutSource = createHash('sha1')
+        .update(paramsWithoutSource + API_SECRET)
+        .digest('hex');
+
+      expect(result.signature).not.toBe(signatureWithoutSource);
     });
   });
 });
