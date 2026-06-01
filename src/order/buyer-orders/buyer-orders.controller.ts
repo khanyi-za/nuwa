@@ -9,14 +9,15 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
-import { Roles } from '../../auth/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
 import { BuyerOrdersService } from './buyer-orders.service';
 import { BuyerOrderQueryDto } from '../dto/buyer-order-query.dto';
 import { BuyerCancelOrderDto } from '../dto/buyer-cancel-order.dto';
 
+// JWT auth is global. The previous `@Roles(BUYER)` decorator was a no-op
+// (no RolesGuard wired) and was removed for clarity on 2026-06-01. Any
+// authenticated user can view their own orders — ownership is enforced
+// service-side via the userId match.
 @Controller('orders')
-@Roles(UserRole.BUYER)
 export class BuyerOrdersController {
   constructor(private readonly buyerOrders: BuyerOrdersService) {}
 

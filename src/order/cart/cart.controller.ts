@@ -8,27 +8,23 @@ import {
   Param,
   Patch,
   Post,
-  UseGuards,
 } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
-import { Roles } from '../../auth/decorators/roles.decorator';
-import { RolesGuard } from '../../auth/guards/roles.guard';
 import { AddCartItemDto } from '../dto/add-cart-item.dto';
 import { UpdateCartItemDto } from '../dto/update-cart-item.dto';
 import { CartService } from './cart.service';
 
 /**
- * Buyer cart endpoints. JWT auth is applied globally via `JwtAuthGuard`;
- * this controller adds BUYER-only role scoping.
+ * Buyer cart endpoints. JWT auth is applied globally via `JwtAuthGuard`.
+ * Any authenticated user can use the cart — MERCHANT-role users who also
+ * shop on the mobile app are first-class buyers here (the role gate was
+ * dropped on 2026-06-01 to support that).
  *
  * Anonymous carts are not persisted server-side — the frontend stashes
  * items in `localStorage` until login and replays them via `POST /items`
  * (Phase 3 decision #11).
  */
 @Controller('cart')
-@UseGuards(RolesGuard)
-@Roles(UserRole.BUYER)
 export class CartController {
   constructor(private readonly cartService: CartService) {}
 

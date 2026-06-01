@@ -12,7 +12,9 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { CreateStoreDto } from './dto/create-store.dto';
 import { UpdateStoreDto } from './dto/update-store.dto';
@@ -225,10 +227,19 @@ export class StoreController {
 
   // ── Catch-all parameterised route — MUST be declared last ────────────────────
 
-  // GET /stores/:slug — public store profile (ACTIVE stores only, whitelist fields)
-  // Declared last so it doesn't swallow /me, /admin/pending, /admin/pending-go-live
+  // GET /stores/:slug — public store profile (ACTIVE stores only, whitelist fields).
+  // Declared last so it doesn't swallow /me, /admin/pending, /admin/pending-go-live.
+  // Public-with-optional-auth: unauthenticated buyers can view the profile; if a
+  // JWT is present, `isFollowing` is computed against the current user.
+  // `@Public()` bypasses the global JwtAuthGuard; `OptionalJwtAuthGuard` populates
+  // request.user if a valid JWT exists, otherwise leaves it null.
   @Get(':slug')
-  getPublicStore(@CurrentUser('id') userId: string, @Param('slug') slug: string) {
-    return this.storeService.getPublicStore(slug, userId);
+  @Public()
+  @UseGuards(OptionalJwtAuthGuard)
+  getPublicStore(
+    @CurrentUser('id') userId: string | undefined,
+    @Param('slug') slug: string,
+  ) {
+    return this.storeService.getPublicStore(slug, userId ?? null);
   }
 }

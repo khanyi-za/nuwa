@@ -572,7 +572,7 @@ export class StoreService {
 
   // ─── Public: Get Store Profile ────────────────────────────────────────────────
 
-  async getPublicStore(slug: string, userId: string) {
+  async getPublicStore(slug: string, userId: string | null) {
     const store = await this.prisma.store.findFirst({
       where: {
         slug,
@@ -620,14 +620,17 @@ export class StoreService {
       throw new NotFoundException('Store not found');
     }
 
-    const follower = await this.prisma.storeFollower.findUnique({
-      where: {
-        userId_storeId: {
-          userId,
-          storeId: store.id,
-        },
-      },
-    });
+    // Skip the follower lookup for unauthenticated buyers (mobile public browse).
+    const follower = userId
+      ? await this.prisma.storeFollower.findUnique({
+          where: {
+            userId_storeId: {
+              userId,
+              storeId: store.id,
+            },
+          },
+        })
+      : null;
 
     const locations = [...new Set(store.addresses.map((addr) => addr.city))];
 

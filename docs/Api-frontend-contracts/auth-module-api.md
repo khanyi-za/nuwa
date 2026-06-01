@@ -1,6 +1,6 @@
 # YIIVA Auth Module — API Contract
 
-> **Audience:** Frontend developers integrating the merchant dashboard and admin panel.
+> **Audience:** Frontend developers integrating the merchant dashboard, admin panel, **and the buyer mobile app**. Endpoint shapes are identical across clients; UX flows differ per client (see [`auth-frontend-flows.md`](./auth-frontend-flows.md) for the web flows and [`../Api-mobileapp-contracts/auth-flows.md`](../Api-mobileapp-contracts/auth-flows.md) for the mobile flows).
 > **Scope:** All authentication endpoints. Admin accounts are seeded directly into the database — the admin frontend only needs login, refresh, logout, and `GET /auth/me`. No self-registration flow exists for admins.
 
 ---

@@ -9,12 +9,12 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
-import { Roles } from '../../auth/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
 import { WishlistService } from './wishlist.service';
 
+// JWT auth is global; any authenticated user can save products. The
+// previous `@Roles(BUYER)` decorator was a no-op (no RolesGuard wired)
+// and was removed for clarity on 2026-06-01.
 @Controller('wishlist')
-@Roles(UserRole.BUYER)
 export class WishlistController {
   constructor(private readonly wishlist: WishlistService) {}
 

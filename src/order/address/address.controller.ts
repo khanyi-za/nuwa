@@ -8,27 +8,23 @@ import {
   Param,
   Patch,
   Post,
-  UseGuards,
 } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
-import { Roles } from '../../auth/decorators/roles.decorator';
-import { RolesGuard } from '../../auth/guards/roles.guard';
 import { CreateAddressDto } from '../dto/create-address.dto';
 import { UpdateAddressDto } from '../dto/update-address.dto';
 import { AddressService } from './address.service';
 
 /**
  * Buyer address endpoints. JWT auth is applied globally via `JwtAuthGuard`
- * (APP_GUARD in AuthModule); this controller adds BUYER-only role scoping.
+ * (APP_GUARD in AuthModule). Any authenticated user can manage their own
+ * addresses — MERCHANT-role users who shop on mobile are first-class buyers
+ * here (BUYER role gate dropped on 2026-06-01).
  *
  * Admin address views for support live in a separate controller (Phase 7).
  * Guest checkout creates addresses via the same `AddressService.create()` —
  * the guest User is auto-created first, so standard ownership semantics hold.
  */
 @Controller('addresses')
-@UseGuards(RolesGuard)
-@Roles(UserRole.BUYER)
 export class AddressController {
   constructor(private readonly addressService: AddressService) {}
 
