@@ -19,6 +19,7 @@ AppModule
  ├── ProductModule     — Products, variants, images, collections, tags, categories
  ├── OrderModule       — Cart, checkout, orders (buyer + merchant + admin views), addresses, wishlist, cron cleanup
  ├── PaymentsModule    — PayFast integration: signing, ITN webhook, refunds, reconciliation
+ ├── ShippingModule    — ShipLogic/TCG: rate quotes, shipment creation, label download, tracking webhook, dispatch addresses CRUD
  ├── UploadsModule     — Cloudinary signed-upload signing endpoint + IsCloudinaryUrl validator (global)
  ├── PrismaModule      — Database singleton (global)
  ├── EmailModule       — Transactional email via Resend
@@ -30,24 +31,28 @@ AppModule
 **Key dependency rules:**
 - OrderModule imports StoreModule + ProductModule directly.
 - OrderModule imports PaymentsModule and binds `PAYMENT_SERVICE` to the real `PaymentsService` via `useClass`. PaymentsService's deps (`PayfastConfig`, `PayfastSignatureService`) resolve from PaymentsModule's exports.
-- OrderModule consumes Shipping via **injection-token contract** (`SHIPPING_SERVICE`). Still on `ShippingStubService` until Shipping module ships.
+- OrderModule imports ShippingModule and consumes Shipping via the `SHIPPING_SERVICE` injection-token contract. ShippingModule exports the token bound (via `useExisting`) to the real `ShippingService`.
+- PaymentsModule imports ShippingModule (one-way) and injects `ShipmentCreationService` into `PaymentsNotifyService` — post-ITN hook books real ShipLogic shipments after Order → CONFIRMED, OUTSIDE the DB transaction.
+- BuyerOrdersService injects `ShipmentCancellationService` (via OrderModule's import of ShippingModule) — best-effort ShipLogic cancel after Order.cancelOrder succeeds.
 - AdminOrdersService injects `IPaymentService` via `PAYMENT_SERVICE` token (for refund flow).
-- No circular dependencies. PaymentsModule reads from `OrderModule`-owned tables (PaymentGroup, Payment, Order) but does not import OrderModule.
+- No circular dependencies. PaymentsModule reads from `OrderModule`-owned tables (PaymentGroup, Payment, Order) but does not import OrderModule. ShippingModule does not import OrderModule or PaymentsModule.
 - PrismaModule is global — every module injects PrismaService without importing PrismaModule.
 - UploadsModule is @Global — exports `CloudinaryConfig` and `IsCloudinaryUrlConstraint` so any DTO across modules can use `@IsCloudinaryUrl()` without importing UploadsModule. Imports StoreModule for `canManageStore` in the signing endpoint's per-context authz.
 - PaymentsModule must export PayfastConfig, PayfastSignatureService, AND PayfastClient. OrderModule binds `PAYMENT_SERVICE` via `useClass: PaymentsService` — that constructs PaymentsService in OrderModule's context, so every constructor dep of PaymentsService must be visible there.
+- ShippingModule imports StoreModule for `canManageStore` authz (used by dispatch-address CRUD and label download). Exports `SHIPPING_SERVICE`, `ShipLogicConfig`, `ShipLogicClient`, `ShipmentCreationService`, `ShipmentCancellationService`.
 
 ### Why it's structured this way
 
 Each module owns its own controllers, services, DTOs, and specs. Sub-features within a module get their own subdirectory (e.g., `order/cart/`, `order/checkout/`, `order/merchant-orders/`, `payments/payfast/`). This keeps feature boundaries clear and allows parallel development.
 
-The contract/stub pattern (`PAYMENT_SERVICE`, `SHIPPING_SERVICE` tokens) lets the full checkout flow be coded and tested end-to-end without those modules existing. When they ship, only the module-level binding changes — zero consumer code changes. Payments shipped this way; Shipping is still on its stub.
+The contract/stub pattern (`PAYMENT_SERVICE`, `SHIPPING_SERVICE` tokens) lets the full checkout flow be coded and tested end-to-end without those modules existing. When they ship, only the module-level binding changes — zero consumer code changes. **Both Payments and Shipping have now shipped this way** — ShippingModule exports `SHIPPING_SERVICE` bound to the real `ShippingService` (replacing the legacy `ShippingStubService`). The stub class still exists in `src/order/contracts/stubs/` for potential test use, but is no longer bound in production.
 
 ### Global middleware and guards
 
 - **CORS** (global, `main.ts`): `app.enableCors(buildCorsOptions())` from `src/cors.config.ts`. Env-driven `CORS_ORIGINS` allowlist (comma-separated). Production fails to boot if `CORS_ORIGINS` is empty. `credentials: true` to support the refresh-token cookie. PayFast ITN webhook is server-to-server and unaffected.
 - **ValidationPipe** (global, `main.ts`): `whitelist: true`, `forbidNonWhitelisted: true`, `transform: true`. DTOs use class-validator decorators.
 - **`useContainer(app.select(AppModule), { fallbackOnErrors: true })`** in `main.ts` — wires class-validator to NestJS DI so custom validators (e.g. `IsCloudinaryUrl`) can inject providers. Required for any DI-based validator going forward.
+- **`NestFactory.create(AppModule, { rawBody: true })`** in `main.ts` — captures `req.rawBody` as a `Buffer`. Required for the ShipLogic webhook (`POST /shipping/webhook/:secret`) which hashes the exact request bytes for idempotency. PayFast notify (form-urlencoded parsed body) is unaffected.
 - **JwtAuthGuard** (global APP_GUARD): Every route requires JWT unless decorated with `@Public()`. Handles `TokenExpiredError` vs `JsonWebTokenError` distinctly for frontend silent-refresh flow.
 - **ThrottlerGuard** (global APP_GUARD): 100 requests per 60 seconds.
 
@@ -131,10 +136,13 @@ describe('ServiceName', () => {
 
 ### Shipping and payments
 
-- **Shipping**: Flat R110 per checkout. Lives on `PaymentGroup.shippingInCents`, NOT on individual Orders. `Order.shippingInCents = 0` always. YIIVA pays The Courier Guy directly — merchants never handle shipping money.
+- **Shipping**: **Real ShipLogic rates, per-store** (as of shipping-module Phase 4). Each Order gets its own quote based on the store's primary `StoreDispatchAddress` → buyer's delivery address. `Order.shippingInCents = per-store rate`. `Order.totalInCents = subtotal + per-store shipping`. `PaymentGroup.shippingInCents = grand sum across all stores in the cart`. YIIVA pays The Courier Guy directly — merchants never handle shipping money. On ShipLogic 5xx/network → falls back to `SHIPPING_RATE_FALLBACK_CENTS` (default 11000 = R110). On 4xx → `BadRequestException` to caller (e.g. bad address).
+- **`computeCheckoutTotals` signature**: `(items, Map<storeId, number>)` — per-store shipping passed in as a Map. Each `CheckoutStoreGroup` has its own `shippingInCents` and `totalInCents = subtotal + shipping`.
 - **Commission**: 5.5% of subtotal only (shipping not commissionable). Locked on `Payment` row at order creation time.
-- **PaymentGroup**: One PayFast transaction covering N orders. `amountGrossInCents = grandSubtotal + shipping`.
-- **Payment**: Per-order slice. `amountGrossInCents = store subtotal` (no shipping). `merchantPayoutInCents = subtotal - commission`.
+- **PaymentGroup**: One PayFast transaction covering N orders. `amountGrossInCents = grandSubtotal + grandShipping`.
+- **Payment**: Per-order slice. `amountGrossInCents = store subtotal` (no shipping). `merchantPayoutInCents = subtotal - commission`. Shipping cost stays on PaymentGroup, not allocated to merchant payouts.
+- **Shipment booking**: After `PaymentGroup → COMPLETED` and child `Order → CONFIRMED`, `PaymentsNotifyService` fires `ShipmentCreationService.createShipmentForOrder(orderId)` for each Order **outside** the DB transaction. Idempotent on existing Shipment row. Failures are logged + swallowed; Order stays CONFIRMED for ops review.
+- **Shipment cancel propagation**: `BuyerOrdersService.cancelOrder` fires `ShipmentCancellationService.cancelShipmentForOrder(orderId)` best-effort after local cancel succeeds. ShipLogic 4xx (already collected, etc.) logged + swallowed.
 
 ### Stock model
 
@@ -186,6 +194,36 @@ PayFast uses **two distinct signature algorithms** that must not be confused:
 - **Refunds are sandbox-impossible**: PayFast rejects refund API calls in sandbox. Production smoke test required for first refund.
 
 **Trust proxy:** `app.set('trust proxy', N)` in `main.ts` from `PayfastConfig.trustProxy`. Defaults to 1 (Railway's edge hop). Override via `TRUST_PROXY` env var. Without correct config, `req.ip` is the LB's IP and the allowlist rejects everything.
+
+### ShipLogic / TCG integration patterns
+
+ShipLogic is the underlying platform — The Courier Guy is one provider on it. We integrate via the customer-facing API, not the courier-operator surface.
+
+| Mode | Used for | Auth |
+|---|---|---|
+| Outbound REST | rates, shipments, label PDF, cancel | Bearer token (`SHIPLOGIC_API_KEY`) |
+| Inbound webhook | tracking events, shipment notes, address changes, dimension changes | Path-embedded secret (`SHIPLOGIC_WEBHOOK_SECRET`) + optional IP allowlist |
+
+**Per-store rate quote** (`POST /rates`): one call per store group in the cart. Looks up the store's primary `StoreDispatchAddress` (soft-delete-aware), sums per-product `weightInGrams` (with 500g fallback when null), fixed parcel dimensions (20×20×10 cm — `Product.lengthCm/widthCm/heightCm` exist but most products won't populate them). On 4xx → `BadRequestException`; on 5xx/network → fallback flat rate; on no matching service tier → `InternalServerErrorException`.
+
+**Shipment creation** (`POST /shipments`): fired from `PaymentsNotifyService` post-ITN, idempotent on existing `Shipment` row. Writes the existing `Shipment` table — `shiplogicShipmentId` is the numeric internal ID (e.g. `"115738667"`); `waybillNumber` is the ShipLogic `short_tracking_reference` (e.g. `"VD3GLQ"`) — same value as the printed TCG waybill. **Both are `@unique` — don't confuse them.** Stores raw response on `Shipment.shiplogicPayload Json?` for audit.
+
+**Webhook** (`POST /shipping/webhook/:secret`):
+1. Constant-time secret compare against `SHIPLOGIC_WEBHOOK_SECRET`; mismatch → 404 (stealth)
+2. Optional IP allowlist via `SHIPLOGIC_WEBHOOK_IP_ALLOWLIST` (empty = no IP gate). Handles IPv4-mapped IPv6 (`::ffff:1.2.3.4`).
+3. SHA-256 hash of `req.rawBody` → idempotency key
+4. INSERT `ShipmentEvent` (unique constraint on `payloadHash` catches replays → ack 200 no-op)
+5. Detect `eventType` from payload shape (TRACKING_EVENT / SHIPMENT_NOTE / ADDRESS_CHANGE / DIMENSION_CHANGE)
+6. Match `short_tracking_reference` → `Shipment.waybillNumber`; orphans still get the audit row written
+7. For TRACKING_EVENT: always update `Shipment.shiplogicStatus` (raw); for **mapped** statuses, also update `Shipment.status`, `Order.status` (with CAS guards), and write a buyer-visible `ShipmentTrackingEvent` row
+
+**Status mapping** lives in `src/shipping/shipping-status-map.ts`. Pure function. Mapping table in `docs/shipping-module/shipping-module-foundation.md` §11. Forward-only — non-mapped statuses are no-op on Order (stored raw on Shipment for admin triage). `delivery-failed-attempt` and `returned-to-hub` map to `ShipmentStatus.FAILED_DELIVERY` but do NOT auto-transition Order — ops triage required.
+
+**CAS guards on Order updates** in webhook (`allowedSourceStatusesFor`): prevent backward transitions from delayed webhooks. A delayed `collected` event arriving after `delivered` silently no-ops via `updateMany` matching zero rows. **Never change webhook Order updates to `update` from `updateMany`** — would lose replay protection.
+
+**Webhook auth question still open (Q24 in foundation doc):** TCG support hasn't confirmed whether webhooks are signed. v1 design uses path-secret + IP allowlist; signature-verification slot is reserved in `ShippingWebhookService.ingest` between secret check and ShipmentEvent INSERT.
+
+**Sandbox webhook delivery is unverified** — empirical test on 2026-06-03 received zero webhooks despite three real state changes. Could be sandbox-doesn't-fire (most likely), subscription verification step we missed, or another quirk. Production smoke test will be the first real-world verification.
 
 ### Cloudinary integration patterns
 
@@ -302,11 +340,37 @@ src/
       url-encode.ts                — phpUrlencode() helper, byte-matches PHP urlencode
       field-order.ts               — Canonical FORM_FIELD_ORDER from PayFast SDK
 
+  shipping/
+    shipping.module.ts             — Registers everything; exports SHIPPING_SERVICE + ShipmentCreation + ShipmentCancellation services
+    shipping.service.ts            — IShippingService.getRate (real); fallback policy 4xx/5xx
+    shipping-status-map.ts         — Pure: raw ShipLogic status → {orderStatus, shipmentStatus, cancelReason}
+    shipping-webhook.controller.ts — POST /shipping/webhook/:secret (public; path-secret + IP allowlist; raw-body hash)
+    shipping-webhook.service.ts    — Ingest pipeline: idempotency via payloadHash, status-map apply, CAS guards on Order
+    shipment-creation.service.ts   — Post-ITN hook from PaymentsNotifyService; books ShipLogic shipment; writes Shipment row
+    shipment-cancellation.service.ts — Buyer-cancel hook from BuyerOrdersService; best-effort ShipLogic cancel
+    shipment-label.controller.ts   — GET /stores/:storeId/orders/:orderId/shipping-label (PDF binary)
+    shipment-label.service.ts      — canManageStore + 404-on-cross-store; ShipLogic /shipments/label fetch
+    shiplogic/
+      shiplogic-config.ts          — Env validation at boot; fallbackRateInCents, webhookSecret, IP allowlist
+      shiplogic-client.service.ts  — getJson, postJson, getBinary; Bearer auth; AbortController timeouts
+      shiplogic-types.ts           — Wire-format DTOs (rate request/response, shipment create/cancel, contact)
+      shiplogic-address.ts         — Pure helpers: YIIVA → ShipLogic shape (street_address, local_area, zone, code)
+    dispatch-address/
+      dispatch-address.controller.ts — /stores/:storeId/dispatch-addresses CRUD
+      dispatch-address.service.ts    — list/get/create/update/soft-delete/set-primary; canManageStore authz
+      dto/                           — Create + Update DTOs (SA province enum, +27 phone, lat/lng)
+
 docs/
   order-module/
     order-module-foundation.md     — ALL phase decisions, schema changes, architecture
   payments-module/
     payments-module-foundation.md  — PayFast integration design, schema, phase plan
+  shipping-module/
+    shipping-module-foundation.md  — ShipLogic integration: locked decisions Q11–Q26, schema, phase plan, status mapping table
+  thecourierguy/
+    shiplogic.postman_collection.json — Sandbox-hosted Shiplogic Postman docs
+    tcg.postman_collection.json    — White-labelled TCG version (identical content, prod URLs)
+  Api-mobileapp-contracts/         — 5 mobile UX flow docs (auth, catalogue, cart-wishlist-addresses, checkout, orders) + auth-mobile-guide.md (Expo/RN technical implementation companion)
 ```
 
 ## Database schema (key models)
@@ -331,12 +395,15 @@ Read `prisma/schema.prisma` for the full schema. Key models:
 - **No e2e tests** — only unit tests exist. `test/` directory has config but no test files.
 - **Pre-existing TS2502 errors** in spec files (address, cart, checkout, cron) from `$transaction` mock pattern. These don't affect test execution — Jest uses ts-jest which is more lenient.
 - **No rate limiting per-endpoint** — only global throttle (100/60s).
-- **Shipping is a stub** — `ShippingStubService` returns deterministic fake data. Real Courier Guy integration not yet built. (Payments is real as of this session.)
 - **PayFast refunds are sandbox-impossible** — PayFast's API rejects refunds in test mode. End-to-end refund flow only verifiable in production. Signature/payload structure is fixture-tested.
 - **PayFast end-to-end smoke test pending** — Phase 3+4 sandbox checkout (form submit → PayFast page → return → ITN delivered → order CONFIRMED) requires manual verification with ngrok.
 - **Refund-ITN field detection is heuristic** — we detect refund ITNs via `transaction_type === 'refund'`. If PayFast uses a different field name, refund ITNs are processed as initial-payment ITNs and rejected. First production refund will reveal the actual field.
+- **ShipLogic sandbox doesn't deliver webhooks** (empirical, unconfirmed by support yet). Production webhook delivery + signing is essentially untested. Plan a careful first-real-shipment smoke test in production.
+- **ShipLogic webhook auth model is unknown** (Q24 in foundation doc). v1 uses path-embedded secret + optional IP allowlist; signature verification slot reserved. Pending TCG support answer.
+- **Notifications module doesn't exist** — buyers receive NO transactional emails for orders, shipping, or status updates. The existing `EmailService` (Resend) handles auth + employee-invite emails only. **Hard blocker for mobile launch.**
 - **Guest account claim has no email verification** — stubbed with `emailVerified: true`. Needs Notifications module.
-- **No image upload** — ProductImage stores URLs, actual upload mechanism not implemented.
+- **Image upload mechanism is live** — Cloudinary signed direct uploads via `POST /uploads/cloudinary-signature` (not noted in legacy CLAUDE.md text). ProductImage etc. store the resulting `secure_url`.
+- **`Order.shippingSuburb` snapshot field missing** — when ShipLogic books a shipment, the delivery address's suburb is passed as null because the Order's address snapshot doesn't carry it. ShipLogic geocodes from the rest of the fields; less accurate for outlying SA areas. Small additive migration when prioritised.
 - **noImplicitAny: false** in tsconfig — some untyped code exists (controller `@Req() req: any`).
 
 ## Order module phase status
@@ -368,6 +435,19 @@ The payments module is built in 6 phases. All decisions documented in `docs/paym
 | 4 | ITN webhook (allowlist, notify, controller, trust-proxy) | Complete |
 | 5 | Refund API (REST client, admin wiring, refund-ITN handling) | Complete |
 | 6 | Reconciliation tooling + cleanup-cron summary | Complete |
+
+## Shipping module phase status
+
+The shipping module is built in 6 phases. All decisions documented in `docs/shipping-module/shipping-module-foundation.md`.
+
+| Phase | Name | Status |
+|-------|------|--------|
+| 1 | Foundation (ShipLogicConfig boot validation, ShipLogicClient HTTPS wrapper) | Complete |
+| 2 | Schema deltas (`Address.suburb`, `ShipmentEvent` table + `ShipmentEventType` enum, `Shipment.waybillNumber` comment clarification) | Complete |
+| 3 | Dispatch addresses CRUD (`/stores/:storeId/dispatch-addresses` — list, get, create, update, soft-delete, set-primary) | Complete |
+| 4 | Real per-store rate quotes (`ShippingService.getRate`, checkout fires one call per store group, `Order.shippingInCents` now persists per-store rate) | Complete |
+| 5 | Shipment creation post-ITN, label PDF download endpoint, buyer-cancel propagation to ShipLogic | Complete |
+| 6 | Tracking webhook (`POST /shipping/webhook/:secret`), status mapping → `Order.status` transitions, CAS guards | Complete |
 
 ## Commands
 

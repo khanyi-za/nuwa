@@ -17,6 +17,7 @@
 | `POST` | `/auth/logout-all` | Yes | 5 / minute |
 | `POST` | `/auth/forgot-password` | No | 3 / minute |
 | `POST` | `/auth/reset-password` | No | 5 / minute |
+| `POST` | `/auth/claim` | No | 100 / minute (global) |
 | `GET` | `/auth/me` | Yes | 100 / minute (global) |
 
 ---
@@ -334,6 +335,53 @@ Extract the `token` query parameter, show a new password form, and call this end
 | `429` | rate limit | More than 5 requests/minute |
 
 After success: clear all local auth state, delete the cookie, redirect to `/login`.
+
+---
+
+### `POST /auth/claim`
+
+**Public — no authentication required.** Converts a guest user record (created during guest checkout with `isGuestAccount: true`) into a full account by setting a password against the same email. The request authenticates itself by demonstrating knowledge of the email tied to the guest record.
+
+Primarily used by the **buyer mobile app** post-checkout (see [`../Api-mobileapp-contracts/auth-flows.md`](../Api-mobileapp-contracts/auth-flows.md) §4.8). The merchant web app has no guest-checkout flow and does not call this endpoint.
+
+```
+POST /auth/claim
+```
+
+**Request body**
+
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `email` | string | yes | Must match the email of a guest user record |
+| `password` | string | yes | Min 8 characters. **Note:** unlike `/auth/register`, no uppercase / lowercase / digit rules are enforced server-side — keep frontend validation lighter to match. |
+
+```json
+{
+  "email": "buyer@example.com",
+  "password": "myNewPassword123"
+}
+```
+
+**Success — `201 Created`**
+
+```json
+{
+  "message": "Account claimed successfully. You can now log in with your email and password."
+}
+```
+
+**Important:** the response carries **no tokens**. The user is NOT auto-logged-in — direct them to `/login` with the email prefilled. They sign in fresh with their new credentials.
+
+> **Known v1 limitation — no email verification on claim.** The backend currently sets `emailVerified: true` automatically when an account is claimed (see `claim.service.ts:56` — `emailVerified: true, // stubbed — will require real verification later`). This will tighten once the Notifications module ships (OTP or magic link sent to the claim email). Today, the account is active immediately on a successful claim. Do not surface "check your inbox" copy.
+
+**Errors**
+
+| Status | Message | Cause |
+|---|---|---|
+| `404` | `"No account found with this email address."` | No `User` row matches the email (guest or otherwise). For the mobile flow, this should be unreachable because the email field is locked to the guest checkout's email — surface as a "create a new account" fallback if it does happen. |
+| `409` | `"This email already belongs to a registered account. Please log in."` | A `User` with this email exists but is not a guest (`isGuestAccount: false`). The user has been claimed previously or registered through a different path. Direct them to `/login` with the email prefilled. |
+| `400` | validation array | Invalid email format or password shorter than 8 characters |
+| `429` | rate-limit error | Exceeded the global 100/min throttle (unlikely from a single user) |
 
 ---
 

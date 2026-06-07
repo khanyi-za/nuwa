@@ -1,110 +1,107 @@
-# STATUS.md — Last updated 2026-06-01
+# STATUS.md — Last updated 2026-06-06
 
 ## Where we are
 
-**Mobile integration contract pass is complete.** Five mobile docs landed covering the full v1 buyer surface — auth, catalogue, cart/wishlist/addresses, checkout (incl. PayFast WebView pattern), orders + claim. Two small backend fixes shipped alongside to unblock specific mobile flows. The mobile team (Expo / React Native, in-house) can now start integrating against a written contract; the backend is ready.
+**Shipping module is feature-complete for v1; mobile auth implementation guide is shipped.** The full commerce chain works end-to-end on real ShipLogic (buyer pays → ITN → Order CONFIRMED → ShipLogic books the parcel → webhook drives Order status transitions → merchant downloads waybill PDF). The mobile team now has a comprehensive technical wire-up guide for auth (token storage, refresh interceptor, deep-link routing) on top of the UX flows doc.
 
-- **Tests:** 558 across 33 suites, all passing in ~2.5s
-- **Type check:** clean (pre-existing TS2502 in three order spec files only — harmless, documented in CLAUDE.md)
-- `main` last committed: `7bc017c 1st round of front end integration, next is the mobile integration`
+**Up next:** Notifications module is the largest remaining gap before mobile launch — buyers currently pay and receive no confirmation email.
+
+- **Tests:** 666 across 42 suites, all passing in ~2.8s (unchanged since 2026-06-03 — recent work has been docs-only)
+- **Type check:** clean (three pre-existing TS2502 errors only)
+- `main` last committed: `6edccf6 pre mobile integration, api docs/contracts`
 
 ## Uncommitted on `main`
 
-Smaller pile than the last STATUS — much of the previous accumulation (collections pivot, admin-read tweaks, multi-media banner, suburb field, employee-invite URL fix) was committed in `7bc017c`. Current uncommitted state, all from the mobile-integration pass:
+Three categories — shipping module (Phases 1-6, full source + 2 migrations + foundation doc), mobile auth docs, and small wiring/comment fixes from the auth-guide review.
 
-### Code changes
-- `src/store/store.controller.ts` — `GET /stores/:slug` rewired to `@Public()` + `@UseGuards(OptionalJwtAuthGuard)`; `userId` now `string | undefined` and normalised to `null` before the service call.
-- `src/store/store.service.ts` — `getPublicStore(slug, userId: string | null)`: follower lookup is skipped when `userId` is null. Unauthenticated mobile buyers see `isFollowing: false` and the full profile.
-- `src/store/store.service.spec.ts` (NEW) — 4 focused tests for the optional-auth path on `getPublicStore`. Was no `store.service.spec.ts` before.
-- `src/order/cart/cart.controller.ts` — dropped `@UseGuards(RolesGuard)` + `@Roles(UserRole.BUYER)` at class level. JWT-only.
-- `src/order/address/address.controller.ts` — same fix as cart.
-- `src/order/wishlist/wishlist.controller.ts` — dropped orphaned `@Roles(BUYER)` (it had no `RolesGuard` paired, so it was already a no-op).
-- `src/order/buyer-orders/buyer-orders.controller.ts` — same orphaned `@Roles(BUYER)` pattern, removed for consistency during Phase 5 audit.
+### Shipping module (all `src/shipping/` is new)
+- `src/shipping/` — 27 new source files. Module, controllers, services, DTOs, ShipLogic client + types + address mapping, status mapping. Full breakdown documented in the 2026-06-03 STATUS (still valid).
+- `prisma/migrations/20260603155000_shipping_module_phase2/` — `Address.suburb`, `ShipmentEvent` table, `ShipmentEventType` enum
+- `prisma/migrations/20260603160209_dispatch_address_soft_delete/` — `StoreDispatchAddress.deletedAt` + index
+- `prisma/schema.prisma` — three deltas applied (suburb, comment clarification on `Shipment.waybillNumber`, `ShipmentEvent` model)
+- `src/main.ts` — `NestFactory.create({ rawBody: true })` (for the ShipLogic webhook hash)
+- `src/app.module.ts` — `ShippingModule` registered
+- `src/order/order.module.ts` — imports `ShippingModule`; dropped local stub binding
+- `src/order/contracts/shipping-contract.ts` — extended `ShippingRateRequest` with `delivery` + `declaredValueInCents`; legacy fields kept for backwards compat
+- `src/order/checkout/totals.ts` — `computeCheckoutTotals` signature: `(items, Map<storeId, number>)`. `CheckoutStoreGroup.shippingInCents` added; `totalInCents = subtotal + shipping`
+- `src/order/checkout/totals.spec.ts` — all 7 tests updated to the new Map signature; +1 new test
+- `src/order/checkout/checkout.service.ts` — per-store rate quote loop (`quoteShippingPerStore`), `toDeliveryAddress` helper, Order persists per-store shipping fields
+- `src/order/checkout/checkout.service.spec.ts` — `storeDispatchAddress.findFirst` added to mock; assertions updated
+- `src/order/dto/create-address.dto.ts` + `update-address.dto.ts` — `suburb` field added
+- `src/order/address/address.service.ts` — `create` + `update` plumb suburb through
+- `src/order/buyer-orders/buyer-orders.service.ts` — constructor takes `ShipmentCancellationService`; cancel-propagation hook after cancel succeeds
+- `src/order/buyer-orders/buyer-orders.service.spec.ts` — mock added for the new dep
+- `src/payments/payments.module.ts` — imports `ShippingModule` (one-way)
+- `src/payments/payments-notify.service.ts` — constructor takes `ShipmentCreationService`; post-ITN hook fires `createShipmentForOrder` outside TX after COMPLETED transition
+- `src/payments/payments-notify.service.spec.ts` — mock added for the new dep
+- `.env.example` — full ShipLogic section: base URL, API key, defaults, fallback rate, webhook secret, IP allowlist
 
-### Doc changes
-- `docs/Api-mobileapp-contracts/` (NEW folder, capital A) — 5 new docs:
-  - `auth-flows.md` — registration, verify, login, refresh, password reset, logout, guest claim. Token storage (`expo-secure-store`), universal-link wiring, AppState foreground refresh.
-  - `catalogue-flows.md` — home/discover, search, category browse, store profile, store catalogue, product detail, collection browse. Cloudinary transform recipe, FlatList pagination, skeleton states.
-  - `cart-wishlist-addresses-flows.md` — three pre-checkout surfaces. Optimistic-with-rollback, undo snackbars, KeyboardAvoidingView, swipe-to-remove.
-  - `checkout-flows.md` — quote, commit, PayFast WebView pattern with auto-submit HTML, return/cancel URL detection, network-failure recovery, universal-link extensions.
-  - `orders-flows.md` — orders tab list + filters, order detail with status tracker + timeline, cancel flow with reason picker, post-checkout polling, guest claim entry card.
-- `docs/Api-frontend-contracts/auth-module-api.md` — audience line updated to point mobile devs at the new mobile flows doc. One casing fix (lowercase `api-mobileapp-contracts` → `Api-mobileapp-contracts` to match the actual folder).
+### Mobile auth documentation
+- `docs/Api-mobileapp-contracts/auth-mobile-guide.md` (NEW) — 1,194-line technical implementation companion to `auth-flows.md`. Self-contained: SecureStore token storage with Zustand store, custom `fetch` wrapper with single-flight refresh guard, full API contract duplicated (10 endpoints), code-focused auth flows, error handling reference, rate limits, Expo/expo-router universal-link setup, AppState lifecycle. **Two improvements applied by user** during review: `decodeBase64Url` for JWT payload decoding (atob fails on `-_` chars), and `auth === 'required'` guard on the 401 handler (prevents accidental session-wipe when an `auth: 'optional'` call returns 401).
+- `docs/Api-frontend-contracts/auth-module-api.md` — `POST /auth/claim` documented for the first time: added to endpoint summary table + full endpoint section with v1 limitations callout (`emailVerified: true` is auto-set; no real verification yet).
 
-## What was completed since the last STATUS update
+### Shipping foundation doc
+- `docs/shipping-module/shipping-module-foundation.md` (NEW, in the new folder) — ~700 lines. Locks Q11–Q26 decisions. Full schema description (what exists vs what we added in Phase 2). Status mapping table. Phase plan. Q24 (webhook auth) still TBD pending TCG support.
+- `docs/thecourierguy/` (NEW folder) — Postman collections + research artifacts.
 
-### Already committed in `7bc017c` (pile from earlier sessions)
-- Multi-media banner (`StoreBannerMedia[]`)
-- Cloudinary integration + `source=uw` signature fix
-- Multi-merchant collections pivot (M10 — activation requires ≥1 collection, GET `/stores/:storeId/collections`, last-collection-on-ACTIVE rule)
-- Admin GET access on products + collections (`OptionalJwtAuthGuard`-style fix at `userRole === ADMIN` short-circuit level)
-- Address `suburb` field on store_addresses
-- Employee invite email URL fix (`/employees/invite` → `/invites/accept`)
-- PayfastClient DI export fix
-- Bank-fields-owner-only and other STATUS.md follow-ups — still pending, not yet picked up
+### Reference materials (also uncommitted)
+- TCG support email draft (in conversation history, not committed to repo) — ready to send/use as call prep. Covers webhook delivery in sandbox, signing model, IP range, retry behavior.
 
-### This session (mobile integration pass, uncommitted)
-1. **Phase 1 — auth flows** — buyer-mobile auth contract doc; converged on universal links instead of role-keyed URL branching (cleaner; merchant + buyer apps share `/auth/verify-email` and `/auth/reset-password` paths via universal-link claim).
-2. **Phase 2 — catalogue flows** — full browse surface doc + 30-min backend fix to `GET /stores/:slug` making it public-with-optional-auth so unauthenticated mobile buyers can view store profiles.
-3. **Phase 3 — cart/wishlist/addresses flows** — three-surface doc + role-gating drop so MERCHANT-role users (a merchant who also shops on mobile) aren't 403'd. Confirmed with the user this was the intended behaviour.
-4. **Phase 4 — checkout flows + PayFast on mobile** — full WebView pattern documented; no backend changes needed (the commit DTO already accepts per-request returnUrl/cancelUrl that override env defaults).
-5. **Phase 5 — orders flows** — list + detail + cancel + post-checkout success polling. Found and dropped an orphaned `@Roles(BUYER)` on the buyer-orders controller. Also discovered and fixed a path-prefix typo (`/buyer/orders` → `/orders`) repeated through the Phase 4 doc.
+## What was completed since the last STATUS update (2026-06-03)
+
+### 2026-06-04 — Mobile auth implementation guide
+- Drafted `auth-mobile-guide.md` covering all 7 + 2 sections from agreed outline: storage, token system, custom HTTP wrapper, full API contract (incl. `POST /auth/claim` — the one missing from `auth-module-api.md`), implementation-focused auth flows, error handling, rate limits, Expo setup, app lifecycle.
+- Updated `auth-module-api.md` to add `POST /auth/claim` (endpoint summary table row + full section). Cross-links to mobile docs added.
+- User reviewed `auth-mobile-guide.md` and applied two correctness improvements (base64url JWT decoding, 401 handler guard) — both real production-grade fixes that would have caused subtle bugs in the original draft.
+
+### 2026-06-05 / 06-06 — housekeeping
+- Killed stale process on port 3000 (recurring issue).
+- TCG support email drafted, ready to use.
 
 ## What's next (when work resumes)
 
-Per the post-integration roadmap, ranked by what unblocks the mobile launch path:
+Recommended sequence:
 
-1. **PayFast sandbox smoke test** — manual ngrok + dev DB run-through; documented in CLAUDE.md. Still pending. Catches wire-format bugs that unit tests can't reach. Should run before any module that depends on PayFast's integration ships.
-2. **Notifications module** — currently buyers get no order-confirmation emails; once mobile starts minting checkouts, this becomes urgent. Auth flows (verify, reset) already use Resend directly; this module is for transactional commerce emails (order confirmation, status updates, refund confirmation, payout statements).
-3. **Shipping module** — replace `ShippingStubService` with real Courier Guy / ShipLogic. Mobile can ship on the R110 stub for v1, but real rates make checkout summary look serious. Slot in parallel with Notifications.
-4. **Bank-fields owner-only authz** — Priority 1 security gap from older STATUS.md. Unrelated to mobile but still real.
-5. **Smaller mobile follow-ups** flagged in the docs that we deferred:
-   - `GET /buyer/orders?mPaymentId=<id>` for clean checkout-commit recovery (`checkout-flows.md §7.1`)
-   - "Resume payment" endpoint to re-display PayFast form for a PENDING order (`checkout-flows.md §7.2`)
-   - Multi-status filter on `GET /orders` (`orders-flows.md §6.1`)
-   - Batch orders-by-numbers lookup (`orders-flows.md §6.4`)
-   - `POST /auth/claim` documentation in `auth-module-api.md` (currently only documented in the mobile doc)
+1. **Commit the uncommitted pile** — substantial: shipping module (Phases 1-6), mobile auth guide + `auth-module-api.md` update, foundation doc, migrations. The full state would land in one big commit, or split into "shipping module" + "mobile auth docs" if you prefer cleaner history.
+2. **Send / call the TCG support questions** — answers unblock Q24 (webhook auth model). Email draft is ready; calling was your preference per earlier session.
+3. **Notifications module** (~3-5 days) — hard blocker for mobile launch. Build in two parts:
+   - **Phase A — transactional emails:** order confirmation, order status updates (confirmed/dispatched/in-transit/delivered/cancelled), refund confirmation, payout confirmation. Layer on top of existing `EmailService` (Resend). Hooks into `PaymentsNotifyService` (order confirmed) + `ShippingWebhookService` (status transitions) + buyer-orders cancel + admin refund. Also unblocks proper guest-account-claim email verification.
+   - **Phase B — push notifications + inbox:** `POST /me/push-tokens` for Expo push token registration, push delivery pipeline, `GET /me/notifications` for inbox tab. Reads the `Notification` schema model (12 typed events).
+4. **`POST /auth/resend-verification`** — quick win to layer onto Phase A. Currently no recovery path for missed verification emails.
+5. **PayFast sandbox smoke test** (~1-2 hrs) — still pending per CLAUDE.md. Now the chain is end-to-end real (PayFast → ITN → ShipLogic post-hook → Shipment row), this smoke verifies all of it.
+6. **ContentPost / shoppable-media module** (~3-4 days) — the defining mobile UX, schema-only today. Discover feed with positionX/Y product overlays. Could slot before or after Notifications depending on launch theme.
+7. **Bank-fields owner-only authz** — Priority 1 security gap. ~1 hour fix.
 
-### Recommended sequence on resume
-1. **User commits the mobile-integration pile** (the eight files in git status)
-2. **PayFast sandbox smoke test** — small but high-value, validates the chain
-3. **Notifications module** — biggest dependency for the mobile launch
-4. **Shipping module** in parallel
-5. **Bank-fields authz fix** as a low-traffic-time security cleanup
+### Smaller backlog (deferred from before)
+- `Order.shippingSuburb` snapshot field — small additive migration; ShipLogic geocodes without it but degrades for outlying SA areas
+- Reviews module (schema-only)
+- Promotions module (schema-only)
+- Support tickets module (schema-only)
+- `GET /stores` browse-stores list endpoint
+- Multi-status filter on `GET /orders`
+- `GET /orders?mPaymentId=<id>` and `?orderNumbers=A,B,C` for clean checkout-success recovery
+- "Resume payment" endpoint for PENDING orders
+- `GET /auth/me/employments` for employee returning sessions
+- AI tagging worker (consumes the `isAiGenerated` + `confidence` flags on `ProductTag`)
+- AnalyticsEvent ingestion (`POST /analytics/events`)
+- Polling fallback cron for missed ShipLogic webhooks
 
 ## What's fragile
 
-(Order/payments/banner/uploads/admin-read fragility list still applies — unchanged from prior STATUS.)
+(Existing 31-entry fragility list still applies — unchanged. The shipping-related entries 23-31 from 2026-06-03 STATUS are particularly important to read before touching shipping or webhook code.)
 
-Added this session:
+No new fragility entries this round — the mobile auth guide and `auth-module-api.md` update are doc-only.
 
-19. **`getPublicStore` accepts `userId: string | null`**, not `string | undefined`. The controller normalises `undefined → null` before the service call. If you add another caller, pass `null` for unauthenticated paths — not undefined, not empty string. The follower lookup branch is explicit on `userId` (truthy).
-20. **Role decorators on cart/wishlist/addresses/buyer-orders have been removed.** Don't re-add `@Roles(UserRole.BUYER)` to any of these without coordinating — the mobile app explicitly supports MERCHANT-role users shopping. Auth (JWT presence + ACTIVE account) is the only gate.
-21. **The mobile docs reference `Api-frontend-contracts` and `Api-mobileapp-contracts` with capital A.** macOS is case-insensitive so lowercase links work locally but break on Linux deploy. One cross-folder link in `auth-module-api.md` was fixed mid-session; verify any new docs use the capital-A form.
-22. **PayFast `returnUrl`/`cancelUrl` are per-request and override the env defaults** (via `req.returnUrl ?? this.config.returnUrl` in `payments.service.ts`). The mobile app passes its own universal-link URLs in `POST /checkout`; the env vars remain the defaults for the merchant web app. Don't remove this fallback — both clients depend on it.
+One refinement worth noting: the auth-guide's HTTP wrapper now uses `decodeBase64Url` not `atob` for JWT payload parsing. Standard `atob` will fail on payloads with `-` or `_` characters because JWTs use RFC 4648 §5 (base64url, not standard base64). Any future code touching JWTs from the mobile side should reuse the same helper.
 
 ## Backend follow-ups accumulated
 
-(Older Priority 1/2/3 list still applies. New follow-ups from the mobile integration pass:)
+(Older Priority 1/2/3 list still applies. No new follow-ups this round.)
 
-### Mobile-launch follow-ups
-- **`GET /orders?mPaymentId=<id>`** — surgical checkout-commit recovery (`checkout-flows.md §7.1`)
-- **"Resume payment" endpoint** — re-fetch PayFast form for a PENDING order (`checkout-flows.md §7.2`)
-- **Multi-status filter on `GET /orders`** — `?status=A,B,C` for the "Active" pill (`orders-flows.md §6.1`)
-- **Return `orderIds` from checkout commit** (or `GET /orders?orderNumbers=A,B,C`) — avoid the number→id lookup per orderNumber on success screen (`orders-flows.md §6.4`)
-- **Document `POST /auth/claim`** in `auth-module-api.md` (currently mobile-only documentation)
-
-### Mobile push notification prerequisites (when Notifications module lands)
-- `POST /me/push-tokens` (device-token registration)
-- Push event delivery pipeline for order status changes
-- Tracked in `orders-flows.md §6.5`
+The TCG support call/email being queued is the load-bearing pending item — it unblocks Q24 (webhook auth confirmation) which the foundation doc has flagged as TBD since Phase 6 shipped.
 
 ## Do not touch
 
-(Existing list still applies.)
+(Existing list still applies — 6 shipping-related entries added on 2026-06-03 are particularly load-bearing.)
 
-Added this session:
-
-- **Do not re-add `@Roles(UserRole.BUYER)`** to `CartController`, `AddressController`, `WishlistController`, or `BuyerOrdersController`. The mobile app's auth model supports any authenticated user (including MERCHANT) shopping. JWT-only is correct.
-- **Do not change `GET /stores/:slug` back to global-JWT-required.** Mobile buyers browse store profiles unauthenticated. The `OptionalJwtAuthGuard` + null-userId follower-skip is load-bearing.
-- **Do not remove `req.returnUrl ?? this.config.returnUrl` fallback in `payments.service.ts`.** Mobile passes universal-link URLs per-request; the env-var default is for merchant web. Both depend on this.
-- **Do not rename the `Api-mobileapp-contracts/` folder** to lowercase or any other case. Mirroring the existing `Api-frontend-contracts/` (capital A) is intentional. macOS case-insensitivity hides the issue locally; Linux deploys would 404 on lowercase links.
+No new do-not-touch entries this round.

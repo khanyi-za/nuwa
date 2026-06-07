@@ -7,6 +7,7 @@ import { PaymentsController } from './payments.controller';
 import { PaymentsAdminController } from './payments-admin.controller';
 import { PaymentsNotifyService } from './payments-notify.service';
 import { PaymentsReconcileService } from './payments-reconcile.service';
+import { ShippingModule } from '../shipping/shipping.module';
 
 /**
  * PaymentsModule — owns the real PayFast integration.
@@ -22,6 +23,7 @@ import { PaymentsReconcileService } from './payments-reconcile.service';
  *           (GET /admin/payments/groups/:id/reconcile)
  */
 @Module({
+  imports: [ShippingModule],
   controllers: [PaymentsController, PaymentsAdminController],
   providers: [
     PayfastConfig,

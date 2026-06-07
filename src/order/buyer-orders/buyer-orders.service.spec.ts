@@ -6,6 +6,7 @@ import {
 import { OrderStatus } from '@prisma/client';
 import { BuyerOrdersService } from './buyer-orders.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ShipmentCancellationService } from '../../shipping/shipment-cancellation.service';
 import { BuyerCancelReason } from '../dto/buyer-cancel-order.dto';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
@@ -73,11 +74,19 @@ const mockPrisma = {
 describe('BuyerOrdersService', () => {
   let service: BuyerOrdersService;
 
+  const mockShipmentCancellation = {
+    cancelShipmentForOrder: jest.fn().mockResolvedValue(false),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         BuyerOrdersService,
         { provide: PrismaService, useValue: mockPrisma },
+        {
+          provide: ShipmentCancellationService,
+          useValue: mockShipmentCancellation,
+        },
       ],
     }).compile();
 

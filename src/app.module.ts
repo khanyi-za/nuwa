@@ -13,6 +13,7 @@ import { ProductModule } from './product/product.module';
 import { OrderModule } from './order/order.module';
 import { PaymentsModule } from './payments/payments.module';
 import { UploadsModule } from './uploads/uploads.module';
+import { ShippingModule } from './shipping/shipping.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { UploadsModule } from './uploads/uploads.module';
     OrderModule,
     PaymentsModule,
     UploadsModule,
+    ShippingModule,
   ],
   controllers: [AppController],
   providers: [

@@ -91,6 +91,7 @@ const mockPrisma = {
   address: { findUnique: jest.fn() },
   product: { findUnique: jest.fn() },
   productVariant: { findUnique: jest.fn() },
+  storeDispatchAddress: { findFirst: jest.fn() },
   user: {
     findUnique: jest.fn(),
     create: jest.fn(),
@@ -161,6 +162,32 @@ describe('CheckoutService', () => {
 
     // Re-bind $transaction after clearAllMocks.
     mockPrisma.$transaction.mockImplementation((fn) => fn(mockPrisma));
+
+    // Default: every store has a primary dispatch address.
+    mockPrisma.storeDispatchAddress.findFirst.mockResolvedValue({
+      id: 'disp-1',
+      storeId: 'store-1',
+      isPrimary: true,
+      deletedAt: null,
+      addressLine1: '194 Bancor Avenue',
+      addressLine2: null,
+      suburb: 'Menlyn',
+      city: 'Pretoria',
+      province: 'Gauteng',
+      postalCode: '0181',
+      country: 'South Africa',
+    });
+
+    // Re-prime shipping rate mock after clearAllMocks (the inline value above
+    // is wiped by clearAllMocks since it was set with mockResolvedValue at
+    // declaration time).
+    (mockShipping.getRate as jest.Mock).mockResolvedValue({
+      quoteId: 'stub-quote-1',
+      rateInCents: 11_000,
+      rateExVatInCents: 11_000,
+      serviceTier: 'ECO',
+      estimatedDeliveryDate: new Date('2026-05-01'),
+    });
   });
 
   // ─── Input validation ────────────────────────────────────────────────────
@@ -230,20 +257,22 @@ describe('CheckoutService', () => {
       mockPrisma.address.findUnique.mockResolvedValue(baseAddress);
     });
 
-    it('returns grouped totals with shipping and commission', async () => {
+    it('returns grouped totals with per-store shipping and commission', async () => {
       const result = await service.quote(USER_ID, { addressId: ADDRESS_ID });
 
       expect(result.stores).toHaveLength(1);
       expect(result.stores[0]).toMatchObject({
         storeId: STORE_ID,
         subtotalInCents: 90_000, // 45000 × 2
-        commissionInCents: 4_950, // 90000 × 0.055
-        totalInCents: 90_000, // no shipping at store level
+        shippingInCents: 11_000, // per-store ShipLogic quote
+        commissionInCents: 4_950, // 90000 × 0.055 (shipping is NOT commissionable)
+        totalInCents: 101_000, // subtotal + per-store shipping
       });
       expect(result.grandSubtotalInCents).toBe(90_000);
       expect(result.grandShippingInCents).toBe(11_000);
       expect(result.grandTotalInCents).toBe(101_000);
-      expect(result.shippingQuoteId).toBe('stub-quote-1');
+      // shippingQuoteId is now a composite of per-store quote IDs joined by '|'.
+      expect(result.shippingQuoteId).toContain('stub-quote-1');
     });
 
     it('throws 400 when the cart is empty', async () => {
@@ -326,14 +355,17 @@ describe('CheckoutService', () => {
       expect(result.paymentGroupId).toBeDefined();
       expect(result.mPaymentId).toBeDefined();
 
-      // Order created with snapshot — no shipping at order level.
+      // Order created with snapshot — per-store shipping populated (Phase 4).
       expect(mockPrisma.order.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             storeId: STORE_ID,
             subtotalInCents: 90_000,
-            shippingInCents: 0,
-            totalInCents: 90_000,
+            shippingInCents: 11_000, // per-store ShipLogic rate
+            totalInCents: 101_000, // subtotal + per-store shipping
+            shippingDispatchAddressId: 'disp-1', // dispatch from primary
+            shippingQuoteId: 'stub-quote-1',
+            shippingServiceTier: 'ECO',
             shippingName: 'Thandi Dlamini',
             shippingCity: 'Durban',
           }),

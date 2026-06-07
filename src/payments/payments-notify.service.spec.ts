@@ -7,6 +7,7 @@ import { PayfastConfig } from './payfast/payfast-config';
 import { PayfastSignatureService } from './payfast/payfast-signature.service';
 import { PayfastClient } from './payfast/payfast-client.service';
 import { PayfastIpAllowlistService } from './payfast/payfast-ip-allowlist.service';
+import { ShipmentCreationService } from '../shipping/shipment-creation.service';
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
@@ -114,6 +115,10 @@ const mockConfig = { passphrase: 'jt7NOE43FZPn' };
 describe('PaymentsNotifyService', () => {
   let service: PaymentsNotifyService;
 
+  const mockShipmentCreation = {
+    createShipmentForOrder: jest.fn().mockResolvedValue({ id: 'shp-mock' }),
+  };
+
   beforeEach(async () => {
     const module = await Test.createTestingModule({
       providers: [
@@ -123,6 +128,10 @@ describe('PaymentsNotifyService', () => {
         { provide: PayfastSignatureService, useValue: mockSignature },
         { provide: PayfastClient, useValue: mockClient },
         { provide: PayfastIpAllowlistService, useValue: mockIpAllowlist },
+        {
+          provide: ShipmentCreationService,
+          useValue: mockShipmentCreation,
+        },
       ],
     }).compile();
     service = module.get(PaymentsNotifyService);

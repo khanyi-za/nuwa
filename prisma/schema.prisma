@@ -108,6 +108,17 @@ enum ShipmentStatus {
   RETURNED
 }
 
+// Distinguishes the kind of webhook event in a ShipmentEvent row.
+// TRACKING_EVENT is the buyer-visible status change pipeline (collected, at-hub,
+// delivered, etc.). The other three are admin/ops-relevant only — they're stored
+// for audit/idempotency but don't drive Order.status transitions.
+enum ShipmentEventType {
+  TRACKING_EVENT
+  SHIPMENT_NOTE
+  ADDRESS_CHANGE
+  DIMENSION_CHANGE
+}
+
 enum PayoutStatus {
   PENDING
   PROCESSING
@@ -226,6 +237,7 @@ model Address {
   phone         String
   addressLine1  String
   addressLine2  String?
+  suburb        String?   @db.VarChar(100) // SA address component — maps to ShipLogic `local_area`
   city          String
   province      String
   postalCode    String
@@ -378,14 +390,16 @@ model StoreDispatchAddress {
   latitude  Float?
   longitude Float?
 
-  isPrimary Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isPrimary Boolean   @default(false)
+  deletedAt DateTime? // soft-delete — historical Order rows still reference the row via shippingDispatchAddressId
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   store  Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
   orders Order[]
 
   @@index([storeId])
+  @@index([storeId, deletedAt])
   @@map("store_dispatch_addresses")
 }
 
@@ -950,8 +964,12 @@ model Shipment {
   status  ShipmentStatus @default(PENDING)
 
   // ShipLogic/TCG references
-  shiplogicShipmentId String? @unique // ShipLogic's internal shipment ID
-  waybillNumber       String? @unique // TCG waybill number (primary tracking identifier)
+  shiplogicShipmentId String? @unique // ShipLogic's internal shipment ID (numeric, e.g. 115738667)
+  // Populated from ShipLogic's `short_tracking_reference` field (e.g. "VD3GLQ").
+  // This IS the printed waybill number for TCG-issued shipments — the two are the
+  // same value. Used as the webhook lookup key (incoming tracking events carry
+  // `short_tracking_reference` and we match Shipment by this column).
+  waybillNumber       String? @unique
   trackingUrl         String? // Public tracking URL (tcg.shiplogic.com/track)
   serviceType         String? // e.g. "LOF" (Local Overnight Flyer), "LOX", "ECO", "NFS"
 
@@ -986,6 +1004,7 @@ model Shipment {
 
   order          Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   trackingEvents ShipmentTrackingEvent[]
+  events         ShipmentEvent[]
 
   @@index([waybillNumber])
   @@index([shiplogicShipmentId])
@@ -993,7 +1012,9 @@ model Shipment {
   @@map("shipments")
 }
 
-// Individual tracking events from ShipLogic webhook/polling
+// Buyer-visible tracking history. Populated by the webhook processor AFTER
+// dedupe via ShipmentEvent, for the subset of events worth surfacing on order
+// detail screens ("Collected at JHB hub", "Out for delivery", etc.).
 model ShipmentTrackingEvent {
   id          String   @id @default(cuid())
   shipmentId  String
@@ -1007,6 +1028,35 @@ model ShipmentTrackingEvent {
 
   @@index([shipmentId, timestamp])
   @@map("shipment_tracking_events")
+}
+
+// Audit log of every webhook we receive from ShipLogic. The unique constraint
+// on `payloadHash` is the idempotency primitive: ShipLogic retries (or accidental
+// duplicates) fail at INSERT and are acked as 200 no-ops. Mirrors the
+// PaymentEvent pattern from the payments module.
+//
+// Shipment.status is the materialised projection of accepted events; the
+// buyer-facing ShipmentTrackingEvent is the filtered subset (TRACKING_EVENT
+// only) suitable for the order-detail timeline.
+model ShipmentEvent {
+  id            String            @id @default(cuid())
+  shipmentId    String? // FK; nullable when the inbound webhook can't be matched to a known Shipment
+  waybillNumber String // from payload — used to look up Shipment when shipmentId is null
+  payloadHash   String            @unique // sha256(canonicalize(payload)) — dedupe key
+  eventType     ShipmentEventType
+  rawStatus     String? // raw ShipLogic status string before mapping (debugging)
+  payload       Json
+  sourceIp      String?
+
+  receivedAt   DateTime @default(now())
+  processed    Boolean  @default(false)
+  processError String? // null if processed; reason string if rejected/skipped
+
+  shipment Shipment? @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+
+  @@index([shipmentId, receivedAt])
+  @@index([waybillNumber])
+  @@map("shipment_events")
 }
 
 // ============================================================================

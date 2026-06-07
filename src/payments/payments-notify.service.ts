@@ -19,6 +19,7 @@ import { PayfastClient } from './payfast/payfast-client.service';
 import { PayfastIpAllowlistService } from './payfast/payfast-ip-allowlist.service';
 import { phpUrlencode } from './payfast/url-encode';
 import { toPaymentStatus } from './payfast/payfast-types';
+import { ShipmentCreationService } from '../shipping/shipment-creation.service';
 
 /**
  * Allowed PaymentGroup status transitions.
@@ -75,6 +76,7 @@ export class PaymentsNotifyService {
     private readonly signature: PayfastSignatureService,
     private readonly client: PayfastClient,
     private readonly ipAllowlist: PayfastIpAllowlistService,
+    private readonly shipmentCreation: ShipmentCreationService,
   ) {}
 
   async handle(
@@ -335,6 +337,26 @@ export class PaymentsNotifyService {
         return;
       }
       throw err;
+    }
+
+    // ── Side-effect: book ShipLogic shipments for newly-CONFIRMED orders ──
+    // Runs OUTSIDE the DB transaction (CLAUDE.md "never put HTTP calls inside
+    // a DB transaction"). Failures are logged but do NOT roll back the Order
+    // status — buyer paid; we owe them a fulfilment, even if ops has to
+    // manually book the parcel.
+    if (targetStatus === PaymentStatus.COMPLETED) {
+      const orderIds = group.payments.map((p) => p.orderId);
+      await Promise.allSettled(
+        orderIds.map(async (orderId) => {
+          try {
+            await this.shipmentCreation.createShipmentForOrder(orderId);
+          } catch (err) {
+            this.logger.error(
+              `Shipment booking failed post-ITN for order ${orderId}: ${(err as Error).message}. Order remains CONFIRMED; ops review required.`,
+            );
+          }
+        }),
+      );
     }
   }
 

@@ -82,6 +82,7 @@ export class AddressService {
           phone: normalizedPhone,
           addressLine1: dto.addressLine1.trim(),
           addressLine2: dto.addressLine2?.trim() || null,
+          suburb: dto.suburb?.trim() || null,
           city: dto.city.trim(),
           province: dto.province,
           postalCode: dto.postalCode,
@@ -123,6 +124,8 @@ export class AddressService {
         data.addressLine1 = dto.addressLine1.trim();
       if (dto.addressLine2 !== undefined)
         data.addressLine2 = dto.addressLine2?.trim() || null;
+      if (dto.suburb !== undefined)
+        data.suburb = dto.suburb?.trim() || null;
       if (dto.city !== undefined) data.city = dto.city.trim();
       if (dto.province !== undefined) data.province = dto.province;
       if (dto.postalCode !== undefined) data.postalCode = dto.postalCode;

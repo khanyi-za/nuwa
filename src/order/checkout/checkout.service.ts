@@ -16,7 +16,11 @@ import {
 } from '../contracts/payment-contract';
 import type { IPaymentService } from '../contracts/payment-contract';
 import { SHIPPING_SERVICE } from '../contracts/shipping-contract';
-import type { IShippingService } from '../contracts/shipping-contract';
+import type {
+  IShippingService,
+  ShippingDeliveryAddress,
+  ShippingRateResponse,
+} from '../contracts/shipping-contract';
 import { CheckoutQuoteDto } from '../dto/checkout-quote.dto';
 import { CheckoutCommitDto } from '../dto/checkout-commit.dto';
 import { CheckoutItemDto } from '../dto/checkout-item.dto';
@@ -60,6 +64,21 @@ interface ResolvedItem extends CheckoutLineItem {
   variantId: string | null;
   totalStock: number;
   reservedStock: number;
+  weightInGrams: number | null; // null → fall back to ShipLogicConfig.defaultWeightGrams
+}
+
+/**
+ * One per-store shipping quote, returned by `quoteShippingPerStore`. Holds the
+ * IDs we'll persist on each Order during commit, alongside the rate itself.
+ */
+interface PerStoreShippingQuote {
+  storeId: string;
+  rateInCents: number;
+  rateExVatInCents: number;
+  quoteId: string;
+  serviceTier: string;
+  dispatchAddressId: string;
+  estimatedDeliveryDate: Date;
 }
 
 // ─── Service ────────────────────────────────────────────────────────────────
@@ -92,20 +111,27 @@ export class CheckoutService {
       ? await this.resolveExistingAddress(userId, dto.addressId!)
       : dto.guest!.address;
 
-    const shippingRate = await this.shipping.getRate({
-      dispatchAddressId: '',
-      destinationProvince: address.province,
-      destinationPostalCode: address.postalCode,
-      destinationCity: address.city,
-      destinationCountry: 'South Africa',
-      totalWeightInGrams: 0,
-      parcelCount: 1,
-      serviceTier: 'ECO',
-    });
+    const delivery = this.toDeliveryAddress(address);
+    const perStoreQuotes = await this.quoteShippingPerStore(
+      resolvedItems,
+      delivery,
+    );
 
-    const totals = computeCheckoutTotals(resolvedItems, shippingRate.rateInCents);
+    const shippingByStoreId = new Map<string, number>();
+    for (const q of perStoreQuotes) {
+      shippingByStoreId.set(q.storeId, q.rateInCents);
+    }
 
-    return { ...totals, shippingQuoteId: shippingRate.quoteId };
+    const totals = computeCheckoutTotals(resolvedItems, shippingByStoreId);
+
+    // For UI, surface a single composite quote ID (the merchant view of all
+    // stores in the cart). Per-store quote IDs are still kept in
+    // perStoreQuotes for commit-time persistence.
+    const compositeQuoteId = perStoreQuotes
+      .map((q) => q.quoteId)
+      .join('|') || randomUUID();
+
+    return { ...totals, shippingQuoteId: compositeQuoteId };
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -124,18 +150,27 @@ export class CheckoutService {
 
     this.assertAllItemsAvailable(resolvedItems);
 
-    const shippingRate = await this.shipping.getRate({
-      dispatchAddressId: '',
-      destinationProvince: '',
-      destinationPostalCode: '',
-      destinationCity: '',
-      destinationCountry: 'South Africa',
-      totalWeightInGrams: 0,
-      parcelCount: 1,
-      serviceTier: 'ECO',
-    });
+    // Resolve delivery address up-front so we can quote per store. For
+    // authenticated buyers this is the saved Address; for guests it's the
+    // inline address from the DTO. Guests materialise their User+Address
+    // inside the TX below, but we already have the shape from the DTO.
+    const deliveryAddrSource = userId
+      ? await this.resolveExistingAddress(userId, dto.addressId!)
+      : dto.guest!.address;
+    const delivery = this.toDeliveryAddress(deliveryAddrSource);
 
-    const totals = computeCheckoutTotals(resolvedItems, shippingRate.rateInCents);
+    const perStoreQuotes = await this.quoteShippingPerStore(
+      resolvedItems,
+      delivery,
+    );
+    const quotesByStoreId = new Map<string, PerStoreShippingQuote>();
+    const shippingByStoreId = new Map<string, number>();
+    for (const q of perStoreQuotes) {
+      quotesByStoreId.set(q.storeId, q);
+      shippingByStoreId.set(q.storeId, q.rateInCents);
+    }
+
+    const totals = computeCheckoutTotals(resolvedItems, shippingByStoreId);
 
     // ─── TX 1: create Orders + Payments (+ guest User/Address) ───────────
     let orderIds: string[];
@@ -190,6 +225,14 @@ export class CheckoutService {
 
         for (const storeGroup of totals.stores) {
           const orderNumber = await this.generateUniqueOrderNumber(tx);
+          const quote = quotesByStoreId.get(storeGroup.storeId);
+          if (!quote) {
+            // Should be unreachable — quoteShippingPerStore returns one quote per
+            // store-group's storeId. If we hit this, the totals/quote maps drifted.
+            throw new InternalServerErrorException(
+              `Missing shipping quote for store ${storeGroup.storeId}`,
+            );
+          }
           const order = await tx.order.create({
             data: {
               orderNumber,
@@ -198,11 +241,12 @@ export class CheckoutService {
               addressId: addrId!,
               status: 'PENDING',
               subtotalInCents: storeGroup.subtotalInCents,
-              shippingInCents: 0, // shipping lives on PaymentGroup, not per-Order
+              shippingInCents: storeGroup.shippingInCents, // per-store ShipLogic rate
               discountInCents: 0,
-              totalInCents: storeGroup.subtotalInCents, // no shipping at order level
-              shippingQuoteId: shippingRate.quoteId,
-              shippingServiceTier: 'ECO',
+              totalInCents: storeGroup.totalInCents, // subtotal + per-store shipping
+              shippingQuoteId: quote.quoteId,
+              shippingServiceTier: quote.serviceTier,
+              shippingDispatchAddressId: quote.dispatchAddressId,
               shippingName: address.recipientName,
               shippingPhone: address.phone,
               shippingAddress1: address.addressLine1,
@@ -359,6 +403,108 @@ export class CheckoutService {
   }
 
   /**
+   * Convert a YIIVA Address or GuestAddressDto into the ShippingDeliveryAddress
+   * shape passed across the IShippingService boundary. Concatenates address
+   * lines so the wire-mapping in `shiplogic-address.ts` can produce a single
+   * `street_address` string.
+   */
+  private toDeliveryAddress(addr: {
+    addressLine1: string;
+    addressLine2?: string | null;
+    suburb?: string | null;
+    city: string;
+    province: string;
+    postalCode: string;
+    country?: string | null;
+  }): ShippingDeliveryAddress {
+    const street = addr.addressLine2 && addr.addressLine2.trim() !== ''
+      ? `${addr.addressLine1.trim()}, ${addr.addressLine2.trim()}`
+      : addr.addressLine1.trim();
+    return {
+      streetAddress: street,
+      suburb: addr.suburb ?? null,
+      city: addr.city,
+      province: addr.province,
+      postalCode: addr.postalCode,
+      country: addr.country ?? 'South Africa',
+    };
+  }
+
+  /**
+   * Per-store shipping quote loop. For each distinct storeId in the resolved
+   * items, looks up the store's primary `StoreDispatchAddress`, computes the
+   * sum of item weights (falling back per-item to a config default for null
+   * weights — handled by ShippingService), and asks the shipping provider for
+   * a rate.
+   *
+   * Throws BadRequestException with an actionable message if any store in
+   * the cart has no primary dispatch address configured. Mirrors the "buyer
+   * never sees a vague error" rule from foundation §16 — the buyer's UI gets
+   * "{Store} can't ship to this address" or similar, surfaced from the
+   * checkout error.
+   */
+  private async quoteShippingPerStore(
+    items: ResolvedItem[],
+    delivery: ShippingDeliveryAddress,
+  ): Promise<PerStoreShippingQuote[]> {
+    // Group weights by storeId.
+    const weightByStore = new Map<
+      string,
+      { storeName: string; weightGrams: number }
+    >();
+    for (const item of items) {
+      const slot = weightByStore.get(item.storeId) ?? {
+        storeName: item.storeName,
+        weightGrams: 0,
+      };
+      // null weight contributes 0 here; ShippingService applies the
+      // config default per-parcel if the total ends up at 0.
+      slot.weightGrams += (item.weightInGrams ?? 0) * item.quantity;
+      weightByStore.set(item.storeId, slot);
+    }
+
+    const out: PerStoreShippingQuote[] = [];
+
+    for (const [storeId, slot] of weightByStore) {
+      const dispatch = await this.prisma.storeDispatchAddress.findFirst({
+        where: { storeId, isPrimary: true, deletedAt: null },
+      });
+      if (!dispatch) {
+        throw new BadRequestException(
+          `${slot.storeName} hasn't configured a dispatch address yet. Please contact the merchant.`,
+        );
+      }
+
+      const rate = await this.shipping.getRate({
+        dispatchAddressId: dispatch.id,
+        delivery,
+        // Legacy fields — kept so the stub path still works if anyone re-binds
+        // SHIPPING_SERVICE to a stub during tests. The real ShippingService
+        // reads `delivery` instead.
+        destinationProvince: delivery.province,
+        destinationPostalCode: delivery.postalCode,
+        destinationCity: delivery.city,
+        destinationCountry: delivery.country ?? 'South Africa',
+        totalWeightInGrams: slot.weightGrams,
+        parcelCount: 1,
+        serviceTier: 'ECO',
+      });
+
+      out.push({
+        storeId,
+        rateInCents: rate.rateInCents,
+        rateExVatInCents: rate.rateExVatInCents,
+        quoteId: rate.quoteId,
+        serviceTier: rate.serviceTier,
+        dispatchAddressId: dispatch.id,
+        estimatedDeliveryDate: rate.estimatedDeliveryDate,
+      });
+    }
+
+    return out;
+  }
+
+  /**
    * Load items from the authenticated buyer's server-side cart.
    */
   private async resolveItemsFromCart(
@@ -404,6 +550,7 @@ export class CheckoutService {
       reservedStock: item.variant
         ? item.variant.reservedStock
         : item.product.reservedStock,
+      weightInGrams: item.product.weightInGrams,
     }));
   }
 
@@ -465,6 +612,7 @@ export class CheckoutService {
         quantity: dtoItem.quantity,
         totalStock: variantStock ?? product.totalStock,
         reservedStock: variantReservedStock ?? product.reservedStock,
+        weightInGrams: product.weightInGrams,
       });
     }
 

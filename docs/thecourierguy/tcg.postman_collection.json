@@ -1,0 +1,1915 @@
+{
+  "info": {
+    "_postman_id": "831a001c-a733-4d0f-96d2-d90da213448b",
+    "name": "The Courier Guy API",
+    "description": "# **Welcome to the The Courier Guy API!**\n\nOur REST API provides predictable, resource-oriented URLs, uses standard HTTP methods, and returns JSON-encoded responses with conventional HTTP status codes. It’s designed to be intuitive, reliable, and easy to integrate with modern systems.\n\nPlease use the API responsibly and within the boundaries of The Courier Guy’s [acceptable use policy](https://thecourierguy.co.za/aup/AUPolicy.pdf). This means accessing only resources and data that you are authorised to view, using endpoints as intended, and avoiding excessive or automated requests that could impact service stability or other users. Continued use of the API implies acceptance of these terms and responsible usage practices.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "14445571",
+    "_collection_link": "https://go.postman.co/collection/14445571-831a001c-a733-4d0f-96d2-d90da213448b?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [],
+      "description": "We use Bearer Token authentication for our API. To authenticate, simply include your token in the header of each request, like so:\n\n\"Authorization\": \"Bearer a601d99c75fc4c64b5a64288f97d52b4\"\n\nYou can explore and test our API in a dedicated sandbox environment called **Sandbox Couriers**.\n\nTo get started, [register a free sandbox account here](https://sandbox.shiplogic.com/register).\n\nOnce you’ve created your account and verified your email address, log in and generate an API key under **Settings > API Keys**.\n\nPlease note that sandbox uses [https://api.shiplogic.com](https://api.shiplogic.com) instead of the URL displayed on the requests.\n\n⚠️ When you’re ready to go live, you’ll need to register a production account with the relevant courier and create a new API key for use in the live environment."
+    },
+    {
+      "name": "HTTP responses",
+      "item": [],
+      "description": "## Response format\n\nThe The Courier Guy API returns data in application/json format. To reduce payload size and improve performance, **fields with falsy values may be omitted** from the response.\n\n## Response codes\n\n#### **200 OK**\n\nReturned for all successful GET, PUT, PATCH, or POST requests.\n\n#### **204 No Content**\n\nReturned for all successful DELETE requests.\n\n#### **400 Bad Request**\n\nReturned when:  \n• Request validation fails (e.g. a field has the wrong type or a required field is missing).  \n• An invalid action is attempted (e.g. cancelling a shipment that has already been collected).\n\nA descriptive error message is included in the response.\n\n#### 401 Unauthorised\n\nReturned when the user cannot be found.  \n• Response message: \"Error logging in\".  \n• Common cause: The API user has been deleted, but their API key is still in use.\n\n#### 403 Forbidden\n\nThe user does not have permission to perform the action. A descriptive message is included.\n\n#### 404 Not Found\n\nReturned when an invalid endpoint is requested (e.g. [https://api.portal.thecourierguy.co.za/shipments/invalid](https://api.portal.thecourierguy.co.za/shipments/invalid)).  \nAlso used in rare cases where a resource cannot be found, though this is not typically expected by clients.\n\n#### 405 Method Not Allowed\n\nReturned when a valid endpoint is used with an invalid HTTP method (e.g. PUT on [https://api.portal.thecourierguy.co.za/shipments](https://api.portal.thecourierguy.co.za/shipments)).\n\n#### 422 Unprocessable Entity\n\nReturned when the server understands the request but cannot complete the action.  \nCurrently, this only occurs when attempting to email CSV or PDF files to an API user (API users do not have email addresses).\n\n#### 423 Locked\n\nReturned when requests are made with a user belonging to a closed account.\n\n#### 429 Too Many Requests\n\nAn API user exceeds their request rate limit.\n\n#### 500 Internal Server Error\n\nReturned when a server-side issue occurs (e.g. database access failure).  \nThis error is not expected during normal operation.\n\n### Paging\n\nMost GET endpoints support pagination with the limit and offset query parameters.  \nNote: the count property in responses is capped at 10,000 for performance reasons."
+    },
+    {
+      "name": "Shipment statuses",
+      "item": [],
+      "description": "Here’s a short description of each of the The Courier Guy shipment statuses:\n\n**Collection statuses**\n\n- **collection-assigned** – A driver has been allocated to collect the shipment.\n    \n- **collection-unassigned** – No driver is currently assigned for collection.\n    \n- **collection-rejected** – The assigned driver has rejected the collection (typically due to incorrect assignment).\n    \n- **collection-exception** – An unexpected issue occurred during collection (e.g. address problem).\n    \n- **collection-failed-attempt** – Collection was attempted but not successful.\n    \n- **collected** – The shipment has been successfully picked up.\n    \n- **awaiting-dropoff** – The shipment is waiting to be dropped off by a customer (used for lockers, kiosks and counters).\n    \n\n**Hub & transit statuses**\n\n- **at-hub** – The shipment has arrived at a hub or depot.\n    \n- **on-hold** – The shipment is on hold pending resolution (e.g. query, instruction).\n    \n- **on-hold-internal** – Internal hold applied by the courier for operational reasons.\n    \n- **returned-to-hub** – Returned back to the hub after a failed delivery.\n    \n- **manifested** – The shipment has been included in an inter-hub manifest.\n    \n- **ready-for-dispatch** – Ready to leave the hub toward the next hub.\n    \n- **in-transit** – Currently in transit between hubs.\n    \n- **at-destination-hub** – Arrived at the hub closest to the final delivery point.\n    \n\n**Delivery statuses**\n\n- **delivery-assigned** – A driver has been assigned for delivery.\n    \n- **delivery-unassigned** – Delivery driver not yet assigned.\n    \n- **delivery-rejected** – The assigned driver rejected the delivery (typically due to incorrect assignment).\n    \n- **out-for-delivery** – The shipment is with the driver on the way to the recipient.\n    \n- **delivery-exception** – An issue occurred during delivery (e.g. address issues).\n    \n- **delivery-failed-attempt** – Delivery was attempted but unsuccessful.\n    \n- **ready-for-pickup** – The shipment is ready to be picked up by a customer (used for lockers, kiosks and counters).\n    \n- **delivered** – Successfully delivered to the recipient.\n    \n\n**Special statuses**\n\n- **returned-to-sender** – Returned to the sender after failed delivery attempts.\n    \n- **undeliverable** – Cannot be delivered or returned (e.g. damaged, recipient unknown).\n    \n- **cancelled** – Shipment cancelled before completion.\n    \n- **floor-check** – Shipment was physically verified in the facility (floor check).\n    \n\nThe following statuses aren't shown to end-users and are mapped visually to other statuses:\n\n- **collection-unassigned** to **collection-assigned**\n    \n- **collection-rejected** to **collection-assigned**\n    \n- **delivery-unassigned** to **delivery-assigned**\n    \n- **delivery-rejected** to **delivery-assigned**\n    \n- **on-hold-internal** to **at-hub**"
+    },
+    {
+      "name": "Webhooks",
+      "item": [],
+      "description": "Subscribe to specific webhook topics to receive webhooks for certain events.\n\n## Account webhooks\n\nAccount owners can configure webhooks for the following events by going to Settings > Webhook subscriptions.\n\n### Shipment note\n\n``` json\n{\n  \"attachments\": { \"uploads\": [] },\n  \"id\": 0,\n  \"message\": \"The sender does not want to handover the parcel\",\n  \"shipment_custom_tracking_reference\": \"SLXS7GL\",\n  \"shipment_id\": 108639,\n  \"shipment_short_tracking_reference\": \"S7GL\",\n  \"time_created\": \"2025-06-17T12:20:39.452Z\",\n  \"time_modified\": \"2025-06-17T12:20:39.836149Z\",\n  \"type\": \"external\"\n}\n\n ```\n\n### Tracking event\n\n``` json\n{\n  \"collection_hub\": \"JHB\",\n  \"collection_lat\": -25.785945,\n  \"collection_lng\": 28.314838,\n  \"custom_tracking_reference\": \"SLXS7GL\",\n  \"delivery_hub\": \"PTA\",\n  \"delivery_lat\": -25.785641,\n  \"delivery_lng\": 28.278871,\n  \"event_time\": \"2025-06-17T14:23:30.493767538+02:00\",\n  \"parcel_tracking_references\": [\"SLXS7GL/1\"],\n  \"provider_id\": 1,\n  \"service_level_code\": \"ECO\",\n  \"shipment_collected_date\": \"2025-06-17T12:22:32.630888Z\",\n  \"shipment_delivered_date\": null,\n  \"shipment_estimated_collection\": \"2025-06-17T09:16:51.123273Z\",\n  \"shipment_estimated_delivery_from\": \"2025-06-18T06:30:00Z\",\n  \"shipment_estimated_delivery_to\": \"2025-06-18T06:30:00Z\",\n  \"shipment_id\": 108639,\n  \"shipment_time_created\": \"2025-06-17T09:16:51.123273Z\",\n  \"shipment_time_modified\": \"2025-06-17T12:23:30.439981Z\",\n  \"short_tracking_reference\": \"S7GL\",\n  \"status\": \"at-hub\",\n  \"tracking_events\": [\n    {\n      \"date\": \"2025-06-17T12:23:30.493767Z\",\n      \"id\": 418146,\n      \"location\": \"PTA\",\n      \"message\": \"At PTA hub\",\n      \"parcel_id\": 0,\n      \"source\": \"mariskaadmin\",\n      \"status\": \"at-hub\"\n    },\n    {\n      \"date\": \"2025-06-17T12:22:32.632101Z\",\n      \"id\": 418141,\n      \"message\": \"\",\n      \"parcel_id\": 0,\n      \"source\": \"corneldriver\",\n      \"status\": \"collected\"\n    },\n    {\n      \"date\": \"2025-06-17T09:16:51.391089Z\",\n      \"id\": 418068,\n      \"message\": \"\",\n      \"parcel_id\": 0,\n      \"source\": \"stephanops\",\n      \"status\": \"collection-assigned\"\n    },\n    {\n      \"date\": \"2025-06-17T09:16:51.376125Z\",\n      \"id\": 418067,\n      \"message\": \"\",\n      \"parcel_id\": 0,\n      \"source\": \"system\",\n      \"status\": \"submitted\"\n    }\n  ],\n  \"update_type\": \"shipment\"\n}\n\n ```\n\n### Parcel dimension changes\n\n``` json\n[\n  {\n    \"provider_id\": 1,    \"shipment_id\": 101258638,\n    \"shipment_tracking_reference\": \"G9MR6V\",\n    \"parcel_reference\": \"G9MR6V/1\",\n    \"parcel_alternative_tracking_reference\": \"\",\n    \"source\": \"stephanadmin\",\n    \"event_type\": \"manual\",\n    \"event_time\": \"2026-02-27T08:58:45.201797396+02:00\",\n    \"length_cm\": 10,\n    \"width_cm\": 10,\n    \"height_cm\": 10,\n    \"weight_kg\": 5\n  }\n]\n\n ```\n\n### Shipment address changes\n\n``` json\n{\n  \"new_delivery_address\": {\n    \"city\": \"Cape Town\",\n    \"code\": \"7441\",\n    \"company\": \"Bootlegger Century City\",\n    \"country\": \"South Africa\",\n    \"entered_address\": \"Bootlegger Century City, 5 Esplanade Road, Century City, Cape Town, 7441, WC, South Africa\",\n    \"geo_city\": null,\n    \"geo_local_area\": \"Century City\",\n    \"gs_hash\": null,\n    \"hash\": \"C434FC6D662EFF2569117B2F186B51A2\",\n    \"id\": 72621,\n    \"lat\": -33.890342,\n    \"lng\": 18.510253,\n    \"local_area\": \"Century City\",\n    \"street_address\": \"5 Esplanade Road\",\n    \"time_created\": \"2025-06-17T12:28:06.336103Z\",\n    \"time_modified\": \"2025-06-17T12:28:06.336103Z\",\n    \"type\": \"residential\",\n    \"zone\": \"WC\"\n  },\n  \"shipment_id\": 108648,\n  \"shipment_tracking_reference\": \"SLXJKBK\"\n}\n\n ```\n\n## Admin webhooks\n\nThird-party integrations with the \"Webhook\" integration type will send an entire shipment's payload when the integration is triggered. This payload is equivalent to the shipment found in the JSON response of the [https://api.portal.thecourierguy.co.za/shipments](https://api.portal.thecourierguy.co.za/shipments) GET endpoint. These webhooks are admin-level webhooks that should be used with caution, as they contain sensitive shipment details such as POD PINs.\n\nTriggers:\n\n- Shipment is created\n    \n- Shipment is updated\n    \n- Shipment is scanned by hub scanner\n    \n- Shipment becomes outbound\n    \n\n``` json\n{\n  \"account\": {\n    \"balance\": 0,\n    \"branch_id\": 0,\n    \"branch_name\": null,\n    \"charge_discrepancy_threshold_override\": null,\n    \"cost_centers\": null,\n    \"created_by\": null,\n    \"credit_allocation_balance\": 0,\n    \"current_rate_group_id\": null,\n    \"current_rate_group_name\": null,\n    \"custom_fields\": null,\n    \"disable_auto_hold\": null,\n    \"force_show_billing_transactions\": null,\n    \"invoice_allocation_method\": \"\",\n    \"invoice_frequency_time\": 0,\n    \"invoice_trigger_shipment_status\": null,\n    \"is_on_hold\": null,\n    \"pod_method\": \"\",\n    \"pod_method_visible_on_shipment\": null,\n    \"status\": \"\",\n    \"temp_disable_auto_hold\": null,\n    \"time_created\": null,\n    \"time_modified\": null,\n    \"trading_start_date\": null\n  },\n  \"account_branch_id\": 429,\n  \"account_id\": 123241,\n  \"actual_weight\": 2,\n  \"charged_weight\": 2,\n  \"collected_date\": null,\n  \"collection_address\": {\n    \"city\": \"Pretoria\",\n    \"code\": \"0049\",\n    \"company\": \"The Courier Guy\",\n    \"country\": \"South Africa\",\n    \"entered_address\": \"Colab, 196 Bancor Avenue, Menlyn Maine, Pretoria, 0184, GP, South Africa\",\n    \"geo_city\": null,\n    \"geo_local_area\": \"Menlyn Maine\",\n    \"gs_hash\": null,\n    \"hash\": \"015D040851D46FC38BFF0388FCD17C82\",\n    \"id\": 12732,\n    \"lat\": -25.785641,\n    \"lng\": 28.278871,\n    \"local_area\": \"Menlyn Maine\",\n    \"street_address\": \"196 Bancor Avenue\",\n    \"time_created\": \"2024-10-07T12:40:09.981097Z\",\n    \"time_modified\": \"2024-10-07T12:40:09.981097Z\",\n    \"type\": \"unknown\",\n    \"zone\": \"GP\"\n  },\n  \"collection_address_book_id\": 0,\n  \"collection_address_id\": 12732,\n  \"collection_after\": \"10:00\",\n  \"collection_agent_id\": \"driver\",\n  \"collection_agent_routing_number\": \"P66\",\n  \"collection_agent_zone\": \"J Menlyn\",\n  \"collection_before\": \"15:00\",\n  \"collection_branch_id\": 429,\n  \"collection_branch_name\": \"PTA\",\n  \"collection_branch_public_name\": \"Pretoria\",\n  \"collection_contact\": {\n    \"email\": \"\",\n    \"mobile_number\": \"012345678\",\n    \"name\": \"Jane Doe\",\n    \"provider_id\": 1,\n    \"shipment_id\": 0\n  },\n  \"collection_cutoff_override\": false,\n  \"collection_min_date\": \"2025-06-16T22:00:00Z\",\n  \"collection_read_by_driver_time\": null,\n  \"collection_request_id\": 0,\n  \"collection_rescheduled\": false,\n  \"cost_center\": { \"name\": \"Pretoria East\" },\n  \"cost_center_id\": 13,\n  \"created_by\": \"mariskaadmin\",\n  \"current_branch_id\": 429,\n  \"current_branch_name\": \"PTA\",\n  \"current_branch_public_name\": \"Pretoria\",\n  \"custom_tracking_reference\": \"SLX3BM3\",\n  \"declared_value\": 0,\n  \"deleted_date\": \"0001-01-01T00:00:00Z\",\n  \"delivered_date\": null,\n  \"delivery_address\": {\n    \"city\": \"Cape Town\",\n    \"code\": \"8002\",\n    \"company\": \"Two Oceans Aquarium\",\n    \"country\": \"South Africa\",\n    \"entered_address\": \"Two Oceans Aquarium, Dock Road, Victoria & Alfred Waterfront, Cape Town, 8002, WC, South Africa\",\n    \"geo_city\": null,\n    \"geo_local_area\": \"Victoria & Alfred Waterfront\",\n    \"gs_hash\": null,\n    \"hash\": \"F651EB2FB828915431DA5D3B6A2F634B\",\n    \"id\": 13222,\n    \"lat\": -33.908032,\n    \"lng\": 18.417661,\n    \"local_area\": \"Victoria & Alfred Waterfront\",\n    \"street_address\": \"Dock Road\",\n    \"time_created\": \"2025-01-20T09:36:39.806573Z\",\n    \"time_modified\": \"2025-01-20T09:36:39.806573Z\",\n    \"type\": \"residential\",\n    \"zone\": \"WC\"\n  },\n  \"delivery_address_book_id\": 0,\n  \"delivery_address_id\": 13222,\n  \"delivery_after\": \"08:00\",\n  \"delivery_agent_id\": \"\",\n  \"delivery_agent_routing_number\": \"CO4/CR6\",\n  \"delivery_agent_zone\": \"C WATERFRONT \",\n  \"delivery_before\": \"17:00\",\n  \"delivery_branch_id\": 442,\n  \"delivery_branch_name\": \"CPT\",\n  \"delivery_branch_public_name\": \"\",\n  \"delivery_contact\": {\n    \"email\": \"\",\n    \"mobile_number\": \"012345678\",\n    \"name\": \"Mariska\",\n    \"provider_id\": 1,\n    \"shipment_id\": 0\n  },\n  \"delivery_min_date\": \"2025-06-16T22:00:00Z\",\n  \"delivery_read_by_driver_time\": null,\n  \"delivery_rescheduled\": false,\n  \"disable_new_charges\": false,\n  \"earliest_collection_capacity_date\": null,\n  \"estimated_collection\": \"2025-06-18T06:30:00Z\",\n  \"estimated_delivery_from\": \"2025-06-18T07:30:00Z\",\n  \"estimated_delivery_to\": \"2025-06-19T09:30:00Z\",\n  \"external_note_count\": 0,\n  \"has_been_invoiced\": false,\n  \"has_pod_files\": false,\n  \"has_rating\": false,\n  \"id\": 108649,\n  \"is_pending\": false,\n  \"is_return\": false,\n  \"latest_tracking_event_time\": \"2025-06-17T12:36:12.985021Z\",\n  \"modified_by\": \"mariskaadmin\",\n  \"mute_notifications\": false,\n  \"original_collected_date\": null,\n  \"original_collection_agent_id\": \"corneldriver\",\n  \"original_delivery_agent_id\": \"\",\n  \"original_estimated_collection\": \"2025-06-18T06:30:00Z\",\n  \"original_estimated_delivery_from\": \"2025-06-18T07:30:00Z\",\n  \"original_rate\": 20.5,\n  \"original_shipment_information\": {\n    \"original_service_level_code\": \"ECO\",\n    \"original_service_level_name\": \"Economy\"\n  },\n  \"parcels\": [\n    {\n      \"actual_height_cm\": 5,\n      \"actual_length_cm\": 40,\n      \"actual_weight_kg\": 2,\n      \"actual_width_cm\": 30,\n      \"has_been_dimensioned\": false,\n      \"id\": 181100,\n      \"packaging\": \"Sleeve\",\n      \"parcel_description\": \"Pasta\",\n      \"provider_id\": 1,\n      \"shipment\": null,\n      \"shipment_id\": 108649,\n      \"status\": \"collection-assigned\",\n      \"submitted_height_cm\": 5,\n      \"submitted_length_cm\": 40,\n      \"submitted_weight_kg\": 2,\n      \"submitted_width_cm\": 30,\n      \"time_created\": \"2025-06-17T12:36:12.782979Z\",\n      \"tracking_reference\": \"SLX3BM3/1\"\n    }\n  ],\n  \"payment_intervention_status\": \"\",\n  \"payment_reference\": \"f010d4ed-b8fe-4c09-8b1a-280eaab0d32c\",\n  \"pod_method\": \"pin-with-fallback\",\n  \"previous_rate\": 0,\n  \"proof_of_delivery_pin\": \"427\",\n  \"proof_of_delivery_pin_hashed\": \"/OlNPGRkLSYIz8B8CvLS+YGW3CeeAoNE1uTRJY/ZTGc=\",\n  \"provider_id\": 1,\n  \"rate\": 20.5,\n  \"rates\": [\n    {\n      \"billing_transaction_id\": 1845836,\n      \"id\": 5202504,\n      \"is_opt_in\": false,\n      \"metadata\": null,\n      \"name\": \"\",\n      \"provider_id\": 1,\n      \"rate_revision_id\": 2441,\n      \"shipment_id\": 108649,\n      \"type\": \"base\",\n      \"type_id\": 7197,\n      \"valid_from\": \"2025-06-17T12:36:12.90567Z\",\n      \"valid_until\": null,\n      \"value\": 20,\n      \"vat\": 2.684,\n      \"vat_percentage\": null,\n      \"vat_type\": \"standard\"\n    },\n    {\n      \"billing_transaction_id\": 1845836,\n      \"id\": 5202505,\n      \"is_opt_in\": false,\n      \"metadata\": null,\n      \"name\": \"\",\n      \"provider_id\": 1,\n      \"rate_revision_id\": 2441,\n      \"shipment_id\": 108649,\n      \"type\": \"rate_formula\",\n      \"type_id\": 86378,\n      \"valid_from\": \"2025-06-17T12:36:12.90567Z\",\n      \"valid_until\": null,\n      \"value\": 20,\n      \"vat\": 2.684,\n      \"vat_percentage\": 15.5,\n      \"vat_type\": \"standard\"\n    },\n    {\n      \"billing_transaction_id\": 1845836,\n      \"id\": 5202506,\n      \"is_opt_in\": false,\n      \"metadata\": null,\n      \"name\": \"\",\n      \"provider_id\": 1,\n      \"rate_revision_id\": 2441,\n      \"shipment_id\": 108649,\n      \"type\": \"rate_adjustment\",\n      \"type_id\": 10837,\n      \"valid_from\": \"2025-06-17T12:36:12.90567Z\",\n      \"valid_until\": null,\n      \"value\": 0.5,\n      \"vat\": 0.06710000000000001,\n      \"vat_percentage\": null,\n      \"vat_type\": \"standard\"\n    }\n  ],\n  \"rating_reference\": \"8d819b7e-8ee2-43c6-9f8e-9d84e68d5d66\",\n  \"requires_action_note_count\": 0,\n  \"reschedule_reference\": \"65c38e1c-24c8-4c4b-9a16-f0e98bbb983a\",\n  \"service_level_code\": \"ECO\",\n  \"service_level_cut_off_time\": \"2025-06-17T14:00:00Z\",\n  \"service_level_id\": 23365,\n  \"service_level_name\": \"Economy\",\n  \"short_tracking_reference\": \"3BM3\",\n  \"source\": \"api\",\n  \"special_instructions_collection\": \"\",\n  \"special_instructions_delivery\": \"\",\n  \"status\": \"collection-assigned\",\n  \"submitted_date\": \"2025-06-17T12:36:12.977637Z\",\n  \"time_created\": \"2025-06-17T12:36:12.747767Z\",\n  \"time_modified\": \"2025-06-17T12:36:13.054364Z\",\n  \"total_note_count\": 0,\n  \"tracking_events\": null,\n  \"transient_branch_ids\": null,\n  \"volumetric_weight\": 2\n}\n\n ```"
+    },
+    {
+      "name": "Addresses",
+      "item": [],
+      "description": "Addresses are central to The Courier Guy and is used for getting rates, submitting shipments etc.\n\nThe structure of an address can be seen below:\n\n```\n{\n        \"company\": \"The Courier Guy\",\n        \"street_address\": \"194 Bancor Avenue\",\n        \"type\": \"business\",\n        \"local_area\": \"Menlyn\",\n        \"city\": \"Pretoria\",\n        \"zone\": \"Gauteng\",\n        \"country\": \"ZA\",\n        \"code\": \"0181\",\n        \"lat\": -25.7863272,\n        \"lng\": 28.277583\n}\n\n ```\n\nIdeally pass through the `lat` and `lng` (latitude and longitude) for best accuracy. If the `lat` and `lng` is not passed through, The Courier Guy will attempt to geocode the address to the best of its ability. The `type` field (optional) can be `residential`, `business` , `counter` or `locker`. If no `type` is provided it will default to `unknown`."
+    },
+    {
+      "name": "Accounts API",
+      "item": [
+        {
+          "name": "Shipping and rates",
+          "item": [
+            {
+              "name": "Pickup points",
+              "item": [
+                {
+                  "name": "Getting pickup points",
+                  "request": {
+                    "method": "GET",
+                    "header": [],
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/pickup-points?lat=-26.0048046&lng=27.9412084&order_closest=true",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["pickup-points"],
+                      "query": [
+                        {
+                          "key": "lat",
+                          "value": "-26.0048046"
+                        },
+                        {
+                          "key": "lng",
+                          "value": "27.9412084"
+                        },
+                        {
+                          "key": "order_closest",
+                          "value": "true"
+                        }
+                      ]
+                    },
+                    "description": "This endpoint can be used to search for pickup points close to a specific location. An alternative approach is to find pickup points within a bounding box using `min_lat`, `min_lng`, `max_lat` and `max_lng`.\n\nIn both cases the `type` parameter can optionally be used to filter the results based on the pickup point type:\n\n- `locker`\n    \n- `counter`\n    \n- `point`"
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Getting pickup point rates",
+                  "protocolProfileBehavior": {
+                    "followRedirects": false,
+                    "followOriginalHttpMethod": false,
+                    "followAuthorizationHeader": false
+                  },
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Authorization",
+                        "value": ""
+                      },
+                      {
+                        "key": "X-Amz-Date",
+                        "value": "20210202T112645Z",
+                        "disabled": true
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n    \"collection_address\": {\n        \"type\": \"business\",\n        \"company\": \"The Courier Guy\",\n        \"street_address\": \"194 Bancor Avenue\",\n        \"local_area\": \"Menlyn\",\n        \"city\": \"Pretoria\",\n        \"zone\": \"Gauteng\",\n        \"country\": \"ZA\",\n        \"code\": \"0181\"\n    },\n    \"delivery_pickup_point_id\": \"CG01\",\n    \"parcels\": [\n        {\n            \"submitted_length_cm\": 42.5,\n            \"submitted_width_cm\": 38.5,\n            \"submitted_height_cm\": 5.5,\n            \"submitted_weight_kg\": 3\n        }\n    ],\n    \"collection_min_date\": \"2021-05-21\",\n    \"delivery_min_date\": \"2021-05-21\"\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/rates",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["rates"]
+                    },
+                    "description": "Use this endpoint to retrieve the relevant rates and service levels for a given `account_id`, `collection_address`, `delivery_address` and list of `parcels`. Optionally, include a `declared_value` (for insurance purposes), possible user `opt_in_rates` e.g. Gift wrapping and `opt_in_time_based_rates` e.g. Early-bird delivery.\n\nSee the \"Getting opt-in rates\" on how to get the possible `opt-in rates` and `opt-in time based` rates for a given `collection_address` and `delivery_address`. `opt_in_rates` and `opt_in_time_based_rates` should be specified as an array of ID's e.g. `\"opt_in_time_based_rates\":[76]`.\n\nThe following fields are required:\n\n- `collection_address`\n    \n- `delivery_address`\n    \n- `parcels`\n    \n\nSee the structure of addresses at the main section at the start of the documentation."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Create pickup point shipments",
+                  "protocolProfileBehavior": {
+                    "followAuthorizationHeader": false,
+                    "followOriginalHttpMethod": false,
+                    "followRedirects": false
+                  },
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Authorization",
+                        "value": ""
+                      },
+                      {
+                        "key": "X-Amz-Date",
+                        "value": "20210202T112645Z"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n    \"collection_address\": {\n        \"type\": \"business\",\n        \"company\": \"The Courier Guy\",\n        \"street_address\": \"194 Bancor Avenue\",\n        \"local_area\": \"Menlyn\",\n        \"city\": \"Pretoria\",\n        \"zone\": \"Gauteng\",\n        \"country\": \"ZA\",\n        \"code\": \"0181\"\n    },\n    \"collection_contact\": {\n        \"name\": \"Cornel Rautenbach\",\n        \"mobile_number\": \"\",\n        \"email\": \"cornel+sandy@shiplogic.com\"\n    },\n    \"delivery_pickup_point_id\": \"CG01\",\n    \"delivery_contact\": {\n        \"name\": \"\",\n        \"mobile_number\": \"\",\n        \"email\": \"james+sandyreceiver@shiplogic.com\"\n    },\n    \"parcels\": [\n        {\n            \"parcel_description\": \"Standard flyer\",\n            \"submitted_length_cm\": 20,\n            \"submitted_width_cm\": 20,\n            \"submitted_height_cm\": 10,\n            \"submitted_weight_kg\": 2\n        }\n    ],\n    \"special_instructions_collection\": \"This is a test shipment - DO NOT COLLECT\",\n    \"special_instructions_delivery\": \"This is a test shipment - DO NOT DELIVER\",\n    \"collection_min_date\": \"2021-05-21T00:00:00.000Z\",\n    \"collection_after\": \"08:00\",\n    \"collection_before\": \"16:00\",\n    \"delivery_min_date\": \"2021-05-21T00:00:00.000Z\",\n    \"delivery_after\": \"10:00\",\n    \"delivery_before\": \"17:00\",\n    \"custom_tracking_reference\": \"\",\n    \"customer_reference\": \"ORDERNO123\",\n    \"service_level_code\": \"D2LS - ECO\",\n    \"mute_notifications\": false\n}"
+                    },
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/shipments",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["shipments"]
+                    },
+                    "description": "Similar to getting rates for pickup points, shipments can be created at pickup points by specifying the `collection_pickup_point_id` and/or the `delivery_pickup_point_id`. Once again the generic pickup point IDs may be used for the `collection_pickup_point_id` as described in the pickup point rates section.\n\nPickup point shipments cannot have opt-in rates attched. Do not specify any opt in rate IDs, or add a declared value.\n\nNote: When creating a shipment with pickup point dropoff (i.e. when specifying a `collection_pickup_point_id`), do not add a custom tracking reference. One will be assigned to the shipment."
+                  },
+                  "response": []
+                }
+              ]
+            },
+            {
+              "name": "Getting rates",
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "followOriginalHttpMethod": false,
+                "followAuthorizationHeader": false
+              },
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z",
+                    "disabled": true
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"collection_address\": {\n        \"type\": \"business\",\n        \"company\": \"The Courier Guy\",\n        \"street_address\": \"194 Bancor Avenue\",\n        \"local_area\": \"Menlyn\",\n        \"city\": \"Pretoria\",\n        \"zone\": \"Gauteng\",\n        \"country\": \"ZA\",\n        \"code\": \"0181\"\n    },\n    \"delivery_address\": {\n        \"type\": \"residential\",\n        \"company\": \"\",\n        \"street_address\": \"10 Midas Avenue\",\n        \"local_area\": \"Olympus AH\",\n        \"city\": \"Pretoria\",\n        \"zone\": \"Gauteng\",\n        \"country\": \"ZA\",\n        \"code\": \"0081\",\n        \"lat\": -25.80665579999999,\n        \"lng\": 28.334732\n    },\n    \"parcels\": [\n        {\n            \"submitted_length_cm\": 42.5,\n            \"submitted_width_cm\": 38.5,\n            \"submitted_height_cm\": 5.5,\n            \"submitted_weight_kg\": 3\n        }\n    ],\n    \"declared_value\": 1500,\n    \"collection_min_date\": \"2021-05-21\",\n    \"delivery_min_date\": \"2021-05-21\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/rates",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["rates"]
+                },
+                "description": "Use this endpoint to retrieve the relevant rates and service levels for a given `account_id`, `collection_address`, `delivery_address` and list of `parcels`. Optionally, include a `declared_value` (for insurance purposes), possible user `opt_in_rates` e.g. Gift wrapping and `opt_in_time_based_rates` e.g. Early-bird delivery.\n\nSee the \"Getting opt-in rates\" on how to get the possible `opt-in rates` and `opt-in time based` rates for a given `collection_address` and `delivery_address`. `opt_in_rates` and `opt_in_time_based_rates` should be specified as an array of ID's e.g. `\"opt_in_time_based_rates\":[76]`.\n\nThe following fields are required:\n\n- `collection_address`\n    \n- `delivery_address`\n    \n- `parcels`\n    \n\nSee the structure of addresses at the main section at the start of the documentation."
+              },
+              "response": []
+            },
+            {
+              "name": "Getting opt-in rates",
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "followOriginalHttpMethod": false,
+                "followAuthorizationHeader": false
+              },
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n     \"collection_address\": {\n        \"type\": \"business\",\n        \"company\": \"The Courier Guy\",\n        \"street_address\": \"194 Bancor Avenue\",\n        \"local_area\": \"Menlyn\",\n        \"city\": \"Pretoria\",\n        \"zone\": \"Gauteng\",\n        \"country\": \"ZA\",\n        \"code\": \"0181\"\n    },\n    \"delivery_address\": {\n        \"type\": \"residential\",\n        \"company\": \"\",\n        \"street_address\": \"10 Midas Avenue\",\n        \"local_area\": \"Olympus AH\",\n        \"city\": \"Pretoria\",\n        \"zone\": \"Gauteng\",\n        \"country\": \"ZA\",\n        \"code\": \"0081\",\n        \"lat\": -25.80665579999999,\n        \"lng\": 28.334732\n    }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/rates/opt-in",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["rates", "opt-in"]
+                },
+                "description": "Certain special request options are available to add to a shipment e.g. Early bird deliveries or a gift wrapping service. This is dependant on how the courier has set up their rates.\n\nSend the `collection_address` and `delivery_address` to this endpoint to get a list of `opt_in_rates` and `opt_in_time_based_rates` which can be sent to the `POST /rates` and subsequently to the `POST /shipments` endpoint (above).\n\nThe following fields are required:\n- `collection_address`\n- `delivery_address`\n\nSee the structure of addresses at the main section at the start of the documentation."
+              },
+              "response": []
+            },
+            {
+              "name": "Create a shipment",
+              "protocolProfileBehavior": {
+                "followAuthorizationHeader": false,
+                "followOriginalHttpMethod": false,
+                "followRedirects": false
+              },
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"collection_address\": {\n        \"type\": \"business\",\n        \"company\": \"The Courier Guy\",\n        \"street_address\": \"377 Fairy Glen St\",\n        \"local_area\": \"Lynnwood Park\",\n        \"city\": \"Pretoria\",\n        \"zone\": \"Gauteng\",\n        \"country\": \"ZA\",\n        \"code\": \"0081\"\n    },\n    \"collection_contact\": {\n        \"name\": \"Cornel Rautenbach\",\n        \"mobile_number\": \"\",\n        \"email\": \"cornel+sandy@shiplogic.com\"\n    },\n    \"delivery_address\": {\n        \"type\": \"residential\",\n        \"company\": \"\",\n        \"street_address\": \"10 Midas Ave\",\n        \"local_area\": \"Olympus AH\",\n        \"city\": \"Pretoria\",\n        \"code\": \"0081\",\n        \"zone\": \"Gauteng\",\n        \"country\": \"ZA\",\n        \"lat\": -25.80665579999999, // Optional, but recommended\n        \"lng\": 28.334732 // Optional, but recommended\n    },\n    \"delivery_contact\": {\n        \"name\": \"\",\n        \"mobile_number\": \"\",\n        \"email\": \"james+sandyreceiver@shiplogic.com\"\n    },\n    \"parcels\": [\n        {\n            \"parcel_description\": \"Standard flyer\",\n            \"submitted_length_cm\": 20,\n            \"submitted_width_cm\": 20,\n            \"submitted_height_cm\": 10,\n            \"submitted_weight_kg\": 2,\n            \"alternative_tracking_reference\": \"USUALLYATRACKINGSTICKER\" // Optional\n        }\n    ],\n    \"opt_in_rates\": [],\n    \"opt_in_time_based_rates\": [\n        76\n    ],\n    \"special_instructions_collection\": \"This is a test shipment - DO NOT COLLECT\",\n    \"special_instructions_delivery\": \"This is a test shipment - DO NOT DELIVER\",\n    \"declared_value\": 1100,\n    \"collection_min_date\": \"2025-05-21T00:00:00.000Z\",\n    \"due_date\": \"2025-05-24T00:00:00.000Z\",\n    \"collection_after\": \"08:00\",\n    \"collection_before\": \"16:00\",\n    \"delivery_min_date\": \"2025-05-21T00:00:00.000Z\",\n    \"delivery_after\": \"10:00\",\n    \"delivery_before\": \"17:00\",\n    \"custom_tracking_reference\": \"\",\n    \"customer_reference_name\": \"Order no.\",\n    \"customer_reference\": \"ORDERNO123\",\n    \"service_level_code\": \"ECO\",\n    \"mute_notifications\": false\n}"
+                },
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/shipments",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["shipments"]
+                },
+                "description": "The following fields are required:\n\n- `collection_address`\n    \n- `collection_contact`\n    \n- `delivery_address`\n    \n- `delivery_contact`\n    \n- `parcels`\n    \n- either `service_level_code` or `service_level_id` (returned when retrieving rates)\n    \n\nSee the structure of addresses at the main section at the start of the documentation.\n\nThe `collection_contact` and `delivery_contact` requires at least an `email`and/or `mobile_number`.\n\n`mute_notifications`: If this property is set to `true`, no SMS and/or email notifications will be sent on behalf of this shipment.\n\n`customer_reference`: Any reference you want to add to the shipment e.g. an order number or external ID you want to associate with the shipment.\n\n`customer_reference_name`: This optional field describes what the customer reference refers to e.g. `PO number`, `Order no.`, `Internal ref`, etc.\n\nOptionally, include a `declared_value` (for insurance purposes), possible user `opt_in_rates` e.g. Gift wrapping and `opt_in_time_based_rates` e.g. Early-bird delivery.\n\nSee the \"Getting opt-in rates\" on how to get the possible `opt-in rates` and `opt-in time based` rates for a given `collection_address` and `delivery_address`. `opt_in_rates` and `opt_in_time_based_rates` should be specified as an array of ID's e.g. `\"opt_in_time_based_rates\":[76]`.\n\nThe `collection_min_date` and `delivery_min_date` can be used if you'd like the collection or delivery to take place only at a later stage.\n\n`due_date` is a field used for reporting purposes. It doesn't change anything operationally.\n\nOn a parcel, set an optional `alternative_tracking_reference` if you have preprinted tracking stickers or a pre-defined barcode that will be linked to the parcel.\n\n# Error messages\n\nBelow is a list of error responses that the shipment-creation endpoint can return.\n\n### General errors\n\n- **`do not specify a shipment ID when creating a new shipment`** — request  \n    body contains a non-zero `id`.\n    \n- **`failed to fill shipment pickup point provider`** — invalid combination of  \n    pickup-point identifiers.\n    \n\n### For returns (`is_return: true`)\n\n- **`failed to get shipment`** — no shipment found with the supplied  \n    `short_tracking_reference` to return from.\n    \n- **`shipment with the tracking reference {ref} already exists`** — a return  \n    for this reference has already been created.\n    \n\n### Tracking references\n\n- **`you may not set a custom tracking reference for a shipment`**\n    \n- **`cannot set custom reference — value exceeds maximum character limit of  \n    {n}`**\n    \n- **`custom tracking reference should be more than {n} characters`**\n    \n- **`custom tracking reference should not be more than {n} characters`**\n    \n- **`custom tracking reference should only contain alphanumeric values and  \n    dashes`**\n    \n- **`shipment with the custom tracking reference {ref} already exists`**\n    \n- **`invalid custom tracking reference prefix`** — value does not match any of  \n    the allowed prefixes configured for the account.\n    \n\n### Customer reference\n\n- **`customer reference should not be less than {n} characters`**\n    \n- **`customer reference should not be more than {n} characters`**\n    \n\n### Parcel references / aliases\n\n- **`there are multiple parcels with the same reference`**\n    \n- **`parcel alternative tracking reference needs to be greater than {n}  \n    characters`**\n    \n- **`custom tracking reference should not be more than {n} characters`**\n    \n- **`alternative tracking reference is not unique for parcel: {value}`**\n    \n- **`customer alias needs to be greater than {n} characters`**\n    \n- **`customer alias should not be more than {n} characters`**\n    \n- **`customer alias is not unique for parcel: {value}`**\n    \n- **`parcel alternative tracking reference already exists`**\n    \n\n### Dates / time windows\n\n- **`due date cannot be in the past`**\n    \n- **`invalid collection_after`** — value could not be parsed as a time string.\n    \n- **`invalid collection_before`**\n    \n- **`invalid delivery_after`**\n    \n- **`invalid delivery_before`**\n    \n- **`rate has expired – please try again`** — selected `service_level_id`  \n    belongs to a rate revision that has expired (>5 min ago).\n    \n\n### Addresses / contacts\n\n- **`collection postal_code is required`** — provider requires postal codes  \n    on creation.\n    \n- **`delivery postal_code is required`** — same as above.\n    \n- **`could not create shipment: collection_address missing`**\n    \n- **`could not create shipment: collection_contact missing`**\n    \n- **`could not create shipment: collection_contact needs a valid email or  \n    mobile_number`**\n    \n- **`could not create shipment: delivery_address missing`**\n    \n- **`could not create shipment: delivery_contact missing`**\n    \n- **`could not create shipment: delivery_contact needs a valid email or  \n    mobile_number`**\n    \n- **`invalid collection contact mobile number`**\n    \n- **`invalid delivery contact mobile number`**\n    \n- **`invalid responsible contact mobile number`**\n    \n- **`name should be less than 255 characters`**\n    \n- **`mobile number should be less than 255 characters`**\n    \n- **`alternative contact number should be less than 255 characters`**\n    \n- **`email should be less than 255 characters`**\n    \n- **`the collection address and delivery address shouldn't be the same  \n    address`**\n    \n\n### Parcels\n\n- **`could not create shipment: parcels missing`**\n    \n- **`parcel exceeds the maximum weight of {n} kg`**\n    \n- **`the parcel's dimensions exceed the maximum allowable size of {l} cm x {w}  \n    cm x {h} cm`**\n    \n- **`parcel length is empty`** (only when a weight is also missing)\n    \n- **`parcel width is empty`**\n    \n- **`parcel height is empty`**\n    \n- **`Pickup point shipments can only have one parcel`**\n    \n\n### Insurance / declared value\n\n- **`cannot set declared value: Provider does not have liability cover  \n    enabled`**\n    \n- **`declared value is more than the allowed maximum ({max})`**\n    \n\n### Status / POD method\n\n- **`{value} is not a valid status`** — for either `shipment.status` or any  \n    `parcel.status`.\n    \n- **`invalid value for proof of delivery method`** — `pod_method` not in the  \n    allowed list.\n    \n\n### Cost centres\n\n- **`invalid cost centre ID`** — ID supplied without an account, or ID does  \n    not belong to the supplied account.\n    \n- **`invalid cost centre name`** — name supplied without an account, or no  \n    cost centre by that name exists for the account.\n    \n\n### Account state\n\n- **`this account is closed`** — the supplied `account_id` has  \n    `status = closed`.\n    \n- **`could not get current account`** — account lookup failed.\n    \n- **`could not create shipment: failed to get account information - {err}`**\n    \n- **`the credit limit for the account has been reached`** — post-paid account  \n    whose new balance would exceed its credit limit.\n    \n- **`insufficient funds for the account`** — prepaid account with too low a  \n    balance.\n    \n\n### Guest shipments\n\n- **`this feature is disabled. Please contact support`** — guest shipment  \n    creation is disabled.\n    \n- **`An error occurred while creating the shipment. Please contact support  \n    for assistance.`**\n    \n\n### Rates\n\n- **`there are no rates for the specified service level, declared value and  \n    addresses`** .\n    \n- **`no service levels available for the declared value`** — declared value  \n    exceeds liability cover for every service level.\n    \n- **`no service levels available`** — no service levels matched the request.\n    \n- **`could not find rates for the requested service level code`**\n    \n\n### Database constraint surfacing\n\n- **`... already exists`** (generic) — any DB error containing  \n    `\"already exists\"` is surfaced as `400` rather than `500`.\n    \n\n---\n\n## 403 Forbidden\n\n- **`you cannot create a return for a shipment that is not delivered yet.`** —  \n    account members attempting to return a non-delivered shipment.\n    \n\n---\n\n## 412 Precondition Failed\n\n- **`customer reference is required`** — the collection or destination branch  \n    requires a customer reference and none was supplied.\n    \n- **`customer reference is required: {prefix}`** — same as above, but the  \n    branch has a required prefix that the caller must use.\n    \n\n---\n\n## 500 Internal Server Error\n\nReturned when an unexpected server-side failure occurs. These are not caused  \nby the caller and generally indicate the request should be retried later or  \nescalated to support.\n\n- **`failed to check account approval setting`**\n    \n- **`failed to get provider settings`** — settings lookup failed.\n    \n- **`could not select all shipment fields`**\n    \n- **`could not update parcel statuses`**\n    \n- **`failed to delete shipment`**, **`failed to delete tracking events for  \n    shipment`**, **`failed to reverse shipment charge`**\n    \n- **`could not check if cost centres are enabled`**\n    \n- **`could not create shipment`**"
+              },
+              "response": []
+            },
+            {
+              "name": "Getting shipments",
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "followOriginalHttpMethod": false,
+                "followAuthorizationHeader": false
+              },
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/shipments?tracking_reference={{sample_tracking_reference}}",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["shipments"],
+                  "query": [
+                    {
+                      "key": "tracking_reference",
+                      "value": "{{sample_tracking_reference}}",
+                      "description": "The short or custom tracking reference of the shipment"
+                    }
+                  ]
+                },
+                "description": "This endpoint returns a list of shipments or a specific shipment if a tracking reference or shipment ID is passed through as a query parameter.\n\n## Other query parameters:\n\nTo filter shipments with a creation date within a date range send through the following query parameters:\n\n`?date_filter=time_created&start_date=2022-01-11 12:52:20+02:00&end_date=2022-01-25 23:59:59+02:00`\n\nThe following options are available for the `date_filter` query parameter:\n\n*   `time_created`\n*   `collected_date`\n*   `delivered_date`\n    \n\nTo filter on shipments statuses send through the `status` parameter with a list of statuses you would like to include e.g. `?status=[\"collected\",\"delivered\"]` ."
+              },
+              "response": []
+            },
+            {
+              "name": "Getting shipment label / waybill PDF",
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "followOriginalHttpMethod": false,
+                "followAuthorizationHeader": false
+              },
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "accept",
+                    "value": "application/pdf",
+                    "disabled": true
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "disabled": true
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "text/html",
+                    "disabled": true
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/shipments/label?id={{sample_shipment_id}}",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["shipments", "label"],
+                  "query": [
+                    {
+                      "key": "id",
+                      "value": "{{sample_shipment_id}}"
+                    }
+                  ]
+                },
+                "description": "This endpoint takes an `id` as a query parameter (the shipment's `id`, not the `provider_shipment_id`) and returns a signed URL to a PDF on a AWS S3 bucket. The URL expires in 24 hours."
+              },
+              "response": []
+            },
+            {
+              "name": "Getting shipment sticker label",
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "followOriginalHttpMethod": false,
+                "followAuthorizationHeader": false
+              },
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "accept",
+                    "value": "application/pdf",
+                    "disabled": true
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "disabled": true
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "text/html",
+                    "disabled": true
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/shipments/label/stickers?id={{sample_shipment_id}}",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["shipments", "label", "stickers"],
+                  "query": [
+                    {
+                      "key": "id",
+                      "value": "{{sample_shipment_id}}"
+                    }
+                  ]
+                },
+                "description": "This endpoint takes an `id` as a query parameter (the shipment's `id`, not the `provider_shipment_id`) and returns a signed URL to a PDF on a AWS S3 bucket. The URL expires in 24 hours."
+              },
+              "response": []
+            },
+            {
+              "name": "Cancelling a shipment",
+              "protocolProfileBehavior": {
+                "followAuthorizationHeader": false,
+                "followOriginalHttpMethod": false,
+                "followRedirects": false
+              },
+              "request": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"tracking_reference\": \"G9G\"}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/shipments/cancel",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["shipments", "cancel"]
+                },
+                "description": "This endpoint cancels the shipment. If the shipment hasn't been collected all charges are automatically reversed."
+              },
+              "response": []
+            }
+          ],
+          "description": "This sections lists all the API endpoints related to getting rates and generating, updating, retrieving and cancelling shipments (also known as waybills)."
+        },
+        {
+          "name": "Tracking and PODs",
+          "item": [
+            {
+              "name": "Get signed URL to download a file",
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "followOriginalHttpMethod": false,
+                "followAuthorizationHeader": false,
+                "disableBodyPruning": true
+              },
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"collection_address\": {\n        \"company\": \"uAfrica.com\",\n        \"street_address\": \"116 Lois Avenue\",\n        \"local_area\": \"Newlands, Pretoria\",\n        \"city\": \"City of Tshwane Metropolitan Municipality\",\n        \"zone\": \"Gauteng\",\n        \"country\": \"ZA\",\n        \"code\": \"0181\",\n        \"lat\": -25.7863272,\n        \"lng\": 28.277583\n    },\n    \"delivery_address\": {\n        \"company\": \"Bambolini Nursery School\",\n        \"street_address\": \"Midas Avenue\",\n        \"local_area\": \"Olympus AH, Pretoria\",\n        \"city\": \"City of Tshwane Metropolitan Municipality\",\n        \"zone\": \"Gauteng\",\n        \"country\": \"ZA\",\n        \"code\": \"0081\",\n        \"lat\": -25.80665579999999,\n        \"lng\": 28.334732\n    },\n    \"parcels\": [\n        {\n            \"submitted_length_cm\": 42.5,\n            \"submitted_width_cm\": 38.5,\n            \"submitted_height_cm\": 5.5,\n            \"submitted_weight_kg\": 3\n        }\n    ],\n    \"account_id\": 188,\n    \"declared_value\": 1500,\n    \"opt_in_rates\": [97],\n    \"opt_in_time_based_rates\": [77],\n    \"collection_min_date\": \"2021-05-21\",\n    \"delivery_min_date\": \"2021-05-21\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/s3-url/download?file_name=[\"84159-985fe649-61f5-45c3-b900-eba89d342cc3.jpeg\"]&folder=shipment-images",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["s3-url", "download"],
+                  "query": [
+                    {
+                      "key": "file_name",
+                      "value": "[\"84159-985fe649-61f5-45c3-b900-eba89d342cc3.jpeg\"]"
+                    },
+                    {
+                      "key": "folder",
+                      "value": "shipment-images"
+                    }
+                  ]
+                },
+                "description": "Use this endpoint to get signed URLs to POD images. POD file names can be found in tracking events. See the `Tracking a shipment` GET request for more information.\n\nPlease note that the `file_name` parameter is an array of filenames and `folder` has a constant value of `shipment-images`"
+              },
+              "response": []
+            },
+            {
+              "name": "Tracking a shipment",
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "followOriginalHttpMethod": false,
+                "followAuthorizationHeader": false
+              },
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "",
+                    "disabled": true
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/tracking/shipments?tracking_reference={{sample_tracking_reference}}",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["tracking", "shipments"],
+                  "query": [
+                    {
+                      "key": "tracking_reference",
+                      "value": "{{sample_tracking_reference}}"
+                    }
+                  ]
+                },
+                "description": "This endpoint takes a tracking reference as a query parameter and return the shipment's status, together with an array of tracking events for that shipment.\n\nOn each event there is a property called `parcel_id`. If the `parcel_id` is 0, the event refers to the shipment status. If the `parcel_id` > 0, the status refers to the appropriate parcel of the shipment.\n\nPlease use this endpoint responsibly: Only when needed and only if you’re authorised to access the information.\n\n## PODs\n\nIf a shipment is delivered, a POD can be provided in a few ways. The `message` property of the `tracking_event` can be used to determine the POD method used:\n\n- `POD image captured`\n    \n- `Recipient details entered`\n    \n- `PIN entered successfully`\n    \n\nIf the message is `POD image captured`, the actual POD images can be found within the `data` property with the following structure:\n\n```\n\"tracking_events\": [\n  {\n    \"id\": 332,\n    \"parcel_id\": 0,\n    data: {\n        type: \"proof-of-delivery-images\",\n        images: [\"442-aff78c7a-b08a-45c7-b46d-67e3fae607fa.jpg\"],\n        pdfs: [\"233-bef78c7a-ag43-45c7-b46d-67e3fae607fa.pdf\"]\n      },\n    ...\n  }\n]\n\n ```\n\nThe POD can either be a set of images and/or PDFs. The files are stored on S3 and requires a signed S3 URL. See the `POD image downloads` section.\n\n## Possible tracking statuses\n\n```\n\"submitted\",\n\"awaiting-dropoff\",\n\"collection-exception\",\n\"collection-failed-attempt\",\n\"collected\",\n\"at-hub\",\n\"swad-dimensions\",\n\"swad-imaging\",\n\"returned-to-hub\",\n\"in-transit\",\n\"at-destination-hub\",\n\"out-for-delivery\",\n\"delivery-exception\",\n\"delivery-failed-attempt\",\n\"in-locker\",\n\"ready-for-pickup\",\n\"collect-and-return-to-hub\",\n\"collected-from-locker\",\n\"collected-from-counter\",\n\"delivered\",\n\"cancelled\",\n\"floor-check\"\n\n ```"
+              },
+              "response": []
+            },
+            {
+              "name": "Getting POD images for a shipment",
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "followOriginalHttpMethod": false,
+                "followAuthorizationHeader": false
+              },
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/shipments/pod/images?tracking_reference=CLP&include_digital_pod=true",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["shipments", "pod", "images"],
+                  "query": [
+                    {
+                      "key": "tracking_reference",
+                      "value": "CLP"
+                    },
+                    {
+                      "key": "include_digital_pod",
+                      "value": "true"
+                    }
+                  ]
+                },
+                "description": "This endpoint takes either a `tracking_reference` (of the waybill) or a `shipment_id` as a query parameter and returns an array of tracking events that contains signed POD images (and other metadata).\n\nTo include the generated digital POD in the response, add the `include_digital_pod` query parameter with a value of `true` to the request."
+              },
+              "response": []
+            },
+            {
+              "name": "Getting all POD events for a shipment",
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "followOriginalHttpMethod": false,
+                "followAuthorizationHeader": false
+              },
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/shipments/pod?tracking_reference=CLP&include_digital_pod=true",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["shipments", "pod"],
+                  "query": [
+                    {
+                      "key": "tracking_reference",
+                      "value": "CLP"
+                    },
+                    {
+                      "key": "include_digital_pod",
+                      "value": "true"
+                    }
+                  ]
+                },
+                "description": "This endpoint takes either a `tracking_reference` (of the waybill) or a `shipment_id` as a query parameter and returns an array of tracking events that contains all events related to delivery. This includes entering the PIN successfully, POD files captured etc. for the shipment, as well as the individual parcels of the shipment.\n\nTo include the generated digital POD in the response, add the `include_digital_pod` query parameter with a value of `true` to the request."
+              },
+              "response": []
+            },
+            {
+              "name": "Getting a digital POD for a shipment",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "",
+                    "type": "text"
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/shipments/digital-pod?tracking_reference=G9G",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["shipments", "digital-pod"],
+                  "query": [
+                    {
+                      "key": "tracking_reference",
+                      "value": "G9G",
+                      "description": "The short or custom tracking reference of the shipment"
+                    }
+                  ]
+                },
+                "description": "This endpoint takes a `tracking_reference` (of the waybill) or a `shipment_id` as a query parameter and returns a URL that can be used to download a digital POD for a shipment. Digital PODs contain the delivery information of a shipment or parcel.\n\nA digital POD is generated for the latest delivered tracking event on the shipment. You can optionally provide a `tracking_event_id` to generate a digital POD for any other tracking event, including parcel-specific tracking events. To obtain these tracking event IDs, see the `Getting all POD events for a shipment` section. Note that for a digital POD to be generated, the delivered tracking event needs to have a `lat` and `lng`."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Billing",
+          "item": [
+            {
+              "name": "Getting an account statement",
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "followOriginalHttpMethod": false,
+                "followAuthorizationHeader": false
+              },
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/billing/statements?start_date=2020-11-01&end_date=2025-12-01&pdf=true",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["billing", "statements"],
+                  "query": [
+                    {
+                      "key": "start_date",
+                      "value": "2020-11-01"
+                    },
+                    {
+                      "key": "end_date",
+                      "value": "2025-12-01"
+                    },
+                    {
+                      "key": "pdf",
+                      "value": "true"
+                    }
+                  ]
+                },
+                "description": "This endpoint takes a date range and account ID as a query parameters and returns a signed URL to a statement PDF on a AWS S3 bucket. The URL expires in 24 hours."
+              },
+              "response": []
+            },
+            {
+              "name": "Getting credit notes",
+              "protocolProfileBehavior": {
+                "followAuthorizationHeader": false,
+                "followOriginalHttpMethod": false,
+                "followRedirects": false
+              },
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/billing/credit-notes?&start_date=2021-05-01 00:00:00&end_date=2025-05-31 23:59:59",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["billing", "credit-notes"],
+                  "query": [
+                    {
+                      "key": null,
+                      "value": null
+                    },
+                    {
+                      "key": "start_date",
+                      "value": "2021-05-01 00:00:00"
+                    },
+                    {
+                      "key": "end_date",
+                      "value": "2025-05-31 23:59:59"
+                    }
+                  ]
+                },
+                "description": "This endpoint takes a date range and account ID and returns a list of credit notes."
+              },
+              "response": []
+            },
+            {
+              "name": "Getting items for credit note",
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "followOriginalHttpMethod": false,
+                "followAuthorizationHeader": false
+              },
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/billing/credit-notes/items?credit_note_id=16",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["billing", "credit-notes", "items"],
+                  "query": [
+                    {
+                      "key": "credit_note_id",
+                      "value": "16"
+                    }
+                  ]
+                },
+                "description": "This endpoint takes a credit note ID as a query parameter and return all the list items for the specified credit note."
+              },
+              "response": []
+            },
+            {
+              "name": "Getting invoices",
+              "protocolProfileBehavior": {
+                "followAuthorizationHeader": false,
+                "followOriginalHttpMethod": false,
+                "followRedirects": false
+              },
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/billing/invoices?start_date=2021-05-01 00:00:00&end_date=2021-05-31 23:59:59",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["billing", "invoices"],
+                  "query": [
+                    {
+                      "key": "start_date",
+                      "value": "2021-05-01 00:00:00"
+                    },
+                    {
+                      "key": "end_date",
+                      "value": "2021-05-31 23:59:59"
+                    }
+                  ]
+                },
+                "description": "This endpoint takes a date range and account ID and returns a list of invoices."
+              },
+              "response": []
+            },
+            {
+              "name": "Getting items for invoice",
+              "protocolProfileBehavior": {
+                "followAuthorizationHeader": false,
+                "followOriginalHttpMethod": false,
+                "followRedirects": false
+              },
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/billing/invoices/items?invoice_id=372&order_by=transaction_date&order=DESC",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["billing", "invoices", "items"],
+                  "query": [
+                    {
+                      "key": "invoice_id",
+                      "value": "372"
+                    },
+                    {
+                      "key": "order_by",
+                      "value": "transaction_date"
+                    },
+                    {
+                      "key": "order",
+                      "value": "DESC"
+                    }
+                  ]
+                },
+                "description": "This endpoint takes an invoice ID as a query parameter and return all the list items for the specified invoice."
+              },
+              "response": []
+            },
+            {
+              "name": "Getting billing transactions for account",
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "followOriginalHttpMethod": false,
+                "followAuthorizationHeader": false
+              },
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/billing/transactions?order_by=transaction_date&order=DESC&limit=1&offset=0",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["billing", "transactions"],
+                  "query": [
+                    {
+                      "key": "order_by",
+                      "value": "transaction_date"
+                    },
+                    {
+                      "key": "order",
+                      "value": "DESC"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "1"
+                    },
+                    {
+                      "key": "offset",
+                      "value": "0"
+                    }
+                  ]
+                },
+                "description": "This endpoint takes an account ID (and optional sorting and paging parameters) as query paramaters and returns an array of billing transactions."
+              },
+              "response": []
+            }
+          ]
+        }
+      ],
+      "description": "This section describes the API calls that can be made by an account user or on behalf of an account as an administrator.",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "a601d99c75fc4c64b5a64288f97d52b4",
+            "type": "string"
+          }
+        ]
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [""]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [""]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin API",
+      "item": [
+        {
+          "name": "Courier management",
+          "item": [
+            {
+              "name": "Account notes",
+              "item": [
+                {
+                  "name": "Getting account notes",
+                  "protocolProfileBehavior": {
+                    "followRedirects": true,
+                    "followOriginalHttpMethod": true,
+                    "followAuthorizationHeader": true
+                  },
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Authorization",
+                        "value": ""
+                      },
+                      {
+                        "key": "X-Amz-Date",
+                        "value": "20210202T112645Z"
+                      }
+                    ],
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/accounts/notes?account_id={{account_id}}",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["accounts", "notes"],
+                      "query": [
+                        {
+                          "key": "account_id",
+                          "value": "{{account_id}}"
+                        }
+                      ]
+                    },
+                    "description": "This endpoint returns all notes on an account."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Adding a note to an account",
+                  "protocolProfileBehavior": {
+                    "followRedirects": false,
+                    "followOriginalHttpMethod": false,
+                    "followAuthorizationHeader": false
+                  },
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Authorization",
+                        "value": ""
+                      },
+                      {
+                        "key": "X-Amz-Date",
+                        "value": "20210202T112645Z"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n    \"message\": \"This is a note\",\n    \"account_id\": {{account_id}}\n}"
+                    },
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/accounts/notes",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["accounts", "notes"]
+                    },
+                    "description": "This endpoint adds a note to the specified account."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Deleting an account note",
+                  "protocolProfileBehavior": {
+                    "followRedirects": false,
+                    "followOriginalHttpMethod": false,
+                    "followAuthorizationHeader": false
+                  },
+                  "request": {
+                    "method": "DELETE",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Authorization",
+                        "value": ""
+                      },
+                      {
+                        "key": "X-Amz-Date",
+                        "value": "20210202T112645Z"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\"id\":9}"
+                    },
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/accounts/notes",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["accounts", "notes"]
+                    },
+                    "description": "This note deletes a note from an account. Only the creator of the note can delete the note."
+                  },
+                  "response": []
+                }
+              ]
+            },
+            {
+              "name": "Public holidays",
+              "item": [
+                {
+                  "name": "Getting public holidays",
+                  "protocolProfileBehavior": {
+                    "followRedirects": false,
+                    "followOriginalHttpMethod": false,
+                    "followAuthorizationHeader": false
+                  },
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Authorization",
+                        "value": ""
+                      },
+                      {
+                        "key": "X-Amz-Date",
+                        "value": "20210202T112645Z"
+                      }
+                    ],
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/rates/holidays",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["rates", "holidays"]
+                    },
+                    "description": "This endpoint returns all the public holidays set up by the courier. Public holidays are excluded from collection and delivery estimates unless a specific \"Public holiday\" time-based rate adjustment is set up."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Setting public holidays",
+                  "protocolProfileBehavior": {
+                    "followRedirects": false,
+                    "followOriginalHttpMethod": false,
+                    "followAuthorizationHeader": false
+                  },
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Authorization",
+                        "value": ""
+                      },
+                      {
+                        "key": "X-Amz-Date",
+                        "value": "20210202T112645Z"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "[{\"date\": \"2021-12-25T15:04:05Z\", \"description\": \"Christmas Day\" }]"
+                    },
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/rates/holidays?provider_id={{provider_id}}",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["rates", "holidays"],
+                      "query": [
+                        {
+                          "key": "provider_id",
+                          "value": "{{provider_id}}"
+                        }
+                      ]
+                    },
+                    "description": "This endpoint sets the public holidays for a courier. Please note that the array passed through to the endpoint will be the complete list of public holidays. Existing public holidays will be removed if not present in the array received."
+                  },
+                  "response": []
+                }
+              ]
+            },
+            {
+              "name": "Users",
+              "item": [
+                {
+                  "name": "Getting users",
+                  "protocolProfileBehavior": {
+                    "followAuthorizationHeader": false,
+                    "followOriginalHttpMethod": false,
+                    "followRedirects": false
+                  },
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Authorization",
+                        "value": ""
+                      },
+                      {
+                        "key": "X-Amz-Date",
+                        "value": "20210202T112645Z"
+                      }
+                    ],
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/users?username=test_admin",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["users"],
+                      "query": [
+                        {
+                          "key": "username",
+                          "value": "test_admin"
+                        }
+                      ]
+                    },
+                    "description": "This endpoint returns a list of users. You can also specify an `account_id` instead of a `username` to fetch all the users for an account."
+                  },
+                  "response": []
+                }
+              ]
+            },
+            {
+              "name": "Address books",
+              "item": [
+                {
+                  "name": "Getting an account's address book",
+                  "protocolProfileBehavior": {
+                    "followAuthorizationHeader": false,
+                    "followOriginalHttpMethod": false,
+                    "followRedirects": false
+                  },
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "X-Amz-Date",
+                        "value": "20210202T112645Z"
+                      },
+                      {
+                        "key": "Authorization",
+                        "value": ""
+                      }
+                    ],
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/accounts/address-books?account_id={{account_id}}",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["accounts", "address-books"],
+                      "query": [
+                        {
+                          "key": "account_id",
+                          "value": "{{account_id}}"
+                        }
+                      ]
+                    },
+                    "description": "This endpoint returns a list of addresses book addresses for the specified account ID."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Adding an address to the address book",
+                  "protocolProfileBehavior": {
+                    "followRedirects": false,
+                    "followOriginalHttpMethod": false,
+                    "followAuthorizationHeader": false
+                  },
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json, text/plain, */*"
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json; charset=UTF-8"
+                      },
+                      {
+                        "key": "User-Agent",
+                        "value": "aws-amplify/1.0.28 react-native"
+                      },
+                      {
+                        "key": "Expires",
+                        "value": "0"
+                      },
+                      {
+                        "key": "Pragma",
+                        "value": "no-cache"
+                      },
+                      {
+                        "key": "X-Amz-Date",
+                        "value": "20210202T112645Z"
+                      },
+                      {
+                        "key": "Authorization",
+                        "value": ""
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n    \"name\": \"The Courier Guy Offices\",\n    \"contact_name\": \"Cornel+collect\",\n    \"mobile_number\": \"\",\n    \"email\": \"cornel+collect@shiplogic.com\",\n    \"address\": {\n        \"lng\": 28.324807,\n        \"lat\": -25.800486,\n        \"collection_address\": {\n        \"type\": \"business\",\n        \"company\": \"The Courier Guy\",\n        \"street_address\": \"194 Bancor Avenue\",\n        \"local_area\": \"Menlyn\",\n        \"city\": \"Pretoria\",\n        \"zone\": \"Gauteng\",\n        \"country\": \"ZA\",\n        \"code\": \"0181\"\n    },\n    \"account_id\": {{account_id}}\n}"
+                    },
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/accounts/address-books",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["accounts", "address-books"]
+                    },
+                    "description": "This endpoint adds an address to the address book of the specified account ID."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Removing an address from the address book",
+                  "protocolProfileBehavior": {
+                    "followAuthorizationHeader": false,
+                    "followOriginalHttpMethod": false,
+                    "followRedirects": false
+                  },
+                  "request": {
+                    "method": "DELETE",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json, text/plain, */*"
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json; charset=UTF-8"
+                      },
+                      {
+                        "key": "User-Agent",
+                        "value": "aws-amplify/1.0.28 react-native"
+                      },
+                      {
+                        "key": "Expires",
+                        "value": "0"
+                      },
+                      {
+                        "key": "Pragma",
+                        "value": "no-cache"
+                      },
+                      {
+                        "key": "X-Amz-Date",
+                        "value": "20200330T092945Z"
+                      },
+                      {
+                        "key": "X-Amz-Security-Token",
+                        "value": "IQoJb3JpZ2luX2VjEPL//////////wEaCWV1LXdlc3QtMSJGMEQCIBNk5bQXmpW2dMP8T6Ur7EEwpODDn5E/y3vT7epyAkLtAiAOhZpxMevX9/rU29rjMw2/A+Ju0/E8bLHCj6pFjzGRxiqHBAjq//////////8BEAEaDDUwMjkzNTc1NTIxNyIMNrtGFfL/d596+gHvKtsDcwGwSNaazyOPKzRXrAAMPiTJqDw+3bXi+N0aIuVV+p3sSy0cER0XjBLi7pZ45y+i2siVitV7CQnMhE5ge+rd0u9Lpm2Ri1An5wu+M9yh2ugq2RHB3RjWce0EUyDlpN9vuCyVC//Q/dR25Zo7Fa7aQlTwfHphbfs5WGHQ/xXSa1jd3Ft7vWxdFZyZohWyVlMrd3ZHrtf8r4vmdRS2CZOXBm+d5++lMUq1F4HSeAkJLw/nDC2S2ChO01MFKJzcplPPoUGAdC8AP3hsN6Bt5TICQ7reQMMRY2Cc6qRSCR8hi0O73o5enNz9q7rtoe7yPVlF6w59MV2plsh/h5QkEnhqNcYwN3Vk6sokdMNvshHaOPTlUbvyZbEYtvT8D+u+kyHlLMoOc+GvWHATHpFaX1bKkUiTL+SV70hv+cF4q0kOfSxtX7tBDR3cUlrwyBPEX/K7hCo3Y8uVBNDzsauaS+xjKecD/VKUVP2awI8X+qp6wE2R4TVSV392Jv8zghmz+8nuRrKw3b8hnmdhOa2RD44VrmOWrv2Fua1s3X58Gjf/bQ1x9lf6kuI21yzVDUr9Gl+w2QOjfAigRjFIVaVfDZ3q4PJCNFvdpcmp9f+zIHVdpHo2NNGgQZdPqFDm5TC/8ob0BTrMApaqcX5L+TS7j9ZpQbHY6Wvd45NoD94I1ApX7/Q1MAHgh+WhkKlcK++zK9vRoj00s/7IjckyEdtlsLJT6o43/mcj1mHRQXPu60PW1stsyIczvQTwdvkFQbUL5O0ConfB/pHn1jW0DnHEdBlQW3hNueep3nja+ktFIS4oNv95JV1R8qlFXcbLILOOb3vbLXu7aG+4U8F+qAxPSYbdmIFUQ0Mo/9gxJtdr49gcfq7Bpc4fKMqsTra86alkQv01UnmW7qVzt3Ux+YMMP8+3T3qt8967kfQ1aofj/YwzRBzgoCxqc67RShMi6QTI6ri8F2HOCTk54uPvPEbQY6cnGyXh561SrFW51sEA15Neg0d3Mvk0CAEU5zHkrDn7C5HuQ7clspSSccIv3Vu6ydQTn+c/qfIeoK6Ourp2pYR4GMEp+CnTHIt6EucCpevQuC62"
+                      },
+                      {
+                        "key": "Authorization",
+                        "value": "AWS4-HMAC-SHA256 Credential=ASIAXKGKOTHIU5ZUTRZP/20200330/eu-west-1/execute-api/aws4_request, SignedHeaders=content-type;expires;host;pragma;user-agent;x-amz-date;x-amz-security-token, Signature=e159d087b66684210f60c516018dd089cd6ec48f4217ffeb62307b252ec279eb"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\"id\":79,\"provider_id\":{{provider_id}},\"account_id\":{{account_id}}}"
+                    },
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/accounts/address-books",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["accounts", "address-books"]
+                    },
+                    "description": "This endpoint removes the address with the specified ID from the account's address book."
+                  },
+                  "response": []
+                }
+              ]
+            },
+            {
+              "name": "Accounts",
+              "item": [
+                {
+                  "name": "Getting accounts",
+                  "protocolProfileBehavior": {
+                    "followRedirects": true,
+                    "followOriginalHttpMethod": true,
+                    "followAuthorizationHeader": true
+                  },
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Authorization",
+                        "value": ""
+                      },
+                      {
+                        "key": "X-Amz-Date",
+                        "value": "20210202T112645Z"
+                      }
+                    ],
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/accounts?id={{account_id}}",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["accounts"],
+                      "query": [
+                        {
+                          "key": "id",
+                          "value": "{{account_id}}"
+                        }
+                      ]
+                    },
+                    "description": "This endpoint returns a list of accounts, or if an ID is specified a single account's details."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Creating an account",
+                  "protocolProfileBehavior": {
+                    "followRedirects": false,
+                    "followOriginalHttpMethod": false,
+                    "followAuthorizationHeader": false
+                  },
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Authorization",
+                        "value": ""
+                      },
+                      {
+                        "key": "X-Amz-Date",
+                        "value": "20210202T112645Z"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n    \"name\": \"Sandy shores\",\n    \"default_collection_address\": {\n        \"contact_name\": \"Cornel\",\n        \"email\": \"john@doe.com\",\n        \"address\": {\n            \"company\": \"uAfrica.com\",\n            \"street_address\": \"116 Lois Avenue\",\n            \"local_area\": \"Newlands, Pretoria\",\n            \"city\": \"City of Tshwane Metropolitan Municipality\",\n            \"code\": \"0181\",\n            \"zone\": \"Gauteng\",\n            \"country\": \"ZA\",\n            \"lat\": -25.7863272,\n            \"lng\": 28.277583\n        }\n    },\n    \"first_user\": {\n        \"email\": \"john@doe.com\",\n        \"username\": \"john+doe-026826\",\n        \"name\": \"John Doe\"\n    }\n}"
+                    },
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/accounts",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["accounts"]
+                    },
+                    "description": "This endpoint creates an account with a specified name, default collection address and the first Account super user. The Account super user will receive an email with instructions and can log in on https://sandbox.shiplogic.com"
+                  },
+                  "response": []
+                }
+              ]
+            },
+            {
+              "name": "Courier settings",
+              "item": [
+                {
+                  "name": "Getting all courier settings",
+                  "protocolProfileBehavior": {
+                    "followRedirects": false,
+                    "followOriginalHttpMethod": false,
+                    "followAuthorizationHeader": false
+                  },
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Authorization",
+                        "value": ""
+                      },
+                      {
+                        "key": "X-Amz-Date",
+                        "value": "20210202T112645Z"
+                      }
+                    ],
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/providers/settings",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["providers", "settings"]
+                    },
+                    "description": "This endpoint returns an array of courier-wide settings."
+                  },
+                  "response": []
+                }
+              ]
+            },
+            {
+              "name": "Billing",
+              "item": [
+                {
+                  "name": "Create billing transaction",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "sec-ch-ua-platform",
+                        "value": "\"macOS\""
+                      },
+                      {
+                        "key": "Authorization",
+                        "value": "bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHBpcnlfZGF0ZSI6IjIwMjYtMDMtMTNUMDg6NTc6MjErMDI6MDAiLCJwcm92aWRlcl9pZCI6MTAsInVzZXJfaWQiOiJjb3JuZWxhZG1pbiJ9.DykNVyPQwVdAaw1ayRbnn3CMcTGo4rwacIPk8CgxoRY"
+                      },
+                      {
+                        "key": "Referer",
+                        "value": "https://sandbox.shiplogic.com/"
+                      },
+                      {
+                        "key": "sec-ch-ua",
+                        "value": "\"Not:A-Brand\";v=\"99\", \"Google Chrome\";v=\"145\", \"Chromium\";v=\"145\""
+                      },
+                      {
+                        "key": "client-path",
+                        "value": "/accounts/654279"
+                      },
+                      {
+                        "key": "sec-ch-ua-mobile",
+                        "value": "?0"
+                      },
+                      {
+                        "key": "User-Agent",
+                        "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "client-version",
+                        "value": "web-3.27.29"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n    \"type\": \"payment\", // See documentation for the different types\n    \"description\": \"Some description\",\n    \"amount\": 100, // Always positive\n    \"shipment_reference\": \"\", // Optional\n    \"account_id\": 654279,\n    \"provider_id\": 10\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    },
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/billing/transactions",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["billing", "transactions"]
+                    },
+                    "description": "Create a billing transaction for an account. This can be used to post charges, credits, payments, refunds, and balance adjustments to the account statement.\n\n## Authentication\n\nRequires a valid JWT Bearer token in the Authorization header.\n\n## Required fields\n\n| Field | Type | Description |\n| --- | --- | --- |\n| type | string | The billing transaction type. See allowed values below. |\n| description | string | Description shown on the account statement. |\n| amount | number | Transaction amount. |\n| account_id | integer | The account ID to post the transaction against. |\n| provider_id | integer | The courier's provider ID. |\n\n## Optional fields\n\n| Field | Type | Description |\n| --- | --- | --- |\n| shipment_reference | string | Optional shipment reference (waybill number) linked to the transaction. |\n\n## Allowed type values\n\n- payment\n    \n- payment-reversal\n    \n- refund\n    \n- refund-reversal\n    \n- admin-debit\n    \n- admin-credit\n    \n- promotional-debit\n    \n- promotional-credit\n    \n- balance-adjustment-debit\n    \n- balance-adjustment-credit\n    \n- bad-debt-write-off\n    \n- bad-debt-write-off-reversal"
+                  },
+                  "response": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Inter-hub manifests",
+          "item": [
+            {
+              "name": "Parcels on the manifest",
+              "item": [
+                {
+                  "name": "Getting parcel details",
+                  "protocolProfileBehavior": {
+                    "followRedirects": false,
+                    "followOriginalHttpMethod": false,
+                    "followAuthorizationHeader": false
+                  },
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Authorization",
+                        "value": ""
+                      },
+                      {
+                        "key": "X-Amz-Date",
+                        "value": "20210202T112645Z"
+                      }
+                    ],
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/interhub-transfers/parcels?interhub_transfer_id=283",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["interhub-transfers", "parcels"],
+                      "query": [
+                        {
+                          "key": "limit",
+                          "value": "1",
+                          "disabled": true
+                        },
+                        {
+                          "key": "offset",
+                          "value": "10",
+                          "disabled": true
+                        },
+                        {
+                          "key": "interhub_transfer_id",
+                          "value": "283"
+                        }
+                      ]
+                    },
+                    "description": "This endpoint returns a list of shipments which is part of the specified inter-hub transfer, together with their parcels scanned."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Adding a parcel to the manifest",
+                  "protocolProfileBehavior": {
+                    "followRedirects": false,
+                    "followOriginalHttpMethod": false,
+                    "followAuthorizationHeader": false
+                  },
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Authorization",
+                        "value": ""
+                      },
+                      {
+                        "key": "X-Amz-Date",
+                        "value": "20210202T112645Z"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n    \"interhub_transfer_id\": 283,\n    \"parcel_reference\": \"PN9/1\"\n}"
+                    },
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/interhub-transfers/parcels",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["interhub-transfers", "parcels"]
+                    },
+                    "description": "This endpoint adds the specified parcel tracking reference to the specified inter-hub transfer."
+                  },
+                  "response": []
+                },
+                {
+                  "name": "Removing a parcel from the manifest",
+                  "protocolProfileBehavior": {
+                    "followRedirects": false,
+                    "followOriginalHttpMethod": false,
+                    "followAuthorizationHeader": false
+                  },
+                  "request": {
+                    "method": "DELETE",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Authorization",
+                        "value": ""
+                      },
+                      {
+                        "key": "X-Amz-Date",
+                        "value": "20210202T112645Z"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n    \"parcels_ids\": [\n        15315\n    ],\n    \"interhub_transfer_id\": 283\n}"
+                    },
+                    "url": {
+                      "raw": "https://api.portal.thecourierguy.co.za/interhub-transfers/parcels",
+                      "protocol": "https",
+                      "host": ["api", "shiplogic", "com"],
+                      "path": ["interhub-transfers", "parcels"]
+                    },
+                    "description": "This endpoint removes the specified parcels (using their IDs and not references) from the specified inter-hub transfer."
+                  },
+                  "response": []
+                }
+              ]
+            },
+            {
+              "name": "Getting interhub transfers",
+              "protocolProfileBehavior": {
+                "followAuthorizationHeader": false,
+                "followOriginalHttpMethod": false,
+                "followRedirects": false
+              },
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/pdf"
+                  }
+                ],
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/interhub-transfers?id=283",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["interhub-transfers"],
+                  "query": [
+                    {
+                      "key": "id",
+                      "value": "283"
+                    }
+                  ]
+                },
+                "description": "This endpoint returns a list of inter-hub transfers, or if an ID is specified a single inter-hub transfer's details."
+              },
+              "response": []
+            }
+          ],
+          "description": "Inter-hub manifests are used to log and manage the transport of parcels between hubs."
+        },
+        {
+          "name": "Shipping",
+          "item": [
+            {
+              "name": "Updating a shipment",
+              "protocolProfileBehavior": {
+                "followAuthorizationHeader": false,
+                "followOriginalHttpMethod": false,
+                "followRedirects": false
+              },
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"id\": 1071,\n    \"account_id\": {{account_id}},\n    \"collection_min_date\": \"2021-02-02T13:22:05.476831Z\",\n    \"collection_after\": \"08:00\",\n    \"collection_before\": \"16:00\",\n    \"delivery_min_date\": \"2021-02-02T13:22:05.476831Z\",\n    \"delivery_after\": \"08:00\",\n    \"delivery_before\": \"17:00\",\n    \"status\": \"collected\",\n    \"delivery_agent_id\": \"sandydriver\",\n    \"collection_agent_id\": \"sandydriver\",\n    \"collection_address\": {\n        \"type\": \"business\",\n        \"company\": \"The Courier Guy\",\n        \"street_address\": \"194 Bancor Avenue\",\n        \"local_area\": \"Menlyn\",\n        \"city\": \"Pretoria\",\n        \"zone\": \"Gauteng\",\n        \"country\": \"ZA\",\n        \"code\": \"0181\"\n    },\n    \"collection_contact\": {\n        \"name\": \"Walker Wolf\",\n        \"mobile_number\": \"0836542188\",\n        \"email\": \"jano@shiplogic.com\"\n    },\n    \"delivery_address\": {\n        \"street_address\": \"433 Kariega Street\",\n        \"local_area\": \"Erasmuskloof, Pretoria\",\n        \"code\": \"0048\",\n        \"city\": \"City of Tshwane Metropolitan Municipality\",\n        \"zone\": \"Gauteng\",\n        \"country\": \"ZA\",\n        \"entered_address\": \"433 Kariega Street, Pretoria, City of Tshwane Metropolitan Municipality, GP\",\n        \"lat\": -25.818504,\n        \"lng\": 28.275824\n    },\n    \"delivery_contact\": {\n        \"name\": \"Melissa Morissette\",\n        \"mobile_number\": \"0836542188\",\n        \"email\": \"melissa@shiplogic.com\"\n    },\n    \"parcels\": [\n        {\n            \"id\": 947,\n            \"status\": \"collected\",\n            \"tracking_reference\": \"{{sample_tracking_reference}}/1\",\n            \"submitted_length_cm\": 42.5,\n            \"submitted_width_cm\": 38.5,\n            \"submitted_height_cm\": 5.5,\n            \"submitted_weight_kg\": 3\n        }\n    ],\n    \"service_level_code\": \"ECO\",\n    \"declared_value\": 1582\n}"
+                },
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/shipments",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["shipments"]
+                },
+                "description": "A shipment can be updated by making a PATCH call. The required field is the shipment ID. All the other fields are optional and it is advised to only send the fields that changed to the endpoint. The example includes all the fields that can possibly be updated.\n\nTo update a shipment status (and create a tracking event) send e.g.\n\n```\n{\n  \"tracking_reference\": \"SND123456789\",\n  \"status\": \"delivered\",\n}\n\n ```\n\nInstead of passing the `tracking_reference` (of the shipment, not the individual parcel), the shipment `id` can also be used instead.\n\nTo set the time of a status change, for example to `delivered`, also pass `time_modified` through (set to the time of the respective event). The format of date fields are `2021-02-02T13:22:05.476831Z` (UTC time).\n\nTo add a message or other details to the tracking event, e.g. `Picked up from the kiosk` when updating the shipment's status to `collected`, send through the `metadata` field. All metadata fields are optional. The `message` and `location` fields are visible on the public tracking page. All other fields are only visible on the client and admin portal when viewing the tracking events for the shipment. The `data` field can contain any arbitrary data fields that will also be added to the tracking event.\n\n```\n{\n  \"tracking_reference\": \"SND123456789\",\n  \"status\": \"collected\",\n  \"time_modified\": \"2021-02-02T13:22:05.476831Z\",\n  \"metadata\": {\n    \"tracking_info\": {\n      \"message\": \"Picked up from the kiosk\",\n      \"lat\": -25.806655,\n      \"lng\": 28.334732,\n      \"location\": \"Johannesburg\",\n      \"bay\": \"Quick collect\",\n      \"data\": {\n        \"kiosk_terminal\": 3,\n        \"kiosk_attendant\": \"Jane Doe\"\n      }\n    }\n  }\n}\n\n ```\n\nPlease note that updating a shipment's `addresses`, `parcels`, opt-in rates or service level might have an affect on the rate charged."
+              },
+              "response": []
+            },
+            {
+              "name": "Updating an individual parcel",
+              "protocolProfileBehavior": {
+                "followAuthorizationHeader": false,
+                "followOriginalHttpMethod": false,
+                "followRedirects": false
+              },
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"id\": 1071,\n    \"parcels\": [\n        {\n            \"id\": 947,\n            \"status\": \"collected\",\n            \"tracking_reference\": \"{{sample_tracking_reference}}/1\",\n            \"submitted_length_cm\": 42.5,\n            \"submitted_width_cm\": 38.5,\n            \"submitted_height_cm\": 5.5,\n            \"submitted_weight_kg\": 3\n        }\n    ],\n}"
+                },
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/shipments",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["shipments"]
+                },
+                "description": "A parcel can be updated by making a PATCH call to the parcels endpoint. The required field is the shipment ID (in the example this is 1071) and the list of parcels to be updated. The example includes all the fields that can possibly be updated."
+              },
+              "response": []
+            },
+            {
+              "name": "Adding a POD to a shipment",
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "followOriginalHttpMethod": false,
+                "followAuthorizationHeader": false
+              },
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"tracking_reference\": \"CLP\",\n    \"date\": \"2021-11-22T06:11:06.239Z\",\n    \"lat\": -25.806655,\n    \"lng\": 28.334732,\n    \"message\": \"POD file(s) captured\",\n    \"name\": \"Jane Doe\",\n    \"mobile_number\": \"0721144568\",\n    \"department\": \"Reception\",\n    \"image_files\" : [\n        {\n            \"file_name\": \"file1.jpg\",\n            \"file_size\": 1024,\n            \"data\": [255,216,255,224,0,16,74,70,73,70,0,1,1,0,0,1,0,1,0,0,255,226,2,40,73,67,67,95,80,82,79,70,73,76,69,0,1,1,0,0,2,24,0,0,0,0,2,16,0,0,109,110,116,114,82,71,66,32,88,89,90,32,0,0,0,0,0,0,0,0,0,0,0,0,97,99,115,112,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,246,214,0,1,0,0,0,0,211,45,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9,100,101,115,99,0,0,0,240,0,0,0,116,114,88,89,90,0,0,1,100,0,0,0,20,103,88,89,90,0,0,1,120,0,0,0,20,98,88,89,90,0,0,1,140,0,0,0,20,114,84,82,67,0,0,1,160,0,0,0,40,103,84,82,67,0,0,1,160,0,0,0,40,98,84,82,67,0,0,1,160] \n        }\n    ],\n    \"pdf_files\": [\n        {\n            \"file_name\": \"file_name.pdf\",\n            \"display_name\": \"pod_1.pdf\",\n            \"file_size\": 1024, \n            \"data\": [255,216,255,224,0,16,74,70,73,70,0,1,1,0,0,1,0,1,0,0,255,226,2,40,73,67,67,95,80,82,79,70,73,76,69,0,1,1,0,0,2,24,0,0,0,0,2,16,0,0,109,110,116,114,82,71,66,32,88,89,90,32,0,0,0,0,0,0,0,0,0,0,0,0,97,99,115,112,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,246,214,0,1,0,0,0,0,211,45,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9,100,101,115,99,0,0,0,240,0,0,0,116,114,88,89,90,0,0,1,100,0,0,0,20,103,88,89,90,0,0,1,120,0,0,0,20,98,88,89,90,0,0,1,140,0,0,0,20,114,84,82,67,0,0,1,160,0,0,0,40,103,84,82,67,0,0,1,160,0,0,0,40,98,84,82,67,0,0,1,160] \n        }\n    ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/shipments/pod",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["shipments", "pod"]
+                },
+                "description": "This endpoint captures a POD for a shipment and marks the shipment as \"delivered\" if it is not yet delivered.\n\nThere are various mutations of the body of the request:\n\n1. Either `shipment_id` or `tracking_reference` should be supplied to identify the shipment the POD is captured for.\n2. `date` is the timestamp of when the POD occurred. If left out, it will default to `now()`.\n3. If you have a location of where the POD occurred, please provide a `lat` and `lng`.\n4. `message` should define how the POD was captured. The options are:\n  - \"Recipient details entered\"\n  - \"POD file(s) captured\"\n  - \"Recipient details entered and POD file(s) captured\"\n5. `name`, `mobile_number` and `department` can be provided if the recipient details were entered.\n6. The endpoint supports uploading images and/or pdfs (using `image_files` and `pdf_files` as in the example request). `file_size` should be the number of bytes and `data` should be the array of unsigned bytes to upload (Look up e.g. \"Convert image to uint8 byte array\" to see how it is done). For PDF's supply `display_name` as a human-readable name of the PDF file."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Tasks and alerts",
+          "item": [
+            {
+              "name": "Create a manual task and alert",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"title\": \"Follow up on MQ6D\",\n    \"message\": \"Please contact the customer about the delay\",\n    \"usernames\": [\n        \"johndoe\",\n        \"janesmith\"\n    ],\n    \"priority\": \"high\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/tasks-and-alerts",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["tasks-and-alerts"]
+                },
+                "description": "Creates a manual task and alert for one or more users. Once created, the task/alert will appear in the assigned users' task and alerts section."
+              },
+              "response": []
+            }
+          ],
+          "description": "Tasks and alerts are notifications that can be assigned to one or more users. They are typically used to flag operational follow-ups (e.g. delayed shipments, exceptions, customer queries) so that staff can action them.\n\nA task or alert can optionally be linked to a domain object (such as a shipment) by supplying `object_type` and `object_type_id`, which allows the UI to deep-link to the related record."
+        },
+        {
+          "name": "Returns",
+          "item": [
+            {
+              "name": "Create a return",
+              "protocolProfileBehavior": {
+                "followAuthorizationHeader": false,
+                "followOriginalHttpMethod": false,
+                "followRedirects": false
+              },
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": ""
+                  },
+                  {
+                    "key": "X-Amz-Date",
+                    "value": "20210202T112645Z"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n   \"collection_address\": {\n        \"type\": \"business\",\n        \"company\": \"The Courier Guy\",\n        \"street_address\": \"194 Bancor Avenue\",\n        \"local_area\": \"Menlyn\",\n        \"city\": \"Pretoria\",\n        \"zone\": \"Gauteng\",\n        \"country\": \"ZA\",\n        \"code\": \"0181\"\n    },\n    \"collection_contact\": {\n        \"name\": \"Cornel Rautenbach\",\n        \"mobile_number\": \"\",\n        \"email\": \"cornel+sandy@shiplogic.com\"\n    },\n    \"delivery_address\": {\n        \"entered_address\": \"10 Midas Ave, Olympus AH, Pretoria, Gauteng, ZA\",\n        \"type\": \"residential\",\n        \"lat\": -25.80665579999999,\n        \"lng\": 28.334732\n    },\n    \"delivery_contact\": {\n        \"name\": \"\",\n        \"mobile_number\": \"\",\n        \"email\": \"james+sandyreceiver@shiplogic.com\"\n    },\n    \"parcels\": [\n        {\n            \"parcel_description\": \"Standard flyer\",\n            \"submitted_length_cm\": 20,\n            \"submitted_width_cm\": 20,\n            \"submitted_height_cm\": 10,\n            \"submitted_weight_kg\": 2\n        }\n    ],\n    \"opt_in_rates\": [],\n    \"opt_in_time_based_rates\": [\n        76\n    ],\n    \"special_instructions_collection\": \"Pick up at door\",\n    \"special_instructions_delivery\": \"Beware of dog\",\n    \"declared_value\": 1100,\n    \"collection_min_date\": \"2021-05-21T00:00:00.000Z\",\n    \"collection_after\": \"08:00\", \n    \"collection_before\": \"16:00\",\n    \"delivery_min_date\": \"2021-05-21T00:00:00.000Z\",\n    \"delivery_after\": \"10:00\", \n    \"delivery_before\": \"17:00\",\n    \"service_level_code\": \"ECO\",\n    \"mute_notifications\": false,\n    \"is_return\": true,\n    \"short_tracking_reference\": \"AXGT\",\n    \"custom_tracking_reference\": \"UAAXGT3150\"\n}"
+                },
+                "url": {
+                  "raw": "https://api.portal.thecourierguy.co.za/shipments",
+                  "protocol": "https",
+                  "host": ["api", "shiplogic", "com"],
+                  "path": ["shipments"]
+                },
+                "description": "The following fields are required:\n- `collection_address`\n- `collection_contact`\n- `delivery_address`\n- `delivery_contact`\n- `parcels`\n- either `service_level_code` or `service_level_id` (returned when retrieving rates)\n- `is_return` (must be true)\n- `short_tracking_reference` (the original shipment's short tracking reference)\n- `custom_tracking_reference` (the original shipment's custom tracking reference, if applicable)\n\nSee the structure of addresses at the main section at the start of the documentation.\n\nThe `collection_contact` and `delivery_contact` requires at least an `email `and/or `mobile_number`.\n\n`mute_notifications`: If this property is set to `true`, no SMS and/or email notifications will be sent on behalf of this shipment."
+              },
+              "response": []
+            }
+          ]
+        }
+      ],
+      "description": "This section describes the API calls that can be made by an administrator of a courier.\n\nIf you have administrator access, you can access any of the API endpoints in this section, as well as the Accounts API section. To do actions on behalf of an account, simply add `?account_id=X` as a query parameter on any of the API endpoints to e.g. make a shipment or retrieve the billing information for an account.\n\nFor the sandbox environment, the AWS access details below can be used to experiment with:\n\n`\"Authorization\": \"Bearer 37f112768d23494292f029e8855a6eac\"`\n\nTo switch to using the production environment, you need to contact The Courier Guy ([support@shiplogic.com](https://mailto:support@shiplogic.com)) for a production token.",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "37f112768d23494292f029e8855a6eac",
+            "type": "string"
+          }
+        ]
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [""]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [""]
+          }
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [""]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [""]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "accessKeyId",
+      "value": "AKIA55D5DNTBPQ25INCH"
+    },
+    {
+      "key": "secret",
+      "value": "u4RtIMPYLKrAEM5WGvfHVhKm68VIHLoPA8r7WirG"
+    },
+    {
+      "key": "provider_id",
+      "value": "10"
+    },
+    {
+      "key": "account_id",
+      "value": "188"
+    },
+    {
+      "key": "sample_shipment_id",
+      "value": "14135"
+    },
+    {
+      "key": "sample_tracking_reference",
+      "value": "G9G"
+    }
+  ]
+}

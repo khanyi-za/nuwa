@@ -7,7 +7,13 @@ import { PayfastConfig } from './payments/payfast/payfast-config';
 import { buildCorsOptions } from './cors.config';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // `rawBody: true` captures req.rawBody as a Buffer. Needed for the ShipLogic
+  // webhook handler which hashes the exact request bytes for idempotency.
+  // PayFast's webhook works fine with parsed body (form-urlencoded); ShipLogic
+  // is JSON and we want byte-identical hashing across retries.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+  });
 
   // Wire class-validator's container resolver to NestJS DI so custom validators
   // can inject providers (e.g. IsCloudinaryUrl needs CloudinaryConfig). Without

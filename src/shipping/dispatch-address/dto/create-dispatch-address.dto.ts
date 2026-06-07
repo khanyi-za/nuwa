@@ -1,36 +1,42 @@
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsIn,
+  IsLatitude,
+  IsLongitude,
   IsOptional,
   IsString,
   Length,
   Matches,
   MaxLength,
 } from 'class-validator';
-import { SA_PROVINCES } from './sa-provinces';
+import { SA_PROVINCES } from '../../../order/dto/sa-provinces';
 
 /**
- * Create-address payload. All fields except `label`, `addressLine2`, and
- * `isDefault` are required. Phone accepts `0XXXXXXXXX` or `+27XXXXXXXXX`
- * (with optional spaces / dashes / parens); the service normalizes to
- * `+27XXXXXXXXX` before persisting.
+ * Create-dispatch-address payload. A merchant's parcel collection origin for
+ * ShipLogic. All address fields except `addressLine2`, `suburb`, `label`,
+ * `latitude`, `longitude` and `isPrimary` are required. Phone accepts
+ * `0XXXXXXXXX` or `+27XXXXXXXXX`; the service normalizes to `+27XXXXXXXXX`.
+ *
+ * First dispatch address for a store is auto-promoted to `isPrimary: true`
+ * regardless of the request body.
  */
-export class CreateAddressDto {
+export class CreateDispatchAddressDto {
   @IsOptional()
+  @Transform(({ value }) => (value as string).trim())
   @IsString()
-  @Length(1, 30)
+  @MaxLength(60)
   label?: string;
 
   @IsString()
   @Length(2, 100)
-  recipientName: string;
+  contactName: string;
 
   @IsString()
   @Matches(/^(?:\+?27|0)\d{9}$/, {
     message: 'Phone must be a valid SA number (0XXXXXXXXX or +27XXXXXXXXX).',
   })
-  phone: string;
+  contactPhone: string;
 
   @IsString()
   @Length(1, 200)
@@ -41,8 +47,6 @@ export class CreateAddressDto {
   @Length(0, 200)
   addressLine2?: string;
 
-  // SA address component — sits between addressLine2 and city. Maps to
-  // ShipLogic's `local_area` field; absent suburb degrades geocoding accuracy.
   @IsOptional()
   @Transform(({ value }) => (value as string).trim())
   @IsString()
@@ -63,6 +67,16 @@ export class CreateAddressDto {
   postalCode: string;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsLatitude()
+  latitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsLongitude()
+  longitude?: number;
+
+  @IsOptional()
   @IsBoolean()
-  isDefault?: boolean;
+  isPrimary?: boolean;
 }

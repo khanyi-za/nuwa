@@ -1,38 +1,42 @@
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsIn,
+  IsLatitude,
+  IsLongitude,
   IsOptional,
   IsString,
   Length,
   Matches,
   MaxLength,
 } from 'class-validator';
-import { SA_PROVINCES } from './sa-provinces';
+import { SA_PROVINCES } from '../../../order/dto/sa-provinces';
 
 /**
- * Update-address payload. Every field is optional — only the keys sent are
- * applied. Validators mirror {@link CreateAddressDto}. See the service for
- * rules around `isDefault` switches (unset-default is rejected — promote
- * another address instead).
+ * Update-dispatch-address payload. Every field is optional — only the keys
+ * sent are applied. Validators mirror {@link CreateDispatchAddressDto}.
+ *
+ * Unset-isPrimary via PATCH is rejected by the service (use POST /:id/set-primary
+ * to promote a different address instead).
  */
-export class UpdateAddressDto {
+export class UpdateDispatchAddressDto {
   @IsOptional()
+  @Transform(({ value }) => (value as string).trim())
   @IsString()
-  @Length(1, 30)
+  @MaxLength(60)
   label?: string;
 
   @IsOptional()
   @IsString()
   @Length(2, 100)
-  recipientName?: string;
+  contactName?: string;
 
   @IsOptional()
   @IsString()
   @Matches(/^(?:\+?27|0)\d{9}$/, {
     message: 'Phone must be a valid SA number (0XXXXXXXXX or +27XXXXXXXXX).',
   })
-  phone?: string;
+  contactPhone?: string;
 
   @IsOptional()
   @IsString()
@@ -44,7 +48,6 @@ export class UpdateAddressDto {
   @Length(0, 200)
   addressLine2?: string;
 
-  // SA address component — see CreateAddressDto.suburb.
   @IsOptional()
   @Transform(({ value }) => (value as string).trim())
   @IsString()
@@ -68,6 +71,12 @@ export class UpdateAddressDto {
   postalCode?: string;
 
   @IsOptional()
-  @IsBoolean()
-  isDefault?: boolean;
+  @Type(() => Number)
+  @IsLatitude()
+  latitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsLongitude()
+  longitude?: number;
 }

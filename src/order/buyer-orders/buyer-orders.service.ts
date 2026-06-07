@@ -7,6 +7,7 @@ import { OrderStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BuyerOrderQueryDto } from '../dto/buyer-order-query.dto';
 import { BuyerCancelOrderDto, BuyerCancelReason } from '../dto/buyer-cancel-order.dto';
+import { ShipmentCancellationService } from '../../shipping/shipment-cancellation.service';
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
@@ -82,7 +83,10 @@ export interface PaginatedBuyerOrders {
 
 @Injectable()
 export class BuyerOrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly shipmentCancellation: ShipmentCancellationService,
+  ) {}
 
   /**
    * List the authenticated buyer's orders with optional status filter,
@@ -256,6 +260,12 @@ export class BuyerOrdersService {
       },
       select: { id: true, status: true },
     });
+
+    // Best-effort propagation to ShipLogic. Returns false when no shipment
+    // exists yet (Order was still PENDING). Logged failures are NOT bubbled
+    // — the local cancel is authoritative; ShipLogic-side errors become an
+    // ops reconciliation surface, not a buyer-facing failure.
+    await this.shipmentCancellation.cancelShipmentForOrder(orderId);
 
     return updated;
   }

@@ -3,6 +3,7 @@ import { StoreModule } from '../store/store.module';
 import { ProductModule } from '../product/product.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { PaymentsService } from '../payments/payments.service';
+import { ShippingModule } from '../shipping/shipping.module';
 
 import { OrderController } from './order.controller';
 import { OrderService } from './order.service';
@@ -31,8 +32,6 @@ import { WishlistController } from './wishlist/wishlist.controller';
 import { WishlistService } from './wishlist/wishlist.service';
 
 import { PAYMENT_SERVICE } from './contracts/payment-contract';
-import { SHIPPING_SERVICE } from './contracts/shipping-contract';
-import { ShippingStubService } from './contracts/stubs/shipping-stub.service';
 
 /**
  * OrderModule — owns orders, cart, checkout, addresses, and wishlist.
@@ -45,10 +44,12 @@ import { ShippingStubService } from './contracts/stubs/shipping-stub.service';
  *   PayfastSignatureService, PayfastClient) resolve from PaymentsModule's
  *   exports. All three must stay exported — `useClass` constructs a fresh
  *   PaymentsService here, so every constructor dep must be visible.
- * - SHIPPING_SERVICE: still on `ShippingStubService` until Shipping module ships.
+ * - SHIPPING_SERVICE: bound to the real `ShippingService` (shipping-module
+ *   Phase 4). ShippingModule is imported and exports the token; OrderModule
+ *   gets the real implementation by importing the module.
  */
 @Module({
-  imports: [StoreModule, ProductModule, PaymentsModule],
+  imports: [StoreModule, ProductModule, PaymentsModule, ShippingModule],
   controllers: [
     OrderController,
     AddressController,
@@ -69,7 +70,6 @@ import { ShippingStubService } from './contracts/stubs/shipping-stub.service';
     AdminOrdersService,
     OrderCleanupService,
     WishlistService,
-    { provide: SHIPPING_SERVICE, useClass: ShippingStubService },
     { provide: PAYMENT_SERVICE, useClass: PaymentsService },
   ],
   exports: [OrderService],
