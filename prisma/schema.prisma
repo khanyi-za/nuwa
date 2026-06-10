@@ -51,6 +51,17 @@ enum MediaType {
   VIDEO
 }
 
+// Buyer-app gender taxonomy (maya FeedTabs: Women / Men / Home & Lifestyle).
+// Drives the mobile /api/products/feed, /new-arrivals and /merchants/trending
+// filtering. UNISEX products surface in BOTH women and men feeds. "Home &
+// Lifestyle" is a separate axis not yet modelled — that tab is an empty
+// placeholder for v1 (see maya open-questions P-4 / ST-7).
+enum GenderType {
+  WOMEN
+  MEN
+  UNISEX
+}
+
 enum OrderStatus {
   PENDING
   CONFIRMED
@@ -168,6 +179,20 @@ enum DiscountType {
   FREE_SHIPPING
 }
 
+// Buyer↔merchant chat. senderType distinguishes who wrote a message — the
+// buyer (maya app) or the merchant (store owner/employee via the dashboard).
+enum MessageSenderType {
+  BUYER
+  MERCHANT
+}
+
+enum ConversationReportReason {
+  HARASSMENT
+  SCAM
+  SPAM
+  OTHER
+}
+
 // ============================================================================
 // USERS & AUTH
 // ============================================================================
@@ -208,6 +233,7 @@ model User {
   followedStores   StoreFollower[]
   refreshTokens    RefreshToken[]
   storeEmployments StoreEmployee[]
+  conversations    Conversation[]
 
   @@index([email])
   @@index([role])
@@ -307,6 +333,7 @@ model Store {
   collections       StoreCollection[]
   dispatchAddresses StoreDispatchAddress[]
   bannerMedia       StoreBannerMedia[]
+  conversations     Conversation[]
 
   @@index([slug])
   @@index([status])
@@ -508,6 +535,10 @@ model Product {
   description String?
   status      ProductStatus @default(DRAFT)
 
+  // Buyer-app gender taxonomy. Nullable — products without a gender are
+  // excluded from the mobile gender-filtered feeds. Set by admin / seed.
+  genderType GenderType?
+
   // Pricing (in ZAR cents to avoid floating point issues)
   priceInCents        Int
   comparePriceInCents Int? // Original/compare-at price for showing discounts
@@ -560,6 +591,7 @@ model Product {
   @@index([priceInCents])
   @@index([createdAt])
   @@index([isFeatured])
+  @@index([genderType])
   @@map("products")
 }
 
@@ -1185,6 +1217,71 @@ model SupportMessage {
 
   @@index([ticketId])
   @@map("support_messages")
+}
+
+// ============================================================================
+// CHAT / MESSAGING (Buyer ↔ Merchant)
+// ============================================================================
+
+// One conversation per (buyer, store) pair — the unique constraint makes the
+// "get or create by merchant" call idempotent. Real-time delivery is layered
+// on top via a socket.io gateway; this table is the durable source of truth,
+// shared by the buyer app and the merchant dashboard.
+model Conversation {
+  id      String @id @default(cuid())
+  buyerId String
+  storeId String
+
+  // Per-participant read markers (unread counts derive from these).
+  buyerLastReadAt    DateTime?
+  merchantLastReadAt DateTime?
+  lastMessageAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  buyer    User                 @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  store    Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  messages Message[]
+  reports  ConversationReport[]
+
+  @@unique([buyerId, storeId])
+  @@index([storeId, lastMessageAt])
+  @@index([buyerId, lastMessageAt])
+  @@map("conversations")
+}
+
+model Message {
+  id             String            @id @default(cuid())
+  conversationId String
+  senderType     MessageSenderType
+  senderId       String // userId of the buyer or the merchant member; no FK relation
+  text           String?
+  attachments    Json? // array of polymorphic attachments (image / product / order)
+  orderId        String? // optional order context (chat opened from Track Order)
+  idempotencyKey String? // client-supplied; dedupes retried sends within a conversation
+
+  createdAt DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, idempotencyKey])
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+model ConversationReport {
+  id             String                   @id @default(cuid())
+  conversationId String
+  reporterId     String // userId of the reporter; no FK relation
+  reason         ConversationReportReason
+  details        String?
+  createdAt      DateTime                 @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("conversation_reports")
 }
 
 // ============================================================================

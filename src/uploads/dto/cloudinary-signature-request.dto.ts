@@ -12,6 +12,9 @@ export enum UploadContext {
   PRODUCT_VIDEO = 'product_video',
   COLLECTION_IMAGE = 'collection_image',
   CATEGORY_IMAGE = 'category_image',
+  // Buyer/merchant chat image attachments. No store/admin scope — any
+  // authenticated user, namespaced to their own folder.
+  CHAT_ATTACHMENT = 'chat_attachment',
 }
 
 // Helper context sets used by @ValidateIf for conditional-required field checks.

@@ -14,6 +14,8 @@ import { OrderModule } from './order/order.module';
 import { PaymentsModule } from './payments/payments.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { ShippingModule } from './shipping/shipping.module';
+import { MobileModule } from './mobile/mobile.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -29,6 +31,8 @@ import { ShippingModule } from './shipping/shipping.module';
     PaymentsModule,
     UploadsModule,
     ShippingModule,
+    MobileModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [

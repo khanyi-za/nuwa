@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import { useContainer } from 'class-validator';
 import { AppModule } from './app.module';
 import { PayfastConfig } from './payments/payfast/payfast-config';
@@ -33,6 +34,10 @@ async function bootstrap() {
   // required for the refresh-token httpOnly cookie. See cors.config.ts for
   // the env-driven allowlist + production guard.
   app.enableCors(buildCorsOptions());
+
+  // socket.io transport for the chat gateway (ChatModule). Same HTTP server;
+  // the /chat namespace authenticates the JWT on handshake.
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   app.useGlobalPipes(
     new ValidationPipe({

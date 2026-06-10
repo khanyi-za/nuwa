@@ -36,6 +36,7 @@ const PRESETS: Record<
   [UploadContext.PRODUCT_VIDEO]: { name: 'product_video', resourceType: 'video' },
   [UploadContext.COLLECTION_IMAGE]: { name: 'collection_image', resourceType: 'image' },
   [UploadContext.CATEGORY_IMAGE]: { name: 'category_image', resourceType: 'image' },
+  [UploadContext.CHAT_ATTACHMENT]: { name: 'chat_attachment', resourceType: 'image' },
 };
 
 @Injectable()
@@ -120,6 +121,12 @@ export class UploadsService {
         }
         await this.assertCategoryExists(dto.categoryId!);
         return `categories/${dto.categoryId}`;
+
+      case UploadContext.CHAT_ATTACHMENT:
+        // Any authenticated user may upload a chat image; the send-message
+        // endpoint validates the resulting URL is a Cloudinary URL. Folder is
+        // namespaced per user.
+        return `chat/${userId}`;
     }
   }
 

@@ -72,6 +72,9 @@ import { PAYMENT_SERVICE } from './contracts/payment-contract';
     WishlistService,
     { provide: PAYMENT_SERVICE, useClass: PaymentsService },
   ],
-  exports: [OrderService],
+  // AddressService + CheckoutService + BuyerOrdersService are exported for reuse
+  // by the mobile/buyer API surface (MobileModule). The web routes that own them
+  // are unaffected.
+  exports: [OrderService, AddressService, CheckoutService, BuyerOrdersService],
 })
 export class OrderModule {}
