@@ -28,18 +28,25 @@ export class MobileSearchService {
   }
 
   /**
-   * Fire-and-forget search analytics → AnalyticsEvent (eventType 'search').
-   * Phalo consumes these for relevance tuning + "top searches" reports.
+   * Fire-and-forget search analytics → AnalyticsEvent. Two variants:
+   * - settled query → 'search' (q, genderType, resultCount)
+   * - result-card tap → 'search_click' (q, productId, position) — the ranking
+   *   feedback signal Phalo trains on (phalo-search.md S2: CTR@10, click
+   *   position distribution).
    */
   async track(dto: TrackSearchDto, userId?: string) {
+    const isClick = !!dto.clickedProductId;
     await this.prisma.analyticsEvent.create({
       data: {
-        eventType: 'search',
+        eventType: isClick ? 'search_click' : 'search',
         userId: userId ?? null,
+        productId: dto.clickedProductId ?? null,
         metadata: {
           q: dto.q,
           genderType: dto.genderType ?? null,
-          resultCount: dto.resultCount ?? null,
+          ...(isClick
+            ? { position: dto.position ?? null }
+            : { resultCount: dto.resultCount ?? null }),
         } as Prisma.InputJsonValue,
       },
     });

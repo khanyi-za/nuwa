@@ -55,7 +55,42 @@ describe('MobileSearchService', () => {
         data: {
           eventType: 'search',
           userId: 'user-1',
+          productId: null,
           metadata: { q: 'kimono', genderType: 'women', resultCount: 12 },
+        },
+      });
+    });
+
+    it('writes a search_click AnalyticsEvent when clickedProductId is present', async () => {
+      mockPrisma.analyticsEvent.create.mockResolvedValue({});
+
+      const result = await service.track(
+        { q: 'kimono', genderType: 'women', clickedProductId: 'prod-1', position: 3 },
+        'user-1',
+      );
+
+      expect(result).toEqual({ recorded: true });
+      expect(mockPrisma.analyticsEvent.create).toHaveBeenCalledWith({
+        data: {
+          eventType: 'search_click',
+          userId: 'user-1',
+          productId: 'prod-1',
+          metadata: { q: 'kimono', genderType: 'women', position: 3 },
+        },
+      });
+    });
+
+    it('anonymous click records with null userId and position', async () => {
+      mockPrisma.analyticsEvent.create.mockResolvedValue({});
+
+      await service.track({ q: 'hoodie', clickedProductId: 'prod-2' });
+
+      expect(mockPrisma.analyticsEvent.create).toHaveBeenCalledWith({
+        data: {
+          eventType: 'search_click',
+          userId: null,
+          productId: 'prod-2',
+          metadata: { q: 'hoodie', genderType: null, position: null },
         },
       });
     });

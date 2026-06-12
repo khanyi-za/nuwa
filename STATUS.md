@@ -1,12 +1,41 @@
-# STATUS.md — Last updated 2026-06-10
+# STATUS.md — Last updated 2026-06-11
 
-> 🟢 **HANDOFF — next session start here.** The maya mobile-app integration is
-> ~complete: **11 of 13 screens built** (10 Explore scrapped, 13 Video Player
-> skipped), **765 tests / 52 suites green, `tsc` clean, all uncommitted.**
-> Full durable reference: **`docs/mobile-integration-summary.md`**. The action
-> list to pick up is the **last section of this file** ("Mobile integration —
-> follow-ups / ops"). Immediate next step: apply the two pending migrations +
-> seed `Product.genderType`.
+> 🟢 **HANDOFF — next session start here.** Backend (this repo) AND the maya
+> frontend are now **fully integrated end-to-end**: all 11 active screens in
+> maya run on the live `/api` surface, auth is implemented, checkout reaches
+> the PayFast sandbox, chat is real-time over the socket.io gateway. Backend
+> state unchanged since 2026-06-10 (765 tests / 52 suites green) — this
+> session's code changes were all in the **maya repo** (see `maya/status.md`);
+> nuwa got dev-DB setup + verification only. **Both repos are uncommitted.**
+> Next: full simulator pass + PayFast ITN smoke (ngrok), then commit both.
+
+## Frontend integration session (2026-06-11) — what happened in/to nuwa
+
+No nuwa source changes. Dev environment work:
+
+- **Both pending migrations applied** to the local `ayana` DB
+  (`product_gender_type`, `chat_module`). ✅ ops item 1
+- **Dev data seeded** (script-driven, idempotent): `Product.genderType` on all
+  7 products; 4 categories (dresses/tops/bottoms/sets) linked to products;
+  5 trending `Tag`s linked; S/M/L variants on Black Hoodie (L sold out, for
+  the 409 path); a primary `StoreDispatchAddress` for Suhu (Braamfontein) —
+  this is what makes `POST /api/checkout/quote` return **real ShipLogic rates**
+  (R95 observed, not the R110 fallback). ✅ ops item 2
+- **Boot + WebSocket smoke test done** ✅ ops item 4: full DI graph boots; REST
+  surface verified endpoint-by-endpoint as screens were wired (feed, search,
+  merchants, cart incl. stock 409s, quote, order create w/ signed PayFast
+  payload, order detail/cancel/tracking-404, bookmarks, follows w/
+  followerCount, conversations incl. idempotency replay); **socket.io chain
+  verified with a script** — JWT handshake → `join` ack → REST send →
+  `message:new` fan-out received.
+- **Auth surface verified for mobile**: register → verify (token planted in
+  DB — dev has no email delivery) → login → refresh **with rotation + reuse
+  rejection** → `/auth/me` → personalised `/api` fields with Bearer token.
+  Test user: `maya-test@yiiva.dev` / `TestPass1`.
+- **Still pending:** ops item 3 (`chat_attachment` Cloudinary preset —
+  dashboard task), item 5 (PayFast ITN smoke via ngrok — the simulator
+  checkout run is the natural vehicle), item 6 (ShipLogic webhooks — prod
+  only), item 7 (npm audit).
 
 ## Mobile integration — Screen 12 (Chat) backend complete
 
@@ -419,31 +448,25 @@ No new do-not-touch entries this round.
 
 ---
 
-## Mobile integration — follow-ups / ops (PICK UP HERE)
+## Mobile integration — follow-ups / ops
 
-The mobile/buyer API surface (`src/mobile/`, `src/chat/`) is built and green but
-**not yet wired to a DB or smoke-tested.** Full detail + endpoint inventory:
-`docs/mobile-integration-summary.md`.
+**Status 2026-06-11:** items 1, 2, 4 and the maya wiring are ✅ done (see the
+top section). Remaining:
 
-**Must-do before it runs live:**
-1. **Apply both migrations** (`npx prisma migrate dev`):
-   `20260608100000_product_gender_type` + `20260610120000_chat_module`.
-   (Written; only `prisma generate` was run.)
-2. **Seed `Product.genderType`** — gender-filtered feeds return empty without it.
 3. **Create the `chat_attachment` signed upload preset** in the Cloudinary
-   dashboard (matches the new upload context).
-4. **Boot + WebSocket smoke test** — no e2e harness covers the DI graph
-   (`MobileModule`→`OrderModule` import, `ChatGateway`) or the socket flow.
-   `npm run start:dev`, connect to `/chat`, send a message.
-
-**Pending verification (pre-existing):**
-5. PayFast sandbox end-to-end smoke test.
+   dashboard (matches the new upload context). Chat photo attachments show
+   "coming soon" in maya until this exists.
+5. **PayFast sandbox end-to-end smoke test** — run the simulator checkout with
+   ngrok exposing `/payments/notify`; verifies ITN → Order CONFIRMED →
+   ShipLogic shipment booking in one pass.
 6. ShipLogic webhook delivery (sandbox doesn't fire → tracking 404 until prod).
 7. `npm audit` warnings surfaced by the WebSocket dep install.
+8. **Commit both repos** — nuwa (shipping module + mobile/chat backend + docs)
+   and maya (the entire integration) are both uncommitted.
 
-**maya frontend wiring (separate repo):** flip `USE_FIXTURES=false`, target the
-`/api` prefix, adopt the `{success,data}` envelope, **stop adding 15% VAT** (it's
-inclusive now), connect the socket. See `docs/mobile-integration-summary.md` §8.
+**maya frontend wiring: ✅ DONE** (2026-06-11) — all screens on live data,
+auth implemented, VAT-inclusive totals rendered, socket connected. See
+`maya/status.md` for the full integration state.
 
 **Open product decisions (re-scope, not v1 builds):** EX-1 (Explore vs Home),
 VP-1 (Video Player keep/remove), P-4/ST-7 (Home & Lifestyle gender axis).
