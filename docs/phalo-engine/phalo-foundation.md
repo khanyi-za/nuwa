@@ -33,6 +33,7 @@ It supports three consumers, all indirectly through the database:
 | PH-3 | **v1 scope = rankings + merchant/admin analytics.** AI product tagging is DEFERRED (smart categories stay thin until then). |
 | PH-4 | **Failure isolation**: Phalo being down degrades to stale rankings / yesterday's analytics — never an outage. nuwa keeps its current heuristics as fallbacks when Phalo tables are missing or stale. |
 | PH-5 | nuwa serves all Phalo-derived data through its own endpoints with its existing authz (`canManageStore`, ADMIN role). Phalo has no concept of sessions or roles. |
+| PH-6 | **Phalo speaks nuwa's domain vocabulary** — `store`, not `merchant` (maya API translation) or `brand` (UI label). Schema/job names use `store_*`/`trending_stores`; the rename happens at nuwa's serializer boundary as everywhere else. (Decided 2026-06-12.) |
 
 ---
 
@@ -88,7 +89,7 @@ One process runs both the FastAPI app and the scheduler (lifespan startup).
 ## 4. Phalo-owned tables (`phalo` schema, Alembic-managed)
 
 ```sql
-phalo.merchant_trending   (store_id, window, score, rank, computed_at)
+phalo.trending_stores     (store_id, window, score, rank, computed_at)
 phalo.product_scores      (product_id, score_type, score, computed_at)
                           -- score_type: 'popularity' | 'new_arrival'
 phalo.trending_searches   (term, window, search_count, rank, computed_at)
@@ -110,7 +111,7 @@ later ("rankings last computed 23 min ago").
 
 | Job | Cadence | Logic (v1 formulas — tune later) |
 |---|---|---|
-| `trending_merchants` | hourly | score per ACTIVE store = views(7d, time-decayed) + 5×follows(7d) + 10×orders(7d); writes ranked rows |
+| `trending_stores` | hourly | score per ACTIVE store = views(7d, time-decayed) + 5×follows(7d) + 10×orders(7d); writes ranked rows |
 | `product_popularity` | hourly | per ACTIVE product: views + 5×cart-adds* + 10×purchases (7d, decayed) → `popularity`; `new_arrival` = recency × popularity blend |
 | `trending_searches` | hourly | normalize `q` (lowercase/trim), count over 7d, min-count threshold ≥3, top 10 |
 | `store_stats_daily` | nightly + intraday refresh of today | per store per day from analytics_events + orders/payments |
@@ -119,6 +120,45 @@ later ("rankings last computed 23 min ago").
 `AnalyticsEvent('add_to_cart')` write in `MobileCartService.addItem` (small
 follow-up; until then the term is 0).
 
+### 5b. Merchant analytics target — the athena dashboard (added 2026-06-12)
+
+The requirements source for merchant-facing metrics is athena's
+`dashboard-legacy/analytics/page.tsx` (mock-data UI prototype the real
+dashboard is being aligned to). Mapping its vocabulary against actual data:
+
+**Servable from current data (drives `store_stats_daily` + companions):**
+
+| Mock metric | Source |
+|---|---|
+| Total revenue / orders / AOV + period deltas | Order/Payment rows |
+| Conversion rate | orders ÷ product_views (define denominator once, document it) |
+| Top products (views, purchases, bookmarks, revenue, conversion) | events + OrderItem + WishlistItem |
+| Customer geography by city | Order shipping-address snapshots |
+| Peak shopping hours | event timestamps |
+| Search analytics (top terms; terms → clicks on this store's products) | `search` + `search_click` events |
+| Realtime-ish sales curve | today's orders bucketed hourly (intraday refresh) |
+
+This implies one more phalo table beyond §4:
+`phalo.product_stats_daily (product_id, store_id, date, views, purchases,
+bookmarks, revenue_in_cents, search_clicks)` — the per-product slice the
+top-products panel reads.
+
+**Not servable v1 (athena should drop or placeholder these panels):**
+
+| Mock metric | Why |
+|---|---|
+| Likes per product | likes are local-only on device — no server data |
+| Traffic sources | single-app world; no referrer capture |
+| Session duration / bounce / pages per session / device split | no session analytics; would need a session-id on AnalyticsEvent (possible later, not v1) |
+| Returning-customers % | derivable from orders (repeat buyer email/userId) — possible, but defer to v1.1 |
+
+**Open decision — `searchAppearances` (impressions):** the mock shows per-
+product search-appearance counts. We log queries and clicks, not which
+products were *shown*. True impressions mean logging result-page product-id
+lists per search (high write volume). Options: (a) log top-N result ids on
+each tracked search, (b) approximate from click data only, (c) drop the
+metric. Decide when Phase 3 starts.
+
 ---
 
 ## 6. nuwa integration (small, per-feature, later phases)
@@ -126,7 +166,7 @@ follow-up; until then the term is 0).
 Pattern for each ranking: **read phalo table → freshness check → fallback**.
 
 ```
-trending merchants:  phalo.merchant_trending fresh (<24h) → use it,
+trending merchants:  phalo.trending_stores fresh (<24h) → use it,
                      else current followerCount heuristic
 new-arrivals:        order by phalo new_arrival score when fresh,
                      else createdAt desc
@@ -171,7 +211,7 @@ recs) slot in here behind the same token, called by nuwa server-side.
 | Phase | Deliverable |
 |---|---|
 | 1 | Repo scaffold: uv + FastAPI + APScheduler + Alembic (`phalo` schema) + DB roles + `job_runs` + health endpoint + Railway deploy |
-| 2 | `trending_merchants` job end-to-end + nuwa reader w/ fallback (first full loop proven) |
+| 2 | `trending_stores` job end-to-end + nuwa reader w/ fallback (first full loop proven) |
 | 3 | `store_stats_daily` + merchant-dashboard analytics endpoints in nuwa (web surface) + admin aggregates |
 | 4 | `product_popularity` + `new_arrival` scores + nuwa readers; `trending_searches` + reader; `add_to_cart` event write in nuwa |
 | 5+ | search relevance blend, similar products, AI tagging (unlock smart categories), personalised recs via the internal API |

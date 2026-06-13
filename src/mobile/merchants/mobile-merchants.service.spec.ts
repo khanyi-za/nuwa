@@ -33,6 +33,8 @@ const mockPrisma = {
   storeFollower: { findMany: jest.fn(), findUnique: jest.fn() },
   product: { count: jest.fn(), groupBy: jest.fn() },
   analyticsEvent: { create: jest.fn() },
+  // Phalo trending ranking — default empty (heuristic fallback path).
+  $queryRaw: jest.fn().mockResolvedValue([]),
 };
 
 describe('MobileMerchantsService', () => {
@@ -47,6 +49,7 @@ describe('MobileMerchantsService', () => {
     }).compile();
     service = module.get(MobileMerchantsService);
     jest.clearAllMocks();
+    mockPrisma.$queryRaw.mockResolvedValue([]);
   });
 
   it('returns trending merchants without isFollowedByMe for guests', async () => {
@@ -76,6 +79,47 @@ describe('MobileMerchantsService', () => {
     });
 
     expect(merchants[0].isFollowedByMe).toBe(true);
+  });
+
+  it('orders by the Phalo ranking when fresh rows exist', async () => {
+    const second = { ...store, id: 's2', slug: 'suhu', displayName: 'SUHU' };
+    mockPrisma.$queryRaw.mockResolvedValue([
+      { store_id: 's2' },
+      { store_id: 's1' },
+    ]);
+    // findMany returns candidates in DB order; the ranking must win.
+    mockPrisma.store.findMany.mockResolvedValue([store, second]);
+
+    const { merchants } = await service.trending({ limit: 10 });
+
+    expect(merchants.map((m) => m.id)).toEqual(['s2', 's1']);
+    // Candidate fetch is constrained to the ranked ids.
+    const arg = mockPrisma.store.findMany.mock.calls[0][0];
+    expect(arg.where.id.in).toEqual(['s2', 's1']);
+  });
+
+  it('falls back to followerCount when the Phalo query throws (table absent)', async () => {
+    mockPrisma.$queryRaw.mockRejectedValue(new Error('relation does not exist'));
+    mockPrisma.store.findMany.mockResolvedValue([store]);
+
+    const { merchants } = await service.trending({ limit: 10 });
+
+    expect(merchants[0].id).toBe('s1');
+    const arg = mockPrisma.store.findMany.mock.calls[0][0];
+    expect(arg.orderBy).toEqual([{ followerCount: 'desc' }, { id: 'desc' }]);
+  });
+
+  it('falls back when the gender filter eliminates every ranked store', async () => {
+    mockPrisma.$queryRaw.mockResolvedValue([{ store_id: 's9' }]);
+    // Ranked candidate fetch finds nothing; fallback fetch finds the store.
+    mockPrisma.store.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([store]);
+
+    const { merchants } = await service.trending({ genderType: 'women', limit: 10 });
+
+    expect(merchants[0].id).toBe('s1');
+    expect(mockPrisma.store.findMany).toHaveBeenCalledTimes(2);
   });
 
   it('filters by gender (incl. UNISEX) when genderType is given', async () => {

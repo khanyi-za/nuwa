@@ -34,10 +34,12 @@ export class MobileMerchantsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * "Smart dynamic" trending merchants. v1 heuristic = ACTIVE stores ranked by
-   * `followerCount`; the future Phalo engine supplies the real signal without
-   * changing this shape (see phalo-smart-engine memory). When `genderType` is
-   * set, only stores with at least one ACTIVE product in that gender qualify.
+   * "Smart dynamic" trending merchants. Reads Phalo's ranking
+   * (`phalo.trending_stores`, 7d window) when fresh (<24h); otherwise falls
+   * back to the original followerCount heuristic (PH-4: Phalo down = stale
+   * rankings, never an outage). API shape unchanged either way. When
+   * `genderType` is set, only stores with at least one ACTIVE product in that
+   * gender qualify.
    */
   async trending(opts: {
     genderType?: GenderParam;
@@ -54,18 +56,45 @@ export class MobileMerchantsService {
       };
     }
 
-    const stores = await this.prisma.store.findMany({
-      where,
-      orderBy: [{ followerCount: 'desc' }, { id: 'desc' }],
-      take: opts.limit,
-      select: {
-        id: true,
-        slug: true,
-        displayName: true,
-        logoUrl: true,
-        followerCount: true,
-      },
-    });
+    const storeSelect = {
+      id: true,
+      slug: true,
+      displayName: true,
+      logoUrl: true,
+      followerCount: true,
+    } as const;
+
+    let stores: {
+      id: string;
+      slug: string;
+      displayName: string;
+      logoUrl: string | null;
+      followerCount: number;
+    }[] = [];
+
+    const rankedIds = await this.phaloTrendingStoreIds();
+    if (rankedIds.length > 0) {
+      const candidates = await this.prisma.store.findMany({
+        where: { ...where, id: { in: rankedIds } },
+        select: storeSelect,
+      });
+      const byId = new Map(candidates.map((s) => [s.id, s]));
+      stores = rankedIds
+        .map((id) => byId.get(id))
+        .filter((s): s is NonNullable<typeof s> => !!s)
+        .slice(0, opts.limit);
+    }
+
+    // Heuristic fallback: phalo table absent/stale/empty, or the gender
+    // filter eliminated every ranked store.
+    if (stores.length === 0) {
+      stores = await this.prisma.store.findMany({
+        where,
+        orderBy: [{ followerCount: 'desc' }, { id: 'desc' }],
+        take: opts.limit,
+        select: storeSelect,
+      });
+    }
 
     let followed = new Set<string>();
     if (opts.userId && stores.length > 0) {
@@ -82,6 +111,27 @@ export class MobileMerchantsService {
         toTrendingMerchant(s, authed ? followed.has(s.id) : undefined),
       ),
     };
+  }
+
+  /**
+   * Phalo's trending ranking — ordered store ids, or [] when the table is
+   * missing (fresh envs without the phalo service), empty, or stale (>24h).
+   * Errors are swallowed deliberately: the heuristic fallback must always win
+   * over a broken ranking source.
+   */
+  private async phaloTrendingStoreIds(): Promise<string[]> {
+    try {
+      const rows = await this.prisma.$queryRaw<{ store_id: string }[]>`
+        SELECT store_id
+        FROM phalo.trending_stores
+        WHERE "window" = '7d'
+          AND computed_at > now() - interval '24 hours'
+        ORDER BY rank ASC
+      `;
+      return rows.map((r) => r.store_id);
+    } catch {
+      return [];
+    }
   }
 
   /**
