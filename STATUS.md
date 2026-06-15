@@ -1,13 +1,48 @@
-# STATUS.md — Last updated 2026-06-11
+# STATUS.md — Last updated 2026-06-15
 
-> 🟢 **HANDOFF — next session start here.** Backend (this repo) AND the maya
-> frontend are now **fully integrated end-to-end**: all 11 active screens in
-> maya run on the live `/api` surface, auth is implemented, checkout reaches
-> the PayFast sandbox, chat is real-time over the socket.io gateway. Backend
-> state unchanged since 2026-06-10 (765 tests / 52 suites green) — this
-> session's code changes were all in the **maya repo** (see `maya/status.md`);
-> nuwa got dev-DB setup + verification only. **Both repos are uncommitted.**
-> Next: full simulator pass + PayFast ITN smoke (ngrok), then commit both.
+> 🟢 **HANDOFF — next session start here.** Active work is the **Demo Catalogue
+> Importer** — a tool to pre-load target brands' Shopify catalogues (+ manually
+> supplied IG videos) into a LOCAL demo env, for personalised in-person sales
+> demos (client-acquisition strategy, ~50 brands). Design + locked decisions:
+> `docs/demo-importer/demo-importer-foundation.md`. Business case:
+> `deploy_yiiva/business case/`.
+>
+> **✅ Phases 1 & 2 DONE (2026-06-15) — UNCOMMITTED.** New TS CLI at
+> `nuwa/tools/demo-importer/` (rides nuwa's toolchain, no new deps).
+> - **Phase 1 `extract`** — fetches public Shopify `products.json`/
+>   `collections.json` → `data/<slug>/raw/` (gitignored). Assumption validated
+>   5/5 (sakanya, suhu, madebyfade, embedded, tolthema). Findings: foundation §11.
+> - **Phase 2 `transform`** — raw → YIIVA-shaped `data/<slug>/manifest.json`
+>   with genderType/category/option heuristics + pre-filled curate flags + empty
+>   `videos[]`. Run on all 5; spot-checked correct. Findings: foundation §12.
+> - **Phase 3 `curate` + `rehost`** — `curate` bootstraps+validates `curated.json`
+>   (toggle include, fix gender, paste reel URLs into `videos[]`); `rehost
+>   [--dry-run]` uploads images/videos to Cloudinary `yiiva-dev` (resumable
+>   `asset-map.json`). **Dry-run validated on sakanya (41 image jobs); real
+>   uploads NOT yet run** (outward-facing — awaiting go-ahead). `yt-dlp` not
+>   installed locally (videos[] empty so untested). Findings: foundation §13.
+> - **Phase 4 `load`** — wipe-and-reload a curated brand into the LOCAL demo DB
+>   via Prisma (pg adapter): merchant User (`<slug>@demo.yiiva.co.za`/`DemoPass1`)
+>   + ACTIVE Store + addresses + dispatch + collections + products + variants +
+>   images/banner/video (Cloudinary URLs from asset-map) + category/tag links.
+>   **Built + type-checks against the real schema; NOT run** (needs a real rehost
+>   asset-map + a live demo DB). Findings: foundation §14.
+> - Commands: `extract` / `transform` / `curate` / `rehost [--dry-run]` / `load`.
+>   All 5 pipeline stages now implemented.
+>
+> **▶ NEXT: Phase 5 (first end-to-end brand)** — (1) run real Cloudinary uploads
+> (`rehost`, awaiting go-ahead), (2) stand up local demo Postgres + `prisma
+> migrate` + seed platform Category tree, (3) `load` one brand, (4) point local
+> nuwa/maya/athena at the demo DB and eyeball the brand live. Optional polish:
+> per-product image cap (foundation §13); `brew install yt-dlp` before first reel.
+>
+> **Uncommitted on `main`:** `tools/demo-importer/` (new), `package.json`
+> (import script), `docs/demo-importer/demo-importer-foundation.md`, this file.
+>
+> **Older backend track (unchanged, still pending):** PayFast ITN smoke (ngrok),
+> then the Notifications module (launch blocker). Backend last green at 765
+> tests / 52 suites; last commit `7ee5af4`. `chat_attachment` Cloudinary preset
+> already created.
 
 ## Frontend integration session (2026-06-11) — what happened in/to nuwa
 
@@ -450,19 +485,19 @@ No new do-not-touch entries this round.
 
 ## Mobile integration — follow-ups / ops
 
-**Status 2026-06-11:** items 1, 2, 4 and the maya wiring are ✅ done (see the
-top section). Remaining:
+**Status 2026-06-13:** items 1, 2, 3, 4, 8 and the maya wiring are ✅ done
+(see the top section). Remaining:
 
-3. **Create the `chat_attachment` signed upload preset** in the Cloudinary
-   dashboard (matches the new upload context). Chat photo attachments show
-   "coming soon" in maya until this exists.
 5. **PayFast sandbox end-to-end smoke test** — run the simulator checkout with
    ngrok exposing `/payments/notify`; verifies ITN → Order CONFIRMED →
    ShipLogic shipment booking in one pass.
 6. ShipLogic webhook delivery (sandbox doesn't fire → tracking 404 until prod).
 7. `npm audit` warnings surfaced by the WebSocket dep install.
-8. **Commit both repos** — nuwa (shipping module + mobile/chat backend + docs)
-   and maya (the entire integration) are both uncommitted.
+
+**Done since 2026-06-11:**
+- ✅ item 3 — `chat_attachment` signed upload preset created in the Cloudinary
+  dashboard. Chat photo attachments unblocked.
+- ✅ item 8 — nuwa committed (`7ee5af4`); working tree clean.
 
 **maya frontend wiring: ✅ DONE** (2026-06-11) — all screens on live data,
 auth implemented, VAT-inclusive totals rendered, socket connected. See

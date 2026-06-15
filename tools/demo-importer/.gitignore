@@ -1,0 +1,3 @@
+# Per-brand workspaces: raw catalogue dumps, downloaded images/videos, manifests.
+# Never commit brand data or rehosted assets.
+data/
