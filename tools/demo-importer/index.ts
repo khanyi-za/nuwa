@@ -13,6 +13,7 @@ import { runTransform } from './src/stages/transform';
 import { runCurate } from './src/stages/curate';
 import { runRehost } from './src/stages/rehost';
 import { runLoad } from './src/stages/load';
+import { runSeedDemo } from './src/stages/seed-demo';
 import { log } from './src/logger';
 
 interface ParsedArgs {
@@ -55,6 +56,7 @@ Commands:
   transform <brandSlug>                       Normalise raw → manifest.json                       [Phase 2]
   curate    <brandSlug>                        Bootstrap/validate curated.json (manual edit)       [Phase 3]
   rehost    <brandSlug> [--dry-run]            Upload images/videos to Cloudinary (resumable)      [Phase 3]
+  seed-demo                                    Seed platform categories into the demo DB           [Phase 5]
   load      <brandSlug>                        Write curated catalogue into the demo DB            [Phase 4]
 
 Example:
@@ -103,6 +105,9 @@ async function main(): Promise<void> {
       await runRehost({ slug, dryRun: flags['dry-run'] === 'true' });
       break;
     }
+    case 'seed-demo':
+      await runSeedDemo();
+      break;
     case 'load': {
       const slug = positionals[0];
       if (!slug) {

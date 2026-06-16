@@ -159,6 +159,16 @@ export async function runLoad({ slug }: { slug: string }): Promise<void> {
     let variantCount = 0;
     let skippedNoImage = 0;
 
+    // ProductVariant.sku is globally @unique. Some brands repeat SKUs across
+    // their own catalogue (suhu does), so dedupe within the store load — keep
+    // the first, null any collision (sku is optional and not buyer-facing).
+    const usedSkus = new Set<string>();
+    const dedupeSku = (sku: string | null): string | null => {
+      if (!sku || usedSkus.has(sku)) return null;
+      usedSkus.add(sku);
+      return sku;
+    };
+
     for (const p of included) {
       const imageRows = buildImageRows(p, cdn);
       // Append paired product videos to the gallery as VIDEO media.
@@ -190,7 +200,7 @@ export async function runLoad({ slug }: { slug: string }): Promise<void> {
             : {
                 create: p.variants.map((v) => ({
                   name: v.name,
-                  sku: v.sku,
+                  sku: dedupeSku(v.sku),
                   color: v.color,
                   size: v.size,
                   material: v.material,
@@ -213,15 +223,23 @@ export async function runLoad({ slug }: { slug: string }): Promise<void> {
       // Category link.
       const catId = p.suggestedCategorySlug ? categoryId.get(p.suggestedCategorySlug) : undefined;
       if (catId) await prisma.productCategory.create({ data: { productId: created.id, categoryId: catId } });
-      // Tags.
+      // Tags (global, shared across stores). Key on slug — different tag names
+      // can slugify to the same slug, and slug is also @unique. Skip on any error
+      // rather than fail the whole load.
       for (const tagName of p.tags.slice(0, 10)) {
-        const tag = await prisma.tag.upsert({
-          where: { name: tagName },
-          create: { name: tagName, slug: slugify(tagName) },
-          update: {},
-          select: { id: true },
-        });
-        await prisma.productTag.create({ data: { productId: created.id, tagId: tag.id } }).catch(() => undefined);
+        const tagSlug = slugify(tagName);
+        if (!tagSlug) continue;
+        try {
+          const tag = await prisma.tag.upsert({
+            where: { slug: tagSlug },
+            create: { name: tagName, slug: tagSlug },
+            update: {},
+            select: { id: true },
+          });
+          await prisma.productTag.create({ data: { productId: created.id, tagId: tag.id } }).catch(() => undefined);
+        } catch {
+          /* skip a problematic tag */
+        }
       }
     }
 

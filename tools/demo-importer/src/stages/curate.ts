@@ -8,9 +8,13 @@ import type { Manifest } from '../manifest/types';
  * Curate is a human step (DI-7): the operator hand-edits curated.json — toggling
  * `include`, fixing genderType, and pasting Instagram reel URLs into `videos[]`.
  *
- * This command bootstraps that file (copy of the manifest) on first run, and on
- * subsequent runs validates the edits and prints what will ship.
+ * Bootstrap applies the DI-3 "highlight set" caps so a brand starts as a tight,
+ * demo-sized catalogue (not the full archive — tolthema raw is 162 products /
+ * 1,178 images). Operator can still hand-tune. Subsequent runs validate.
  */
+const MAX_INCLUDED_PRODUCTS = 40; // per brand (DI-3 highlight set)
+const MAX_IMAGES_PER_PRODUCT = 5; // foundation §13 finding
+
 export async function runCurate({ slug }: { slug: string }): Promise<void> {
   assertValidSlug(slug);
   const mPath = manifestPath(slug);
@@ -21,10 +25,14 @@ export async function runCurate({ slug }: { slug: string }): Promise<void> {
   }
 
   if (!fs.existsSync(cPath)) {
-    fs.copyFileSync(mPath, cPath);
+    const manifest = JSON.parse(fs.readFileSync(mPath, 'utf8')) as Manifest;
+    const caps = applyHighlightCaps(manifest);
+    fs.writeFileSync(cPath, JSON.stringify(manifest, null, 2));
     log.step(`Curate: ${slug}`);
-    log.ok(`Created ${cPath} from the manifest.`);
-    log.info('Now edit curated.json:');
+    log.ok(`Created ${cPath} (highlight-capped: ${caps.included} products, ≤${MAX_IMAGES_PER_PRODUCT} imgs each).`);
+    if (caps.droppedProducts > 0) log.info(`  ${caps.droppedProducts} products dropped past the ${MAX_INCLUDED_PRODUCTS} cap`);
+    if (caps.trimmedImages > 0) log.info(`  trimmed ${caps.trimmedImages} excess images`);
+    log.info('Now optionally edit curated.json:');
     log.info('  • set product/collection "include": false to drop items');
     log.info('  • fix any wrong "genderType" (WOMEN | MEN | UNISEX)');
     log.info('  • add Instagram reels to "videos": '
@@ -69,4 +77,29 @@ export async function runCurate({ slug }: { slug: string }): Promise<void> {
   } else {
     log.ok('No issues. Ready for: rehost ' + slug);
   }
+}
+
+/** Mutate the manifest to a DI-3 highlight set: cap images/product + #products. */
+function applyHighlightCaps(m: Manifest): { included: number; droppedProducts: number; trimmedImages: number } {
+  let trimmedImages = 0;
+  m.products.forEach((p) => {
+    if (p.images.length > MAX_IMAGES_PER_PRODUCT) {
+      trimmedImages += p.images.length - MAX_IMAGES_PER_PRODUCT;
+      p.images = p.images.slice(0, MAX_IMAGES_PER_PRODUCT);
+      p.images.forEach((img, i) => (img.isPrimary = i === 0));
+    }
+  });
+
+  let kept = 0;
+  let droppedProducts = 0;
+  m.products.forEach((p) => {
+    if (!p.include) return;
+    if (kept < MAX_INCLUDED_PRODUCTS) kept++;
+    else {
+      p.include = false;
+      droppedProducts++;
+    }
+  });
+
+  return { included: kept, droppedProducts, trimmedImages };
 }

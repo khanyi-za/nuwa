@@ -217,7 +217,7 @@ in a batch. Re-run any brand any time (DI-9 wipe-and-reload).
 | 2 | ✅ **DONE (2026-06-15).** **Transform** → `manifest.json` + genderType/category/option heuristics + curate flags. Run on all 5 brands — see §12. |
 | 3 | ✅ **BUILT (2026-06-15).** **Curate** (`curate` bootstraps + validates `curated.json`, incl. `videos[]`) + **Rehost** (`rehost [--dry-run]`: Cloudinary image upload by remote URL, yt-dlp video download+upload, dedup, resumable asset-map). Dry-run validated; real uploads pending go-ahead — see §13. |
 | 4 | ✅ **BUILT (2026-06-15).** **Load** (`load`): wipe-and-reload User+Store+addresses+collections+products+variants+images+banner/video via Prisma (pg adapter), ACTIVE. Type-checks against the real schema; not yet run (needs asset-map from a real rehost + a live demo DB) — see §14. |
-| 5 | Local demo-env standup (demo DB, category seed, nuwa/maya/athena wiring) + first end-to-end brand |
+| 5 | ✅ **FIRST BRAND LIVE (2026-06-15).** `yiiva_demo` DB created + migrated; `seed-demo` command added (platform categories); sakanya rehosted (41 imgs → Cloudinary) + loaded; demo nuwa booted on :3005 serving sakanya through the real `/api`. See §16. |
 | 6 | Batch ergonomics + non-Shopify `products.json` fallback + optional "feels-alive" seed |
 
 ---
@@ -359,6 +359,8 @@ the generated client = the field mapping matches `schema.prisma` exactly.
 `rehost` to produce `asset-map.json` and (b) a stood-up local demo Postgres with
 the platform `Category` tree seeded. The full first-brand run is Phase 5.
 
+> **Update: done in §16 — the full chain ran end-to-end for sakanya.**
+
 ---
 
 ## 15. Demo environment standup runbook (local, DI-2)
@@ -408,3 +410,80 @@ DATABASE_URL="$DEMO_DB" npm run start:dev
   `DELETE FROM users WHERE email = '<slug>@demo.yiiva.co.za';` (cascades).
 - Optional: replace step 3's SQL with a small `seed-categories` importer command
   if we'd rather not hand-run psql (not built — say the word).
+
+---
+
+## 16. Phase 5 — first brand live (2026-06-15)
+
+The whole pipeline ran end-to-end for **sakanya**, proving the demo concept.
+
+**What was done (psql-free — `psql`/`createdb` aren't on this machine's PATH):**
+- Added a `seed-demo` importer command (Prisma category upsert) — repo had no
+  category seed; reusable for every demo brand.
+- `yiiva_demo` Postgres created via Node/`pg` (CREATE DATABASE), all 20
+  migrations applied with `prisma migrate deploy`, categories seeded.
+- `rehost sakanya` — **41 images uploaded for real** to Cloudinary `yiiva-dev`
+  under `demo/sakanya/<sha1>`; `asset-map.json` written.
+- `load sakanya` — wiped + loaded: ACTIVE store, 5 products, 19 variants, 3
+  collections, 5 banner images. Login `sakanya@demo.yiiva.co.za` / `DemoPass1`.
+- Booted demo nuwa on **:3005** (`PORT=3005 DATABASE_URL=<yiiva_demo>`), leaving
+  the dev server on :3000 untouched.
+
+**Verified live through the real `/api`:**
+- `GET /api/merchants` → sakanya in the A–Z directory (`productCount: 5`,
+  `isVerified: true`, letter "S"); also in `/api/merchants/trending`.
+- `GET /api/products/feed?genderType=women` → 5 products, maya shape, e.g.
+  `SALINA DRESS` R2600, `primaryImage` = a real `res.cloudinary.com/yiiva-dev/
+  demo/sakanya/...` URL, `merchant.displayName: SAKANYA`, `category: dresses`.
+- DB spot-check: `dresses` category link + `black-series` collection link
+  resolved; weight 1300g (real, not fallback).
+
+**Gaps surfaced (polish backlog):**
+- **No brand logo** — Extract never captured the storefront logo, so
+  `Store.logoUrl` / `merchant.logo` is null. Banner hero images are present, but
+  add logo scraping (Stage 1 homepage `<meta>`/`og:image`) for a polished demo.
+- **Feed requires `genderType`** (women|men|unisex) — API contract, not a bug;
+  sakanya is all-WOMEN so shows under the women feed.
+- Videos not exercised (empty `videos[]`; `yt-dlp` not installed).
+
+**To view in the apps:** maya/athena target `localhost:3000`. Either repoint
+them at `:3005`, or stop the dev server and boot the demo on `:3000`. The demo
+nuwa on :3005 is a background process — stop it with `lsof -ti :3005 | xargs kill`.
+
+---
+
+## 17. Batch: all 5 brands loaded (2026-06-16)
+
+Ran curate → rehost → load for the remaining 4 (suhu, madebyfade, embedded,
+tolthema). All 5 demo stores now ACTIVE and serving via the demo API on :3005
+(`/api/merchants` A–Z: EMBEDDED, Fade, SAKANYA, Suhu Original, Tol'thema).
+
+| Brand | products | variants | collections | images uploaded |
+|---|---|---|---|---|
+| sakanya | 5 | 19 | 3 | 41 |
+| suhu | 31 | 151 | 16 | 105 |
+| madebyfade | 40 | 234 | 69 | 179 |
+| embedded | 40 | 1,654 | 46 | 103 |
+| tolthema | 40 | 1,066 | 52 | 121 |
+
+**Highlight caps added to curate bootstrap** (DI-3): 40 products/brand,
+5 images/product. Dropped 38/108/115 products on madebyfade/embedded/tolthema and
+trimmed hundreds of excess images (tolthema raw was 1,178 images). Caps are
+constants in `curate.ts`; curated files remain hand-editable. Without them the
+batch would have been ~2,000+ uploads.
+
+**Two real schema-constraint bugs found + fixed (load.ts):**
+- **`ProductVariant.sku` global @unique** — suhu repeats SKUs within its own
+  catalogue, so the per-brand namespaced sku still collided. Fix: dedupe SKUs
+  within a store load (`usedSkus` set), null any collision (sku is optional and
+  not buyer-facing).
+- **`Tag.slug` @unique** — different tag *names* can slugify to the same slug
+  (e.g. "Winter 2026" / "Winter_2026"), and the upsert keyed on `name`. Fix: key
+  the tag upsert on `slug`, wrap in try/catch to skip a bad tag.
+
+Both are general (not suhu-specific) — any future brand could hit them. Resumable
+rehost proved out: madebyfade had 1 image fail mid-batch; a re-run uploaded just
+that one (skipped the 178 done) and a re-load filled the gallery.
+
+**Still open:** brand logos (next task), videos (empty), and `genderType` is
+heuristic per brand (suhu all-UNISEX, etc.) — refine in curate before real demos.

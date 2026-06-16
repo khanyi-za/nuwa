@@ -1,4 +1,4 @@
-# STATUS.md — Last updated 2026-06-15
+# STATUS.md — Last updated 2026-06-16
 
 > 🟢 **HANDOFF — next session start here.** Active work is the **Demo Catalogue
 > Importer** — a tool to pre-load target brands' Shopify catalogues (+ manually
@@ -7,8 +7,14 @@
 > `docs/demo-importer/demo-importer-foundation.md`. Business case:
 > `deploy_yiiva/business case/`.
 >
-> **✅ Phases 1 & 2 DONE (2026-06-15) — UNCOMMITTED.** New TS CLI at
-> `nuwa/tools/demo-importer/` (rides nuwa's toolchain, no new deps).
+> **✅ ALL 5 INITIAL BRANDS LIVE (2026-06-16).** sakanya, suhu, madebyfade,
+> embedded, tolthema all ACTIVE in the `yiiva_demo` DB, serving through demo nuwa
+> on **:3005** (A–Z directory + feed verified). Batch results + the two fixes:
+> foundation §17. **Phases 1–4 committed (`b874974`); everything since is
+> UNCOMMITTED** — `seed-demo` command, highlight caps in `curate.ts`, sku/tag
+> dedupe fixes in `load.ts`, foundation §15–§17, this file.
+> **NEXT TASK (user-queued): brand-logo scraping in Extract** (Store.logoUrl null).
+> New TS CLI at `nuwa/tools/demo-importer/` (rides nuwa's toolchain, no new deps).
 > - **Phase 1 `extract`** — fetches public Shopify `products.json`/
 >   `collections.json` → `data/<slug>/raw/` (gitignored). Assumption validated
 >   5/5 (sakanya, suhu, madebyfade, embedded, tolthema). Findings: foundation §11.
@@ -27,14 +33,26 @@
 >   images/banner/video (Cloudinary URLs from asset-map) + category/tag links.
 >   **Built + type-checks against the real schema; NOT run** (needs a real rehost
 >   asset-map + a live demo DB). Findings: foundation §14.
-> - Commands: `extract` / `transform` / `curate` / `rehost [--dry-run]` / `load`.
->   All 5 pipeline stages now implemented.
+> - **Phase 5 `seed-demo` + first brand live** — `yiiva_demo` DB created (Node/pg,
+>   no psql) + migrated + categories seeded; sakanya rehosted (41 imgs → Cloudinary
+>   yiiva-dev) + loaded (ACTIVE store, 5 products/19 variants/3 collections/5
+>   banners; login `sakanya@demo.yiiva.co.za`/`DemoPass1`). Demo nuwa booted on
+>   **:3005** (dev :3000 untouched) → verified sakanya serves via `/api/merchants`
+>   + `/api/products/feed?genderType=women`, images on `res.cloudinary.com/
+>   yiiva-dev/demo/sakanya/...`. Findings + runbook: foundation §15/§16.
+> - **Batch (2026-06-16)** — all 5 brands loaded (highlight caps 40 products/5
+>   imgs added to `curate.ts`; sku + tag-slug dedupe fixes in `load.ts`). Counts +
+>   fixes: foundation §17. Demo nuwa :3005 serves all 5 (A–Z verified).
+> - Commands: `extract` / `transform` / `curate` / `rehost [--dry-run]` / `load`
+>   / `seed-demo`. Full pipeline run end-to-end on 5 brands.
 >
-> **▶ NEXT: Phase 5 (first end-to-end brand)** — (1) run real Cloudinary uploads
-> (`rehost`, awaiting go-ahead), (2) stand up local demo Postgres + `prisma
-> migrate` + seed platform Category tree, (3) `load` one brand, (4) point local
-> nuwa/maya/athena at the demo DB and eyeball the brand live. Optional polish:
-> per-product image cap (foundation §13); `brew install yt-dlp` before first reel.
+> **▶ NEXT:** (1) **brand-logo scraping in Extract** (user-queued — `Store.logoUrl`
+> null; grab homepage `og:image`/logo, thread through manifest→load). (2) **commit**
+> the uncommitted pile. (3) **View in apps** — maya/athena target :3000; repoint
+> at :3005 or boot demo on :3000. (4) **Polish**: `genderType` curation per brand
+> (heuristic), `brew install yt-dlp` + reel URLs for video, scale to the full ~50
+> (expect some non-Shopify §8 fallbacks). Demo nuwa on :3005 is a bg process —
+> stop with `lsof -ti :3005 | xargs kill`.
 >
 > **Uncommitted on `main`:** `tools/demo-importer/` (new), `package.json`
 > (import script), `docs/demo-importer/demo-importer-foundation.md`, this file.
