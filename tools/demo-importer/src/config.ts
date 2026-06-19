@@ -52,6 +52,16 @@ export const HTTP = {
   pageSize: 250, // Shopify's max for *.json endpoints
 };
 
+/**
+ * yt-dlp auth for Instagram reels (which block anonymous downloads). Set ONE:
+ *   IMPORTER_YTDLP_COOKIES_FROM_BROWSER=chrome   (reads a logged-in browser)
+ *   IMPORTER_YTDLP_COOKIES_FILE=/path/cookies.txt
+ */
+export const YTDLP = {
+  cookiesFromBrowser: process.env.IMPORTER_YTDLP_COOKIES_FROM_BROWSER ?? '',
+  cookiesFile: process.env.IMPORTER_YTDLP_COOKIES_FILE ?? '',
+};
+
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 export function assertValidSlug(slug: string): void {

@@ -53,6 +53,7 @@ Usage:
 
 Commands:
   extract   <brandSlug> --url <storefront>   Fetch public Shopify catalogue → data/<slug>/raw/   [Phase 1]
+            [--logo-only]                       …or just (re)fetch the homepage logo → storefront.json
   transform <brandSlug>                       Normalise raw → manifest.json                       [Phase 2]
   curate    <brandSlug>                        Bootstrap/validate curated.json (manual edit)       [Phase 3]
   rehost    <brandSlug> [--dry-run]            Upload images/videos to Cloudinary (resumable)      [Phase 3]
@@ -72,10 +73,10 @@ async function main(): Promise<void> {
       const slug = positionals[0];
       const url = flags.url;
       if (!slug || !url) {
-        log.error('Usage: extract <brandSlug> --url <storefront>');
+        log.error('Usage: extract <brandSlug> --url <storefront> [--logo-only]');
         process.exit(1);
       }
-      await runExtract({ slug, url });
+      await runExtract({ slug, url, logoOnly: flags['logo-only'] === 'true' });
       break;
     }
     case 'transform': {

@@ -487,3 +487,93 @@ that one (skipped the 178 done) and a re-load filled the gallery.
 
 **Still open:** brand logos (next task), videos (empty), and `genderType` is
 heuristic per brand (suhu all-UNISEX, etc.) — refine in curate before real demos.
+
+---
+
+## 18. Brand logos (2026-06-16)
+
+Shopify exposes no logo in `products.json`, so added homepage scraping.
+
+- **`src/shopify/storefront.ts`** — `fetchStorefront(baseUrl)` parses the homepage
+  HTML for logo candidates in priority order: a header `<img>` whose tag mentions
+  "logo" (class/src/alt) → `og:image` → `apple-touch-icon`. URLs normalised to
+  absolute https. Returns `{ title, logoCandidates[] }`.
+- **Extract** writes `raw/storefront.json`; a `--logo-only` flag (re)fetches just
+  the homepage (one request) without re-running the slow catalogue extract — used
+  to backfill brands already extracted.
+- **Transform** sets `store.logoSourceUrl = logoCandidates[0]`. Rehost + Load
+  already carried the logo through (`collectJobs` → `Store.logoUrl`), so no change
+  there.
+
+**Result — all 5 backfilled, logos live as Cloudinary URLs:** the `logo-img`
+heuristic found a real logo on all 5 (sakanya `SAKANYA_LOGO`, suhu `SUHU_LOGO`,
+madebyfade `LOGO_2`, embedded `Photoroom_...`, tolthema `1000631324.png` — caught
+via the tag's class/alt). `/api/merchants` now returns a
+`res.cloudinary.com/yiiva-dev/...` logo for every brand. Future brands get logos
+automatically through the normal `extract → transform` flow.
+
+**Operator override:** if a brand's homepage yields a hero instead of the mark
+(og:image fallback), edit `store.logoSourceUrl` in `curated.json` before rehost.
+
+---
+
+## 19. Video path validated (2026-06-16)
+
+`yt-dlp` installed (2026.06.09, + ffmpeg). Added Chrome-cookie support to rehost
+(`YTDLP` config in `config.ts` → `--cookies-from-browser`/`--cookies`; set
+`IMPORTER_YTDLP_COOKIES_FROM_BROWSER=chrome` at run time).
+
+**End-to-end proof (sakanya, 1 hero reel):**
+- Pasted `https://www.instagram.com/reel/DZacNqAohSY/` into curated.json `videos[]`
+  as `{ target: hero }`.
+- `rehost` (Chrome cookies) → yt-dlp extracted 3,381 cookies, downloaded the reel
+  (video+audio, ffmpeg-merged to mp4), uploaded to Cloudinary `video/upload`. No
+  keychain block. Images skipped (resumable).
+- `load` → `StoreBannerMedia[0]` = VIDEO (cover), 4 images behind it.
+- `GET /api/merchants/sakanya` → `heroMedia[0]` is the `res.cloudinary.com/
+  yiiva-dev/video/upload/...mp4` URL. maya screen 08 renders hero videos → plays.
+
+**Notes:**
+- `heroMedia` is an array of URL strings (no type field) — maya detects video by
+  the `/video/upload/` path (or `.mp4`).
+- DI-8 video surfaces both confirmed reachable: hero (StoreBannerMedia) proven;
+  product gallery (ProductImage VIDEO, `videos[].target=product`) uses the same
+  rehost/load path — pair against a product slug from curated.json.
+
+**Next:** gather reel URLs per brand (hero + product pairings), paste into each
+curated.json `videos[]`, rehost+load. Run rehost with the cookies env var.
+
+---
+
+## 20. Video population — all 6 brands (2026-06-19)
+
+Operator supplied reel URLs in `data/hero_and_product_videos.xlsx` (hero per
+brand; product reels for select products only). Parsed with Python stdlib
+(zipfile + XML — no xlsx lib on the machine) → `data/hero_and_product_videos.json`,
+resolved product names → slugs, injected into each `curated.json` `videos[]`,
+then rehost (Chrome cookies) + load.
+
+**26 videos placed (16 hero + 10 product), all verified:**
+| Brand | hero | product reels |
+|---|---|---|
+| sakanya | 2 | elle-gown, lia-mini-dress, athena-dress, anaya-dress |
+| madebyfade | 3 | — |
+| suhu | 2 | bafana-football-jersey, eye-logo-t-shirt-white |
+| tolthema | 4 | the-sleek-set, the-grace-coat, nontsikelelo-xhosa-boubou, barbie-snatched-kimono |
+| embedded | 2 | — |
+| fieldsstore | 3 | — |
+
+Name-resolution catches worth noting: "Ayana Maxi Dress" = `anaya-dress` (spelling
+variant); 3 video-paired products (sakanya `athena-dress`, tolthema
+`barbie-snatched-kimono` + `nontsikelelo-xhosa-boubou`) had been dropped by the
+40-product cap → **force-included** so their reels had a product to attach to.
+No Instagram rate-limiting across 26 downloads with cookies. fieldsstore's 1
+persistent failure is the cosmetic collection-cover image, not a video.
+
+**⚠️ Scaling hurdle (operator-flagged):** sourcing *product* reels means manually
+hunting each brand's Instagram for a clip of a specific product — slow, and why
+only select products got videos. Hero reels are quick (one per brand); product
+pairing is the bottleneck at ~50 brands. This is exactly the trade-off DI-7
+accepted (manual over scraping/CLIP matching). If it becomes a real blocker at
+scale, revisit the automated-pairing option from the original §"secondary script"
+discussion. For now: heroes everywhere, product videos opportunistically.

@@ -4,6 +4,7 @@ import * as path from 'path';
 import { HTTP, assertValidSlug, brandDir, rawDir } from '../config';
 import { asJson, httpGet, sleep } from '../http';
 import { log } from '../logger';
+import { fetchStorefront } from '../shopify/storefront';
 import type {
   ShopifyCollection,
   ShopifyCollectionsResponse,
@@ -14,6 +15,7 @@ import type {
 interface ExtractArgs {
   slug: string;
   url: string;
+  logoOnly?: boolean;
 }
 
 interface ExtractMeta {
@@ -78,11 +80,29 @@ async function fetchAllPages<T>(
   return { items, pages: page - 1 };
 }
 
-export async function runExtract({ slug, url }: ExtractArgs): Promise<void> {
+async function captureStorefront(baseUrl: string, dir: string): Promise<void> {
+  try {
+    const meta = await fetchStorefront(baseUrl);
+    writeJson(dir, 'storefront.json', meta);
+    const logo = meta.logoCandidates[0];
+    if (logo) log.ok(`logo (${logo.source}): ${logo.url.slice(0, 70)}`);
+    else log.warn('no logo candidate found on the homepage');
+  } catch (err) {
+    log.warn(`storefront/logo fetch failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+export async function runExtract({ slug, url, logoOnly = false }: ExtractArgs): Promise<void> {
   assertValidSlug(slug);
   const baseUrl = normalizeBase(url);
   const dir = rawDir(slug);
   fs.mkdirSync(dir, { recursive: true });
+
+  if (logoOnly) {
+    log.step(`Extract (logo only): ${slug} (${baseUrl})`);
+    await captureStorefront(baseUrl, dir);
+    return;
+  }
 
   log.step(`Extract: ${slug} (${baseUrl})`);
 
@@ -135,7 +155,10 @@ export async function runExtract({ slug, url }: ExtractArgs): Promise<void> {
   }
   writeJson(dir, 'collection-membership.json', membership);
 
-  // 4. Counts + meta.
+  // 4. Storefront homepage → logo candidates + title.
+  await captureStorefront(baseUrl, dir);
+
+  // 5. Counts + meta.
   const variants = products.reduce((n, x) => n + (x.variants?.length ?? 0), 0);
   const images = products.reduce((n, x) => n + (x.images?.length ?? 0), 0);
   const meta: ExtractMeta = {

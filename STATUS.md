@@ -7,13 +7,15 @@
 > `docs/demo-importer/demo-importer-foundation.md`. Business case:
 > `deploy_yiiva/business case/`.
 >
-> **✅ ALL 5 INITIAL BRANDS LIVE (2026-06-16).** sakanya, suhu, madebyfade,
-> embedded, tolthema all ACTIVE in the `yiiva_demo` DB, serving through demo nuwa
-> on **:3005** (A–Z directory + feed verified). Batch results + the two fixes:
-> foundation §17. **Phases 1–4 committed (`b874974`); everything since is
-> UNCOMMITTED** — `seed-demo` command, highlight caps in `curate.ts`, sku/tag
-> dedupe fixes in `load.ts`, foundation §15–§17, this file.
-> **NEXT TASK (user-queued): brand-logo scraping in Extract** (Store.logoUrl null).
+> **✅ 6 BRANDS LIVE (2026-06-17).** sakanya, suhu, madebyfade, embedded,
+> tolthema + **fieldsstore** (added 2026-06-17: 40 products, F I E L D S, login
+> `fieldsstore@demo.yiiva.co.za`/`DemoPass1`) all ACTIVE in the `yiiva_demo` DB,
+> serving through demo nuwa on **:3005** (A–Z directory + feed verified), **each
+> with a real brand logo** (Cloudinary). (fieldsstore: 1 collection cover image
+> won't upload — cosmetic, products unaffected.) Batch + fixes: foundation §17; logos: §18. **Phases 1–4 committed
+> (`b874974`); everything since is UNCOMMITTED** — `seed-demo` command, highlight
+> caps (`curate.ts`), sku/tag dedupe (`load.ts`), logo scraper (`storefront.ts` +
+> `extract.ts --logo-only` + `transform.ts`), foundation §15–§18, this file.
 > New TS CLI at `nuwa/tools/demo-importer/` (rides nuwa's toolchain, no new deps).
 > - **Phase 1 `extract`** — fetches public Shopify `products.json`/
 >   `collections.json` → `data/<slug>/raw/` (gitignored). Assumption validated
@@ -46,13 +48,33 @@
 > - Commands: `extract` / `transform` / `curate` / `rehost [--dry-run]` / `load`
 >   / `seed-demo`. Full pipeline run end-to-end on 5 brands.
 >
-> **▶ NEXT:** (1) **brand-logo scraping in Extract** (user-queued — `Store.logoUrl`
-> null; grab homepage `og:image`/logo, thread through manifest→load). (2) **commit**
-> the uncommitted pile. (3) **View in apps** — maya/athena target :3000; repoint
-> at :3005 or boot demo on :3000. (4) **Polish**: `genderType` curation per brand
-> (heuristic), `brew install yt-dlp` + reel URLs for video, scale to the full ~50
-> (expect some non-Shopify §8 fallbacks). Demo nuwa on :3005 is a bg process —
-> stop with `lsof -ti :3005 | xargs kill`.
+> **▶ VIDEOS POPULATED — ALL 6 BRANDS (2026-06-19, foundation §19/§20).**
+> yt-dlp+ffmpeg installed; rehost takes Chrome cookies
+> (`IMPORTER_YTDLP_COOKIES_FROM_BROWSER=chrome`). Operator's
+> `data/hero_and_product_videos.xlsx` parsed → 26 videos placed (16 hero + 10
+> product), all verified via API. Hero on all 6; product reels on sakanya(4),
+> suhu(2), tolthema(4). Hurdle noted: manual product-reel sourcing is the §20
+> bottleneck at scale.
+>
+> **▶ DEMO ACCOUNTS SEEDED (2026-06-19):** yiiva_demo now has 6 merchants +
+> 1 buyer (`khanyi@yiiva.co.za`) + 1 admin (`khanyisomthamo2@gmail.com`) — both
+> login-verified via :3005. Buyer enables maya cart/checkout/bookmarks; admin
+> enables athena /admin. (Buyer email matches the ayana dev MERCHANT, but here
+> it's a BUYER in a different DB — no conflict.)
+>
+> **▶ APPS WIRED TO DEMO (2026-06-19):** maya + athena now point at the demo
+> backend on :3005 via env. maya: `EXPO_PUBLIC_API_URL` (new `maya/.env`;
+> `api-client.ts`/`api.ts` made env-driven, :3000 fallback kept). athena
+> `.env.local`: `API_URL`+`NEXT_PUBLIC_API_URL`=:3005 (Cloudinary already
+> yiiva-dev). Restart Metro (`expo start -c`) + `next dev` to pick up. Demo nuwa
+> must be running on :3005.
+>
+> **▶ NEXT:** (1) **commit** the uncommitted pile (nuwa). (2) **Run the apps** —
+> `expo start -c` (maya) + `npm run dev` (athena); videos play on merchant hero +
+> product gallery. (3) `genderType` curate pass (suhu/fields
+> all-UNISEX). (4) **Scale to ~50** (expect non-Shopify §8 fallbacks; product-reel
+> sourcing is the slow part). Demo nuwa on :3005 is a bg process — stop with
+> `lsof -ti :3005 | xargs kill`.
 >
 > **Uncommitted on `main`:** `tools/demo-importer/` (new), `package.json`
 > (import script), `docs/demo-importer/demo-importer-foundation.md`, this file.

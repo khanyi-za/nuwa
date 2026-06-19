@@ -30,6 +30,10 @@ interface ExtractMeta {
   baseUrl: string;
   probeOk: boolean;
 }
+interface StorefrontMeta {
+  title: string | null;
+  logoCandidates: { source: string; url: string }[];
+}
 
 function readJson<T>(file: string): T {
   return JSON.parse(fs.readFileSync(file, 'utf8')) as T;
@@ -128,6 +132,11 @@ export async function runTransform({ slug }: { slug: string }): Promise<void> {
   const products = readJson<ShopifyProduct[]>(path.join(raw, 'products.json'));
   const collections = readJson<ShopifyCollection[]>(path.join(raw, 'collections.json'));
   const membership = readJson<Membership>(path.join(raw, 'collection-membership.json'));
+  const storefrontFile = path.join(raw, 'storefront.json');
+  const storefront: StorefrontMeta | null = fs.existsSync(storefrontFile)
+    ? readJson<StorefrontMeta>(storefrontFile)
+    : null;
+  const logoSourceUrl = storefront?.logoCandidates[0]?.url ?? null;
 
   // Shopify product id → YIIVA slug (handle), to translate membership id-lists.
   const idToSlug = new Map<number, string>();
@@ -188,7 +197,7 @@ export async function runTransform({ slug }: { slug: string }): Promise<void> {
       slug,
       description: null, // operator may add in curate
       websiteUrl: meta.baseUrl,
-      logoSourceUrl: null, // added in curate / later homepage scrape
+      logoSourceUrl, // from storefront.json homepage scrape (null if none found)
     },
     collections: manifestCollections,
     products: manifestProducts,
@@ -206,6 +215,7 @@ export async function runTransform({ slug }: { slug: string }): Promise<void> {
 
   log.step('Transform summary');
   log.ok(`store displayName:  ${displayName}`);
+  log.ok(`store logo:         ${logoSourceUrl ? logoSourceUrl.slice(0, 60) : 'none found'}`);
   log.ok(`products:           ${manifestProducts.length} (${included} pre-included)`);
   log.ok(`gender:             W ${gender.WOMEN} / M ${gender.MEN} / U ${gender.UNISEX}`);
   log.ok(`bare vs variant:    ${bareCount} bare / ${manifestProducts.length - bareCount} with variants`);

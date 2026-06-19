@@ -6,6 +6,7 @@ import * as path from 'path';
 import { v2 as cloudinary } from 'cloudinary';
 
 import {
+  YTDLP,
   assetMapPath,
   assetsDir,
   assertValidSlug,
@@ -77,12 +78,19 @@ function ensureYtDlp(): void {
   }
 }
 
+function ytDlpAuthArgs(): string[] {
+  if (YTDLP.cookiesFromBrowser) return ['--cookies-from-browser', YTDLP.cookiesFromBrowser];
+  if (YTDLP.cookiesFile) return ['--cookies', YTDLP.cookiesFile];
+  return [];
+}
+
 function downloadVideo(slug: string, key: string, url: string): string {
   const dir = assetsDir(slug);
   fs.mkdirSync(dir, { recursive: true });
   const base = createHash('sha1').update(key).digest('hex').slice(0, 16);
   const outTmpl = path.join(dir, `${base}.%(ext)s`);
-  execFileSync('yt-dlp', ['--no-playlist', '--quiet', '-o', outTmpl, url], { stdio: 'inherit' });
+  const args = ['--no-playlist', '--no-warnings', ...ytDlpAuthArgs(), '-o', outTmpl, url];
+  execFileSync('yt-dlp', args, { stdio: 'inherit' });
   const produced = fs.readdirSync(dir).find((f) => f.startsWith(base));
   if (!produced) throw new Error(`yt-dlp produced no file for ${url}`);
   return path.join(dir, produced);
