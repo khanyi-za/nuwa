@@ -9,6 +9,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CheckoutService } from '../../order/checkout/checkout.service';
 import { BuyerOrdersService } from '../../order/buyer-orders/buyer-orders.service';
 import { BuyerCancelReason } from '../../order/dto/buyer-cancel-order.dto';
+import { decodeCursor, encodeCursor } from '../common/cursor';
+import { Paginated } from '../common/paginated';
 import { vatIncludedPortion } from '../common/tax';
 import { PlaceOrderDto } from './dto/place-order.dto';
 import {
@@ -46,6 +48,78 @@ export class MobileOrdersService {
     private readonly checkout: CheckoutService,
     private readonly buyerOrders: BuyerOrdersService,
   ) {}
+
+  /**
+   * GET /api/orders — the buyer's order history (Account → My Orders).
+   * Lists consolidated maya orders (= PaymentGroups), newest first,
+   * cursor-paginated on the PaymentGroup id so each row's `id` feeds the
+   * existing detail/cancel/tracking endpoints. A group belongs to the buyer
+   * when any of its child orders does (one buyer per checkout).
+   */
+  async listOrders(userId: string, opts: { limit: number; cursor?: string }) {
+    const groups = await this.prisma.paymentGroup.findMany({
+      where: { payments: { some: { order: { userId } } } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: opts.limit + 1,
+      ...(opts.cursor
+        ? { cursor: { id: decodeCursor(opts.cursor) }, skip: 1 }
+        : {}),
+      select: {
+        id: true,
+        status: true,
+        amountGrossInCents: true,
+        createdAt: true,
+        payments: {
+          select: {
+            order: {
+              select: {
+                orderNumber: true,
+                status: true,
+                placedAt: true,
+                store: { select: { displayName: true } },
+                items: {
+                  orderBy: { createdAt: 'asc' },
+                  select: { quantity: true, productImageUrl: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const hasMore = groups.length > opts.limit;
+    const page = hasMore ? groups.slice(0, opts.limit) : groups;
+    const nextCursor = hasMore ? encodeCursor(page[page.length - 1].id) : null;
+
+    const orders = page.map((g) => {
+      const childOrders = g.payments.map((p) => p.order);
+      const rep = childOrders[0];
+      const allItems = childOrders.flatMap((o) => o.items);
+      const itemCount = allItems.reduce((n, it) => n + it.quantity, 0);
+      const storeNames = [...new Set(childOrders.map((o) => o.store.displayName))];
+      return {
+        id: g.id,
+        orderNumber: rep?.orderNumber ?? '',
+        status: mapMobileOrderStatus(
+          g.status,
+          childOrders.map((o) => o.status),
+        ),
+        itemCount,
+        total: g.amountGrossInCents,
+        currency: 'ZAR',
+        placedAt: rep?.placedAt ?? g.createdAt,
+        storeName: storeNames[0] ?? '',
+        storeCount: storeNames.length,
+        image: allItems.find((it) => it.productImageUrl)?.productImageUrl ?? null,
+      };
+    });
+
+    return new Paginated(
+      { orders },
+      { limit: opts.limit, nextCursor, hasMore },
+    );
+  }
 
   /**
    * POST /api/orders — auth-required delivery checkout. Reuses the web

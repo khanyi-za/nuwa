@@ -18,6 +18,8 @@ import { MobileOrdersController } from './orders/mobile-orders.controller';
 import { MobileOrdersService } from './orders/mobile-orders.service';
 import { MobileSearchController } from './search/mobile-search.controller';
 import { MobileSearchService } from './search/mobile-search.service';
+import { MobileNotificationsController } from './notifications/mobile-notifications.controller';
+import { MobileNotificationsService } from './notifications/mobile-notifications.service';
 
 /**
  * Buyer/mobile API surface (maya, Expo/RN). All routes are under the `/api`
@@ -43,6 +45,7 @@ import { MobileSearchService } from './search/mobile-search.service';
     MobileOrdersController,
     MobileSearchController,
     MobileMeController,
+    MobileNotificationsController,
   ],
   providers: [
     MobileCategoriesService,
@@ -54,6 +57,7 @@ import { MobileSearchService } from './search/mobile-search.service';
     MobileCheckoutService,
     MobileOrdersService,
     MobileSearchService,
+    MobileNotificationsService,
   ],
 })
 export class MobileModule {}

@@ -1,6 +1,80 @@
-# STATUS.md — Last updated 2026-06-16
+# STATUS.md — Last updated 2026-06-22
 
-> 🟢 **HANDOFF — next session start here.** Active work is the **Demo Catalogue
+> 🟢 **HANDOFF — next session start here.** This session (2026-06-22) shipped the
+> **My Orders** screen, the **Notifications module (Phase A+B)**, and ran the
+> **PayFast sandbox smoke test end-to-end** — all against the demo env. Detail
+> below; the older Demo-Importer handoff follows further down (still valid).
+>
+> ## 2026-06-22 — My Orders + Notifications + PayFast smoke test ✅
+>
+> **All work is on the demo env: nuwa :3005 → `yiiva_demo` DB, maya → :3005.**
+> **Backend 776 tests / 53 suites green, tsc clean. maya tsc clean (pre-existing
+> VideoCard error only). NOTHING COMMITTED YET — working trees dirty in both
+> nuwa + maya.**
+>
+> **▶ MY ORDERS (new):** `GET /api/orders` — buyer order history, lists
+> **consolidated PaymentGroups** (row `id` = paymentGroupId, so it feeds the
+> existing detail/cancel/tracking endpoints), cursor-paginated, newest first.
+> nuwa: `mobile/orders/` (dto + service `listOrders` + controller + 2 specs).
+> maya: `getOrders`/`OrderListItem` (api-client), `useOrders` hook, **new
+> `app/orders.tsx`** (status chips, relative dates, infinite scroll), **new
+> `app/account.tsx`** (signed-in hub: profile + view-only addresses + sign out;
+> "My orders" row → `/orders`). SideMenu "Account" link now resolves.
+> maya doc `docs/api/orders.md §3` filled in.
+>
+> **▶ NOTIFICATIONS MODULE (Phase A+B, new — the mobile-launch blocker):**
+> - **A (emails + inbox rows):** new `@Global` `src/notifications/`
+>   (`NotificationsService` orchestrator + `PushService`). Best-effort dispatch
+>   (inbox row + Resend email + Expo push; a failure NEVER breaks the calling
+>   flow). 5 order email templates + generic `EmailService.send`. Wired into:
+>   payments-notify (confirmed/failed), shipping-webhook (shipped/delivered, only
+>   on real CAS transitions), buyer-orders + admin-orders (cancel), admin refund.
+>   `NotificationType` enum reused — no enum change. `data.orderId` = PaymentGroup
+>   id for deep-linking.
+> - **B (push + inbox surface):** new `PushToken` model + migration
+>   `20260622122857_add_push_tokens` (**applied to BOTH `ayana` + `yiiva_demo`**).
+>   `PushService` → Expo push API (prunes DeviceNotRegistered). New mobile
+>   endpoints on `api/me`: `GET notifications` (+ unreadCount), `unread-count`,
+>   `PATCH :id/read`, `POST read-all`, `POST/DELETE push-tokens` — in
+>   `src/mobile/notifications/`. maya: `expo-notifications`+`expo-device`
+>   installed, `lib/push.ts` (guarded — no-ops in Expo Go / simulator),
+>   api-client fns, `useNotificationQueries`, **new `app/notifications.tsx`**
+>   inbox, `YiivaHeader` bell + unread badge (Home + Shop), tap→order routing,
+>   register-on-auth / unregister-on-logout.
+> - **⚠️ Push DELIVERY is untestable in Expo Go / iOS Simulator** (no APNs / SDK
+>   53 dropped push from Expo Go). Emails + in-app inbox work everywhere; push
+>   delivery needs a dev build on a physical device. Code is complete + guarded.
+>
+> **▶ PAYFAST SANDBOX SMOKE TEST — PASSED end-to-end (first time ever):**
+> Bug found + fixed: maya sent `yiivaapp://` custom-scheme `return_url`/`cancel_url`
+> → PayFast 400 "url format invalid". Fixed `checkout.tsx` + `payfast.tsx` to use
+> an **https sentinel** (`https://yiiva.co.za/payment-return?status=…`) the WebView
+> intercepts (`onShouldStartLoadWithRequest` returns false; page never loads).
+> Then: checkout → PayFast sandbox → **ITN delivered via ngrok (`POST
+> /payments/notify → 200`)** → PaymentGroup COMPLETED (`pfPaymentId=3234528`) →
+> Order **CONFIRMED** (`YV-2026-W4413`, R2795) → `ORDER_CONFIRMED` notification
+> written (verified in inbox API, marked-read on-device) → confirmation email
+> dispatched (no errors; `yiiva.co.za` verified in Resend). My Orders shows it.
+>
+> **▶ SMOKE-TEST RUNBOOK (to repeat payments):** (1) `ngrok http 3005`, grab the
+> https URL. (2) restart :3005 with `PAYFAST_NOTIFY_URL=https://<id>/payments/notify`
+> (env override only — `.env` still says localhost:3000; keep `yiiva_demo` +
+> skip-IP-check). (3) maya `expo start -c`, sign in `khanyi@yiiva.co.za` /
+> `khanyi@Suhu26`, checkout → complete sandbox payment. ngrok currently STOPPED.
+>
+> **▶ DEMO-DATA NOTE:** `yiiva_demo` now has 1 real CONFIRMED order
+> (`YV-2026-W4413`) plus a few stray PENDING/CANCELLED orders from the pre-fix
+> 400-error retries (harmless; PENDING auto-expires via the 30-min cron).
+>
+> **▶ NEXT:** commit this session's work (nuwa + maya); push-notification
+> delivery test on a physical dev build; optional genderType curate pass +
+> stray-order cleanup. Older backlog below.
+>
+> ---
+>
+> ## 2026-06-19 handoff (Demo Importer — still valid)
+>
+> 🟢 Active work was the **Demo Catalogue
 > Importer** — a tool to pre-load target brands' Shopify catalogues (+ manually
 > supplied IG videos) into a LOCAL demo env, for personalised in-person sales
 > demos (client-acquisition strategy, ~50 brands). Design + locked decisions:
@@ -12,10 +86,9 @@
 > `fieldsstore@demo.yiiva.co.za`/`DemoPass1`) all ACTIVE in the `yiiva_demo` DB,
 > serving through demo nuwa on **:3005** (A–Z directory + feed verified), **each
 > with a real brand logo** (Cloudinary). (fieldsstore: 1 collection cover image
-> won't upload — cosmetic, products unaffected.) Batch + fixes: foundation §17; logos: §18. **Phases 1–4 committed
-> (`b874974`); everything since is UNCOMMITTED** — `seed-demo` command, highlight
-> caps (`curate.ts`), sku/tag dedupe (`load.ts`), logo scraper (`storefront.ts` +
-> `extract.ts --logo-only` + `transform.ts`), foundation §15–§18, this file.
+> won't upload — cosmetic, products unaffected.) Batch + fixes: foundation §17;
+> logos §18; videos §19/§20; maya codec fix §21. **ALL COMMITTED (2026-06-19) —
+> working trees clean:** nuwa `e5d1ee0`, maya `2e362a1`, athena `dda76a8`.
 > New TS CLI at `nuwa/tools/demo-importer/` (rides nuwa's toolchain, no new deps).
 > - **Phase 1 `extract`** — fetches public Shopify `products.json`/
 >   `collections.json` → `data/<slug>/raw/` (gitignored). Assumption validated
@@ -69,20 +142,36 @@
 > yiiva-dev). Restart Metro (`expo start -c`) + `next dev` to pick up. Demo nuwa
 > must be running on :3005.
 >
-> **▶ NEXT:** (1) **commit** the uncommitted pile (nuwa). (2) **Run the apps** —
-> `expo start -c` (maya) + `npm run dev` (athena); videos play on merchant hero +
-> product gallery. (3) `genderType` curate pass (suhu/fields
-> all-UNISEX). (4) **Scale to ~50** (expect non-Shopify §8 fallbacks; product-reel
-> sourcing is the slow part). Demo nuwa on :3005 is a bg process — stop with
-> `lsof -ti :3005 | xargs kill`.
+> **▶ MAYA VIDEO FIX (2026-06-19, foundation §21):** Instagram reels download as
+> VP9, which iOS AVPlayer (expo-video) can't decode → videos silently didn't
+> play. Fixed in `maya/lib/image-source.ts` — inserts Cloudinary `vc_h264`
+> transform so video URLs deliver H.264 (transcode-on-delivery, cached after
+> first hit). Fixes BOTH product-gallery + merchant-hero video; images/local
+> assets untouched; idempotent. NOT simulator-verified by Claude — confirm on
+> reload (first play of each video lags ~1-2s while Cloudinary transcodes).
 >
-> **Uncommitted on `main`:** `tools/demo-importer/` (new), `package.json`
-> (import script), `docs/demo-importer/demo-importer-foundation.md`, this file.
+> **▶ TO RUN THE DEMO (all local):** (1) demo nuwa on :3005 — `PORT=3005
+> DATABASE_URL=<yiiva_demo url> npm run start` from nuwa (derive the demo URL
+> from `.env` by swapping the db name `ayana`→`yiiva_demo`; dev :3000 untouched).
+> (2) maya: `expo start -c` (reads `maya/.env` → `EXPO_PUBLIC_API_URL=:3005`).
+> (3) athena: `npm run dev` (`.env.local` → :3005). **Logins:** buyer
+> `khanyi@yiiva.co.za`/`khanyi@Suhu26`; admin
+> `khanyisomthamo2@gmail.com`/`khanyi@Admin26`; merchants
+> `<slug>@demo.yiiva.co.za`/`DemoPass1`. Stop demo nuwa: `lsof -ti :3005 | xargs kill`.
 >
-> **Older backend track (unchanged, still pending):** PayFast ITN smoke (ngrok),
-> then the Notifications module (launch blocker). Backend last green at 765
-> tests / 52 suites; last commit `7ee5af4`. `chat_attachment` Cloudinary preset
-> already created.
+> **▶ NEXT (demo track):** (a) `genderType` curate pass — suhu + fieldsstore came
+> out all-UNISEX (browse still works; UNISEX shows in both feeds). (b) optional:
+> hero videos past the cover don't autoplay on swipe (maya `HeroMediaItem` only
+> play()s at player creation — small follow-up). (c) seed a buyer address so
+> checkout has a delivery target. (d) **Scale toward ~50 brands** (expect some
+> non-Shopify §8 fallbacks; manual product-reel sourcing is the §20 bottleneck).
+> (e) fieldsstore: 1 collection cover image won't upload (cosmetic). All demo
+> env/runbook/accounts detail: foundation §15–§21.
+>
+> **▶ OTHER BACKEND TRACK (unchanged, pending — separate from the demo push):**
+> PayFast ITN sandbox smoke (ngrok), then the Notifications module (the real
+> mobile-launch blocker). Backend last green at 765 tests / 52 suites.
+> `chat_attachment` Cloudinary preset already created.
 
 ## Frontend integration session (2026-06-11) — what happened in/to nuwa
 

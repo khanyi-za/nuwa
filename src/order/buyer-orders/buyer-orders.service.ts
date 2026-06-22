@@ -8,6 +8,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BuyerOrderQueryDto } from '../dto/buyer-order-query.dto';
 import { BuyerCancelOrderDto, BuyerCancelReason } from '../dto/buyer-cancel-order.dto';
 import { ShipmentCancellationService } from '../../shipping/shipment-cancellation.service';
+import { NotificationsService } from '../../notifications/notifications.service';
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
@@ -86,6 +87,7 @@ export class BuyerOrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly shipmentCancellation: ShipmentCancellationService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -266,6 +268,9 @@ export class BuyerOrdersService {
     // — the local cancel is authoritative; ShipLogic-side errors become an
     // ops reconciliation surface, not a buyer-facing failure.
     await this.shipmentCancellation.cancelShipmentForOrder(orderId);
+
+    // Best-effort buyer notification (inbox + email + push).
+    await this.notifications.orderCancelled(orderId);
 
     return updated;
   }

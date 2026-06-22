@@ -577,3 +577,36 @@ pairing is the bottleneck at ~50 brands. This is exactly the trade-off DI-7
 accepted (manual over scraping/CLIP matching). If it becomes a real blocker at
 scale, revisit the automated-pairing option from the original §"secondary script"
 discussion. For now: heroes everywhere, product videos opportunistically.
+
+---
+
+## 21. Video codec fix — VP9 → H.264 (2026-06-19)
+
+**Symptom:** videos didn't play in maya (product-detail gallery + merchant hero),
+despite the API returning correct `type: 'video'` items with valid Cloudinary
+URLs and maya's expo-video code being correct.
+
+**Root cause:** `yt-dlp` downloads Instagram's **VP9** DASH stream; ffmpeg muxes
+it into mp4 (VP9-in-mp4); Cloudinary serves it as-is. **iOS AVPlayer (expo-video
+on iOS) cannot decode VP9** → silent no-play. (Android decodes VP9, so it's
+iOS-only — but the fix is cross-platform.) Confirmed via `ffprobe`:
+`codec_name=vp9`.
+
+**Fix (delivery-side, no re-upload, no backend change):** Cloudinary transcodes
+on delivery when a codec transform is in the URL. `maya/lib/image-source.ts` now
+inserts `vc_h264` into any `/video/upload/` URL → Cloudinary delivers H.264 + AAC
+(verified `ffprobe codec_name=h264`, HTTP 200). One central change fixes both
+screens (both build sources via `imageSource`); image URLs + local assets
+untouched; idempotent. First request per video incurs a transcode delay, cached
+after.
+
+**Implication for the importer:** the stored Cloudinary URLs remain the raw VP9
+originals — the H.264 swap is a maya-side delivery transform. If another client
+ever consumes these videos, it must apply the same transform (or we re-encode at
+upload time with an eager transformation). For now, maya is the only consumer.
+
+**Related minor (not fixed):** maya's `HeroMediaItem` only calls `player.play()`
+in the `useVideoPlayer` setup (at creation), with no effect reacting to swipes —
+so only the cover hero video autoplays; swiping to a 2nd+ hero video won't start
+it. All demo brands have the hero video as the cover, so the reported issue is
+resolved; full swipe-autoplay is a small follow-up.

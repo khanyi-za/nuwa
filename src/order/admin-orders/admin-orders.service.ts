@@ -12,6 +12,7 @@ import { AdminOrderQueryDto } from '../dto/admin-order-query.dto';
 import { AdminCancelOrderDto, AdminCancelReason } from '../dto/admin-cancel-order.dto';
 import { AdminEditOrderDto } from '../dto/admin-edit-order.dto';
 import { AdminRefundOrderDto } from '../dto/admin-refund-order.dto';
+import { NotificationsService } from '../../notifications/notifications.service';
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
@@ -112,6 +113,7 @@ export class AdminOrdersService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(PAYMENT_SERVICE) private readonly paymentService: IPaymentService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -342,6 +344,8 @@ export class AdminOrdersService {
       select: { id: true, status: true },
     });
 
+    await this.notifications.orderCancelled(orderId);
+
     return updated;
   }
 
@@ -472,6 +476,8 @@ export class AdminOrdersService {
         select: { id: true, status: true },
       });
     });
+
+    await this.notifications.refund(orderId, dto.amountInCents, isFullRefund);
 
     return {
       ...updated,

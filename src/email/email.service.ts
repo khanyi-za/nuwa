@@ -254,4 +254,40 @@ export class EmailService {
       return { success: false, error: message };
     }
   }
+
+  /**
+   * Generic transactional send. The caller owns the subject + rendered HTML
+   * (e.g. the order email templates) so we don't grow a near-identical method
+   * per notification type. Never throws — returns the EmailResult like the
+   * dedicated senders above.
+   */
+  async send({
+    to,
+    subject,
+    html,
+  }: {
+    to: string;
+    subject: string;
+    html: string;
+  }): Promise<EmailResult> {
+    try {
+      const { data, error } = await this.resend.emails.send({
+        from: this.from,
+        to,
+        subject,
+        html,
+      });
+
+      if (error) {
+        this.logger.error(`Failed to send "${subject}" to ${to}: ${error.message}`);
+        return { success: false, error: error.message };
+      }
+
+      return { success: true, messageId: data?.id };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      this.logger.error(`Unexpected error sending "${subject}" to ${to}: ${message}`);
+      return { success: false, error: message };
+    }
+  }
 }

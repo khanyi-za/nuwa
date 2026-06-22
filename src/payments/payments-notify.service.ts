@@ -20,6 +20,7 @@ import { PayfastIpAllowlistService } from './payfast/payfast-ip-allowlist.servic
 import { phpUrlencode } from './payfast/url-encode';
 import { toPaymentStatus } from './payfast/payfast-types';
 import { ShipmentCreationService } from '../shipping/shipment-creation.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 /**
  * Allowed PaymentGroup status transitions.
@@ -77,6 +78,7 @@ export class PaymentsNotifyService {
     private readonly client: PayfastClient,
     private readonly ipAllowlist: PayfastIpAllowlistService,
     private readonly shipmentCreation: ShipmentCreationService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async handle(
@@ -357,6 +359,10 @@ export class PaymentsNotifyService {
           }
         }),
       );
+      // One order-confirmed notification per maya order (= PaymentGroup).
+      await this.notifications.orderConfirmed(group.id);
+    } else if (targetStatus === PaymentStatus.FAILED) {
+      await this.notifications.paymentFailed(group.id);
     }
   }
 

@@ -2,10 +2,15 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ShipLogicConfig } from './shiplogic/shiplogic-config';
 import { ShippingWebhookService } from './shipping-webhook.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const WAYBILL = 'VD3GLQ';
 const SHIPMENT_ID = 'shp-1';
 const SECRET = 'super-secret-token-xyz';
+
+const notifications = {
+  orderStatusChanged: jest.fn(),
+} as unknown as NotificationsService;
 
 function makeConfig(over: Partial<ShipLogicConfig> = {}): ShipLogicConfig {
   return {
@@ -62,6 +67,7 @@ describe('ShippingWebhookService', () => {
     service = new ShippingWebhookService(
       prisma as unknown as PrismaService,
       makeConfig(),
+      notifications,
     );
   });
 
@@ -81,6 +87,7 @@ describe('ShippingWebhookService', () => {
     service = new ShippingWebhookService(
       prisma as unknown as PrismaService,
       makeConfig({ webhookSecret: null } as Partial<ShipLogicConfig>),
+      notifications,
     );
     const out = await service.ingest({
       secret: SECRET,
@@ -96,6 +103,7 @@ describe('ShippingWebhookService', () => {
       makeConfig({
         webhookIpAllowlist: ['10.0.0.1'],
       } as Partial<ShipLogicConfig>),
+      notifications,
     );
     const out = await service.ingest({
       secret: SECRET,
@@ -111,6 +119,7 @@ describe('ShippingWebhookService', () => {
       makeConfig({
         webhookIpAllowlist: ['10.0.0.1'],
       } as Partial<ShipLogicConfig>),
+      notifications,
     );
     const out = await service.ingest({
       secret: SECRET,

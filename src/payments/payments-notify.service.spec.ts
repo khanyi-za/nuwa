@@ -8,6 +8,7 @@ import { PayfastSignatureService } from './payfast/payfast-signature.service';
 import { PayfastClient } from './payfast/payfast-client.service';
 import { PayfastIpAllowlistService } from './payfast/payfast-ip-allowlist.service';
 import { ShipmentCreationService } from '../shipping/shipment-creation.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
@@ -118,6 +119,10 @@ describe('PaymentsNotifyService', () => {
   const mockShipmentCreation = {
     createShipmentForOrder: jest.fn().mockResolvedValue({ id: 'shp-mock' }),
   };
+  const mockNotifications = {
+    orderConfirmed: jest.fn(),
+    paymentFailed: jest.fn(),
+  };
 
   beforeEach(async () => {
     const module = await Test.createTestingModule({
@@ -132,6 +137,7 @@ describe('PaymentsNotifyService', () => {
           provide: ShipmentCreationService,
           useValue: mockShipmentCreation,
         },
+        { provide: NotificationsService, useValue: mockNotifications },
       ],
     }).compile();
     service = module.get(PaymentsNotifyService);

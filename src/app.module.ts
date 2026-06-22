@@ -7,6 +7,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { EmailModule } from './email/email.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { AuthModule } from './auth/auth.module';
 import { StoreModule } from './store/store.module';
 import { ProductModule } from './product/product.module';
@@ -24,6 +25,7 @@ import { ChatModule } from './chat/chat.module';
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     PrismaModule,
     EmailModule,
+    NotificationsModule,
     AuthModule,
     StoreModule,
     ProductModule,

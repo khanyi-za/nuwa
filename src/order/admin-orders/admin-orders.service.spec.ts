@@ -7,6 +7,7 @@ import { OrderStatus } from '@prisma/client';
 import { AdminOrdersService } from './admin-orders.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PAYMENT_SERVICE } from '../contracts/payment-contract';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { AdminCancelReason } from '../dto/admin-cancel-order.dto';
 import { AdminRefundOrderDto } from '../dto/admin-refund-order.dto';
 
@@ -104,6 +105,11 @@ const mockPaymentService = {
   }),
 };
 
+const mockNotifications = {
+  orderCancelled: jest.fn(),
+  refund: jest.fn(),
+};
+
 // ─── Suite ─────────────────────────────────────────────────────────────────
 
 describe('AdminOrdersService', () => {
@@ -115,6 +121,7 @@ describe('AdminOrdersService', () => {
         AdminOrdersService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: PAYMENT_SERVICE, useValue: mockPaymentService },
+        { provide: NotificationsService, useValue: mockNotifications },
       ],
     }).compile();
 

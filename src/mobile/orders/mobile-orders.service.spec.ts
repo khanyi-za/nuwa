@@ -65,7 +65,9 @@ const groupRow = {
   ],
 };
 
-const mockPrisma = { paymentGroup: { findUnique: jest.fn() } };
+const mockPrisma = {
+  paymentGroup: { findUnique: jest.fn(), findMany: jest.fn() },
+};
 const mockCheckout = { commit: jest.fn() };
 const mockBuyerOrders = { cancelOrder: jest.fn() };
 
@@ -83,6 +85,62 @@ describe('MobileOrdersService', () => {
     }).compile();
     service = module.get(MobileOrdersService);
     jest.clearAllMocks();
+  });
+
+  describe('listOrders', () => {
+    // listOrders selects a leaner shape than getOrder — just what the card needs.
+    const listGroupRow = {
+      id: 'pg1',
+      status: PaymentStatus.COMPLETED,
+      amountGrossInCents: 226400,
+      createdAt: new Date('2026-06-05T14:23:00.000Z'),
+      payments: [
+        {
+          order: {
+            orderNumber: 'YV-2026-000142',
+            status: OrderStatus.CONFIRMED,
+            placedAt: new Date('2026-06-05T14:23:00.000Z'),
+            store: { displayName: "Tol'thema" },
+            items: [
+              { quantity: 2, productImageUrl: null },
+              { quantity: 1, productImageUrl: 'https://cdn.yiiva.co.za/1.jpg' },
+            ],
+          },
+        },
+      ],
+    };
+
+    it('consolidates a PaymentGroup into one order card, keyed on the group id', async () => {
+      mockPrisma.paymentGroup.findMany.mockResolvedValue([listGroupRow]);
+
+      const result = await service.listOrders('u1', { limit: 20 });
+
+      expect(result.data.orders).toHaveLength(1);
+      expect(result.data.orders[0]).toMatchObject({
+        id: 'pg1', // = paymentGroupId, so the card feeds GET /api/orders/:id
+        orderNumber: 'YV-2026-000142',
+        status: 'CONFIRMED',
+        itemCount: 3, // summed across line items
+        total: 226400,
+        storeName: "Tol'thema",
+        storeCount: 1,
+        image: 'https://cdn.yiiva.co.za/1.jpg', // first item with an image
+      });
+      expect(result.pagination).toMatchObject({ hasMore: false, nextCursor: null });
+    });
+
+    it('sets nextCursor when a full extra page row is returned', async () => {
+      mockPrisma.paymentGroup.findMany.mockResolvedValue([
+        listGroupRow,
+        { ...listGroupRow, id: 'pg2' },
+      ]);
+
+      const result = await service.listOrders('u1', { limit: 1 });
+
+      expect(result.data.orders).toHaveLength(1);
+      expect(result.pagination.hasMore).toBe(true);
+      expect(result.pagination.nextCursor).not.toBeNull();
+    });
   });
 
   describe('placeOrder', () => {

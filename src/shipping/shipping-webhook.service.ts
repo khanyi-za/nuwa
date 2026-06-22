@@ -4,6 +4,7 @@ import { OrderStatus, Prisma, ShipmentEventType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ShipLogicConfig } from './shiplogic/shiplogic-config';
 import { mapShipLogicStatus } from './shipping-status-map';
+import { NotificationsService } from '../notifications/notifications.service';
 
 export type WebhookOutcome =
   | 'accepted'
@@ -45,6 +46,7 @@ export class ShippingWebhookService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ShipLogicConfig,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async ingest(args: {
@@ -130,8 +132,14 @@ export class ShippingWebhookService {
     const eventTime = this.extractEventTime(payload);
     const hub = this.extractHub(payload);
 
+    // Set inside the TX only when the Order actually transitions (CAS matched);
+    // fired AFTER commit so a no-op (delayed/out-of-order event) doesn't notify.
+    let notify: { orderId: string; stage: 'shipped' | 'delivered' } | null = null;
+
     try {
-      await this.prisma.$transaction(async (tx) => {
+      notify = await this.prisma.$transaction(async (tx) => {
+        let transitioned: { orderId: string; stage: 'shipped' | 'delivered' } | null =
+          null;
         const shipment = await tx.shipment.findUnique({
           where: { id: shipmentId },
           select: { id: true, orderId: true, status: true, shiplogicStatus: true },
@@ -140,7 +148,7 @@ export class ShippingWebhookService {
           this.logger.warn(
             `Shipment ${shipmentId} disappeared between event INSERT and apply — skipping`,
           );
-          return;
+          return null;
         }
 
         // Always update the raw status on Shipment for the admin tool.
@@ -177,7 +185,7 @@ export class ShippingWebhookService {
         // and never overwrite a CANCELLED/REFUNDED terminal state.
         if (mapping.orderStatus) {
           const guardStatuses = this.allowedSourceStatusesFor(mapping.orderStatus);
-          await tx.order.updateMany({
+          const res = await tx.order.updateMany({
             where: {
               id: shipment.orderId,
               status: { in: guardStatuses },
@@ -198,12 +206,22 @@ export class ShippingWebhookService {
                 : {}),
             },
           });
+          // Notify only on a real forward transition (CAS matched a row).
+          if (res.count > 0) {
+            if (mapping.orderStatus === 'DISPATCHED') {
+              transitioned = { orderId: shipment.orderId, stage: 'shipped' };
+            } else if (mapping.orderStatus === 'DELIVERED') {
+              transitioned = { orderId: shipment.orderId, stage: 'delivered' };
+            }
+          }
         }
 
         await tx.shipmentEvent.update({
           where: { payloadHash },
           data: { processed: true, processError: null },
         });
+
+        return transitioned;
       });
     } catch (err) {
       const msg = (err as Error).message ?? 'unknown';
@@ -212,6 +230,12 @@ export class ShippingWebhookService {
       );
       await this.markProcessed(payloadHash, msg).catch(() => undefined);
       throw err;
+    }
+
+    // Best-effort, post-commit (the catch above rethrows, so we only reach here
+    // on a successful apply).
+    if (notify) {
+      await this.notifications.orderStatusChanged(notify.orderId, notify.stage);
     }
   }
 
