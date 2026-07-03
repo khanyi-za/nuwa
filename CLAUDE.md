@@ -21,8 +21,10 @@ AppModule
  ├── PaymentsModule    — PayFast integration: signing, ITN webhook, refunds, reconciliation
  ├── ShippingModule    — ShipLogic/TCG: rate quotes, shipment creation, label download, tracking webhook, dispatch addresses CRUD
  ├── UploadsModule     — Cloudinary signed-upload signing endpoint + IsCloudinaryUrl validator (global)
+ ├── MobileModule      — Buyer/mobile `/api` surface for maya (envelope + vocab translation; never touches web/admin routes)
  ├── PrismaModule      — Database singleton (global)
- ├── EmailModule       — Transactional email via Resend
+ ├── EmailModule       — Transactional email via Resend (global)
+ ├── NotificationsModule — Buyer notifications: inbox rows + Resend email + Expo push (@Global; best-effort dispatch)
  ├── ScheduleModule    — @nestjs/schedule for cron jobs (global)
  ├── ConfigModule      — Environment variables (global)
  └── ThrottlerModule   — Rate limiting (global, 100 req/60s)
@@ -248,6 +250,18 @@ Image and video hosting uses **Cloudinary signed direct uploads** — browser up
 - Status-aware delete protection: PENDING_GO_LIVE / ACTIVE stores must retain at least one banner item (mirrors the last-image-on-active-product rule).
 - Implemented in `src/store/banner-media/`.
 
+### Notifications module patterns
+
+Buyer notifications shipped in two phases (`src/notifications/`, `@Global` like EmailModule):
+
+- **`NotificationsService`** is the orchestrator. Per-event methods (`orderConfirmed`, `paymentFailed`, `orderStatusChanged`, `orderCancelled`, `refund`) each load their own context and call a private `dispatch()` that does three independent **best-effort** things: write a `Notification` inbox row, send a Resend email (via the new generic `EmailService.send({to,subject,html})`), and fire an Expo push (`PushService`). **A failure in any channel is logged and swallowed — it must NEVER break the payment/shipping/cancel flow that triggered it** (same contract as the post-ITN shipment-booking side-effect).
+- **`data.orderId` on every notification is the PaymentGroup id** (the maya "order"), so a tap deep-links straight into `GET /api/orders/:id`.
+- **Hook points** (each consuming service injects `NotificationsService`; no import wiring needed since it's `@Global`): `PaymentsNotifyService` (order confirmed / payment failed, post-ITN outside the TX), `ShippingWebhookService` (shipped/delivered — fired **only on a real CAS transition**, after commit), `BuyerOrdersService` + `AdminOrdersService` (cancel), `AdminOrdersService.requestRefund`.
+- **`PushService`** (Expo): `registerToken`/`removeToken` (upsert by token) + `sendToUser` (POST `https://exp.host/--/api/v2/push/send`, prunes `DeviceNotRegistered`). Reads the new `PushToken` model.
+- **Mobile surface** (`src/mobile/notifications/`, on `api/me`): `GET /notifications` (cursor-paginated inbox + `unreadCount`), `GET /notifications/unread-count`, `PATCH /notifications/:id/read`, `POST /notifications/read-all`, `POST`/`DELETE /push-tokens`.
+- **Maya caveat:** Expo push **delivery** is untestable in Expo Go / iOS Simulator (no APNs); emails + the in-app inbox work everywhere. Push delivery needs a dev build on a physical device.
+- Events map to the existing `NotificationType` enum — **no enum change**. Order-confirmed email fires exactly when the PayFast ITN flips the order to CONFIRMED.
+
 ### Cursor-based pagination
 
 Used in merchant-orders, buyer-orders, admin-orders, and wishlist. Pattern: fetch `take + 1` rows, if `length > take`, trim to `take` and set `nextCursor` to last item's ID. Default page size 20, max 50.
@@ -360,6 +374,15 @@ src/
       dispatch-address.service.ts    — list/get/create/update/soft-delete/set-primary; canManageStore authz
       dto/                           — Create + Update DTOs (SA province enum, +27 phone, lat/lng)
 
+  notifications/                     — @Global; buyer notifications (inbox + email + push)
+    notifications.service.ts         — orchestrator: dispatch() = inbox row + email + push (best-effort)
+    push.service.ts                  — Expo push delivery + PushToken registry
+
+  mobile/                            — Buyer `/api` surface for maya (envelope + vocab translation)
+    common/                          — MobileController decorator, response interceptor, exception filter, serializers, cursor
+    orders/                          — incl. GET /api/orders (consolidated PaymentGroup list = "My Orders")
+    notifications/                   — GET/PATCH/POST /api/me/notifications + POST/DELETE /api/me/push-tokens
+
 docs/
   order-module/
     order-module-foundation.md     — ALL phase decisions, schema changes, architecture
@@ -389,6 +412,8 @@ Read `prisma/schema.prisma` for the full schema. Key models:
 - **PaymentEvent** — Audit log of every received ITN. `itnHash` unique constraint enforces idempotency. `transactionType: PAYMENT | REFUND`.
 - **Address** — Buyer delivery addresses, soft delete, max 4, one default
 - **WishlistItem** — Product-level bookmark, @@unique([userId, productId])
+- **Notification** — In-app inbox row (12-value `NotificationType` enum). **Now written** by NotificationsService (was schema-only). `data` Json carries `{ orderId, orderNumber }` for deep-linking.
+- **PushToken** — Expo push token per device (`token` @unique, `platform`, `lastUsedAt`). Migration `20260622122857_add_push_tokens`. Written by `PushService`.
 
 ## Constraints and limitations
 
@@ -400,7 +425,7 @@ Read `prisma/schema.prisma` for the full schema. Key models:
 - **Refund-ITN field detection is heuristic** — we detect refund ITNs via `transaction_type === 'refund'`. If PayFast uses a different field name, refund ITNs are processed as initial-payment ITNs and rejected. First production refund will reveal the actual field.
 - **ShipLogic sandbox doesn't deliver webhooks** (empirical, unconfirmed by support yet). Production webhook delivery + signing is essentially untested. Plan a careful first-real-shipment smoke test in production.
 - **ShipLogic webhook auth model is unknown** (Q24 in foundation doc). v1 uses path-embedded secret + optional IP allowlist; signature verification slot reserved. Pending TCG support answer.
-- **Notifications module doesn't exist** — buyers receive NO transactional emails for orders, shipping, or status updates. The existing `EmailService` (Resend) handles auth + employee-invite emails only. **Hard blocker for mobile launch.**
+- **Notifications module SHIPPED (2026-06-22, Phase A+B)** — `src/notifications/`. Buyers now get order-confirmed / payment-failed / shipped / delivered / cancelled / refund notifications (inbox row + Resend email + Expo push). See "Notifications module patterns" above. Push *delivery* still needs a physical-device dev build to verify (Expo Go has no APNs); emails + inbox are verified.
 - **Guest account claim has no email verification** — stubbed with `emailVerified: true`. Needs Notifications module.
 - **Image upload mechanism is live** — Cloudinary signed direct uploads via `POST /uploads/cloudinary-signature` (not noted in legacy CLAUDE.md text). ProductImage etc. store the resulting `secure_url`.
 - **`Order.shippingSuburb` snapshot field missing** — when ShipLogic books a shipment, the delivery address's suburb is passed as null because the Order's address snapshot doesn't carry it. ShipLogic geocodes from the rest of the fields; less accurate for outlying SA areas. Small additive migration when prioritised.
@@ -452,7 +477,7 @@ The shipping module is built in 6 phases. All decisions documented in `docs/ship
 ## Commands
 
 ```bash
-npx jest --no-coverage              # Run all tests (~2.6s, 494 tests, 27 suites)
+npx jest --no-coverage              # Run all tests (~6s, 776 tests, 53 suites)
 npx jest --testPathPatterns="cart"   # Run tests matching pattern
 npx tsc --noEmit                    # Type check (expect TS2502 in some specs — harmless)
 npx prisma generate                 # Regenerate Prisma client after schema changes

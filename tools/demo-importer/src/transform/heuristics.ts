@@ -88,13 +88,31 @@ export function optionField(name: string): 'color' | 'size' | 'material' | null 
   return null;
 }
 
-// Targets the dev/demo-seeded platform categories (dresses/tops/bottoms/sets).
-// Load only links when the category actually exists in the demo DB.
+// Targets the demo-seeded platform categories (see seed-demo.ts). Derived from
+// a 50-brand / 5,386-product corpus sweep of the brand_listing.xlsx targets
+// (2026-07-02). ORDER MATTERS — first match wins, so specific rules run before
+// generic ones (e.g. tees before tops: \bshirt\b also matches "t-shirt";
+// leggings hit activewear before pants). Load only links categories that exist
+// in the demo DB, so unstocked slugs are harmless.
 const CATEGORY_RULES: { slug: string; re: RegExp }[] = [
   { slug: 'dresses', re: /\b(dress|gown)\b/i },
-  { slug: 'sets', re: /\b(set|co-?ord|two[- ]?piece|tracksuit)\b/i },
-  { slug: 'bottoms', re: /\b(pant|trouser|short|skirt|legging|jean|bottom)\b/i },
-  { slug: 'tops', re: /\b(top|tee|t-?shirt|shirt|blouse|crop|hoodie|sweater|jersey|jacket|coat)\b/i },
+  { slug: 'skirts', re: /\bskirts?\b/i },
+  { slug: 'sets', re: /\b(sets?|co-?ords?|two[- ]?piece|tracksuits?)\b/i },
+  { slug: 'swimwear', re: /\b(swim|bikinis?|boardshorts?)\b/i },
+  { slug: 'activewear', re: /\b(active|gym|sports?|leggings?|tights?|training|yoga|workout|performance)\b/i },
+  { slug: 'eyewear', re: /\b(eyewear|sunglasses|shades|optical)\b/i },
+  { slug: 'headwear', re: /\b(caps?|hats?|beanies?|bucket hat|headwear|visors?)\b/i },
+  { slug: 'jewellery', re: /\b(jewell?ery|earrings?|necklaces?|bracelets?|rings?|pendants?|chains?)\b/i },
+  { slug: 'bags', re: /\b(bags?|totes?|backpacks?|slings?|pouch|clutch|purses?|wallets?)\b/i },
+  { slug: 'footwear', re: /\b(shoes?|sneakers?|footwear|sandals?|slides?|boots?|slippers?|vell?ies?)\b/i },
+  { slug: 'hoodies', re: /\b(hoodies?|sweatshirts?|sweats|fleece)\b/i },
+  { slug: 'knitwear', re: /\b(knits?|knitted|golfers?|jerseys?|sweaters?|cardigans?|pullovers?|crew ?necks?|jumpers?)\b/i },
+  { slug: 'jackets', re: /\b(jackets?|coats?|puffers?|bombers?|blazers?|outerwear|windbreakers?|parkas?)\b/i },
+  { slug: 'tees', re: /\b(t-?shirts?|tees?)\b/i },
+  { slug: 'shorts', re: /\bshorts?\b/i },
+  { slug: 'pants', re: /\b(pants?|trousers?|chinos?|joggers?|sweatpants?|cargos?|jeans?|denim)\b/i },
+  { slug: 'accessories', re: /\b(accessor|belts?|socks?|scarf|scarves|gloves?|keyrings?|lanyards?)\b/i },
+  { slug: 'tops', re: /\b(tops?|shirts?|blouses?|crop|bodysuits?|camisoles?|vests?|polos?)\b/i },
 ];
 
 export function suggestCategory(opts: {

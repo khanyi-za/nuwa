@@ -14,6 +14,8 @@ import { runCurate } from './src/stages/curate';
 import { runRehost } from './src/stages/rehost';
 import { runLoad } from './src/stages/load';
 import { runSeedDemo } from './src/stages/seed-demo';
+import { runRelinkCategories } from './src/stages/relink-categories';
+import { runRegender } from './src/stages/regender';
 import { log } from './src/logger';
 
 interface ParsedArgs {
@@ -59,6 +61,10 @@ Commands:
   rehost    <brandSlug> [--dry-run]            Upload images/videos to Cloudinary (resumable)      [Phase 3]
   seed-demo                                    Seed platform categories into the demo DB           [Phase 5]
   load      <brandSlug>                        Write curated catalogue into the demo DB            [Phase 4]
+  relink    [brandSlug…]                       Re-derive category links for loaded brands after a
+                                               CATEGORY_RULES/seed change (defaults to all brands)
+  regender                                     Apply per-brand default genderType to gender-silent
+                                               (UNISEX) products so Women/Men feeds diverge
 
 Example:
   npm run import -- extract sakanya --url https://sakanya.co
@@ -108,6 +114,12 @@ async function main(): Promise<void> {
     }
     case 'seed-demo':
       await runSeedDemo();
+      break;
+    case 'relink':
+      await runRelinkCategories(positionals);
+      break;
+    case 'regender':
+      await runRegender();
       break;
     case 'load': {
       const slug = positionals[0];

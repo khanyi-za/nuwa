@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import { ProductStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { GenderParam } from '../common/gender';
+import { GenderParam, genderFilterValues } from '../common/gender';
 import { toCategoryChip } from '../common/serializers';
 
 @Injectable()
@@ -9,20 +10,39 @@ export class MobileCategoriesService {
 
   /**
    * Top-level admin-created categories for the Home chip rail + Shop grid.
-   * `genderType` is accepted but does not filter yet — nuwa categories are a
-   * single (ungendered) admin tree in v1. When a gendered taxonomy lands, the
-   * filter slots in here without changing the response shape.
+   *
+   * When `genderType` is provided, only categories that contain at least one
+   * ACTIVE product visible to that gender tab are returned, and productCount
+   * is scoped the same way. UNISEX products surface under BOTH women and men
+   * (same rule as the feed — `genderFilterValues`). Categories themselves stay
+   * ungendered; tab membership derives from the products they hold, so an
+   * unstocked category (e.g. eyewear before an eyewear brand onboards) simply
+   * doesn't render a chip yet.
    */
-  async list(_genderType?: GenderParam) {
+  async list(genderType?: GenderParam) {
+    const productScope = genderType
+      ? {
+          product: {
+            status: ProductStatus.ACTIVE,
+            genderType: { in: genderFilterValues(genderType) },
+          },
+        }
+      : undefined;
+
     const categories = await this.prisma.category.findMany({
-      where: { parentId: null },
+      where: {
+        parentId: null,
+        ...(productScope ? { products: { some: productScope } } : {}),
+      },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       select: {
         slug: true,
         name: true,
         imageUrl: true,
         sortOrder: true,
-        _count: { select: { products: true } },
+        _count: {
+          select: { products: productScope ? { where: productScope } : true },
+        },
       },
     });
 

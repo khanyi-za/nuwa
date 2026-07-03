@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { GenderType, ProductStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MobileCategoriesService } from './mobile-categories.service';
 
@@ -40,9 +41,42 @@ describe('MobileCategoriesService', () => {
       productCount: 142,
       order: 1,
     });
-    // Only root categories.
-    expect(mockPrisma.category.findMany.mock.calls[0][0].where).toEqual({
-      parentId: null,
+  });
+
+  it('scopes categories and counts to the gender tab (UNISEX included)', async () => {
+    mockPrisma.category.findMany.mockResolvedValue([]);
+
+    await service.list('women');
+
+    const args = mockPrisma.category.findMany.mock.calls[0][0];
+    const scope = {
+      product: {
+        status: ProductStatus.ACTIVE,
+        genderType: { in: [GenderType.WOMEN, GenderType.UNISEX] },
+      },
+    };
+    expect(args.where).toEqual({ parentId: null, products: { some: scope } });
+    expect(args.select._count).toEqual({ select: { products: { where: scope } } });
+  });
+
+  it('serves the full ungendered tree when no genderType is given', async () => {
+    mockPrisma.category.findMany.mockResolvedValue([]);
+
+    await service.list();
+
+    const args = mockPrisma.category.findMany.mock.calls[0][0];
+    expect(args.where).toEqual({ parentId: null });
+    expect(args.select._count).toEqual({ select: { products: true } });
+  });
+
+  it('a unisex request is exact (no WOMEN/MEN bleed-in)', async () => {
+    mockPrisma.category.findMany.mockResolvedValue([]);
+
+    await service.list('unisex');
+
+    const args = mockPrisma.category.findMany.mock.calls[0][0];
+    expect(args.where.products.some.product.genderType).toEqual({
+      in: [GenderType.UNISEX],
     });
   });
 });

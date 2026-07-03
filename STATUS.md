@@ -1,11 +1,145 @@
-# STATUS.md — Last updated 2026-06-22
+# STATUS.md — Last updated 2026-07-02 (session close)
 
-> 🟢 **HANDOFF — next session start here.** This session (2026-06-22) shipped the
-> **My Orders** screen, the **Notifications module (Phase A+B)**, and ran the
-> **PayFast sandbox smoke test end-to-end** — all against the demo env. Detail
-> below; the older Demo-Importer handoff follows further down (still valid).
+> 🟢 **HANDOFF — next session start here.**
 >
-> ## 2026-06-22 — My Orders + Notifications + PayFast smoke test ✅
+> ## 2026-07-02 — SDK 54 + maya screen-upgrade round + category taxonomy v2
+>
+> **Theme of the session:** maya visual/UX upgrades screen-by-screen (post-
+> redesign round 2) + the demo-data work needed to make Home's categories and
+> gendered feeds real. **EVERYTHING UNCOMMITTED in both repos** — commit next
+> session (suggested split: nuwa "categories taxonomy v2 + importer relink/
+> regender"; maya "SDK 54 upgrade" + "screen upgrade round: purchase vocab,
+> SideMenu/Home/Search/product/brand").
+>
+> **nuwa changes (all verified: tsc clean, 94 mobile tests green):**
+> - `MobileCategoriesService.list` now **gender-filters category chips** —
+>   a category shows under a tab iff it has ≥1 ACTIVE product of that gender
+>   (UNISEX in both, same `genderFilterValues` rule as the feed). +3 spec tests.
+> - Demo importer: `CATEGORY_RULES` rewritten (18 ordered rules from a
+>   50-brand / 5,386-product sweep of `data/brand_listing.xlsx`); `seed-demo`
+>   seeds the 18-category tree WITH Cloudinary card images
+>   (`demo/categories/<slug>` — real brand product shots); NEW commands
+>   **`relink`** (re-derive ProductCategory links, no wipe-reload) and
+>   **`regender`** (per-brand default genderType for gender-silent products;
+>   map + reasoning in `src/stages/regender.ts`).
+> - Demo DB (`yiiva_demo` ONLY — see divergence note below): seeded + relinked
+>   (196 products, legacy `bottoms` deleted), regendered (88 WOMEN / 40 MEN /
+>   71 UNISEX), product timestamps jittered over 45d (feed brand-interleave),
+>   Embedded `logoUrl` → `e_colorize` ink transform (white-on-transparent
+>   wordmark was invisible on maya's white logo coins).
+> - Verified live: women tab = 15 chips (incl. Dresses/Jewellery), men = 14
+>   (incl. Hoodies/Footwear, no Dresses); feeds diverge from page 1.
+> - **Flagged one-liner for next nuwa pass:** add `username` to the
+>   new-arrivals merchant serializer (`/api/products/new-arrivals`) — maya's
+>   rail artist-link is disabled until it exists.
+> - **Pending copy decision:** notification/email templates still say "order"
+>   — maya UI now says "purchase" everywhere (see maya/status.md). Same-style
+>   copy pass on nuwa templates when ratified.
+> - Foundation-doc sections for relink/regender not yet written (commands are
+>   self-documenting; add §22 when convenient).
+>
+> **Run state:** demo nuwa on :3005 is running **DETACHED** (`nohup`, pid
+> 38263, log `/tmp/demo-nuwa-3005.log`) because session-tracked instances kept
+> getting killed. Stop: `lsof -ti :3005 | xargs kill`. maya `.env` now points
+> at the Mac's **LAN IP** (`http://192.168.10.18:3005`) for physical-device
+> testing — IP changes with the network; swap back to localhost for
+> simulator-only sessions.
+>
+> **maya this session:** Expo **SDK 54 upgrade** (see maya/status.md — the
+> Expo Go device error forced it; nativewind unpinned to ^4.2) + screen
+> upgrades: SideMenu rebuilt, Home (2:3 cards, skeleton parity, ST-9 See-All,
+> ink tab tint), **order→purchase UI copy sweep**, Search (real gendered
+> categories in browse + category-endpoint search + Cancel/UX list), Discover
+> reels mosaic (staggered running grid, gradient scrims, expo-linear-gradient
+> added), product page (emoji→icons, share wired, dead CTAs removed, Similar
+> Items → shared rail), brand page (hero-video autoplay-on-swipe FIXED — the
+> old backlog bug — + mute propagation, pill category chips, EvenGrid 2:3).
+>
+> **▶ NEXT:** (a) commit both repos; (b) continue maya screens: Cart,
+> Checkout, Orders/Track, Wishlist, Shop, Notifications, Account, Chat, Auth;
+> (c) deferred: @gorhom/bottom-sheet decision (checkout address picker +
+> contact modal), nuwa new-arrivals `username` one-liner, nuwa
+> notification/email "purchase" copy, "pay later" section copy decision
+> (promises Payflex/Mobicred that checkout doesn't offer).
+
+---
+
+> ## ⚠️ 2026-07-02 — DEMO-DB vs DEV-DB DIVERGENCE (read before touching :3000)
+>
+> The **category taxonomy v2 + gender curate** work was applied ONLY to the
+> local demo env (`yiiva_demo` DB / server :3005). The dev DB (`ayana`) and
+> dev server (:3000) were NOT touched and still carry the old 4-category seed
+> (dresses/tops/bottoms/sets) and mostly-UNISEX genderType data.
+>
+> **What demo got (via new importer commands, all in `tools/demo-importer/`):**
+> - `seed-demo` (updated): **18-category tree** derived from a 50-brand /
+>   5,386-product sweep of `data/brand_listing.xlsx`; card images = real brand
+>   product shots on Cloudinary (`yiiva-dev` → `demo/categories/<slug>`).
+>   Legacy `bottoms` deleted.
+> - `relink` (NEW command): re-derives ProductCategory links for loaded brands
+>   from manifests using the rewritten `CATEGORY_RULES` (18 ordered rules) —
+>   no wipe-and-reload (reloads would break the FK'd real order YV-2026-W4413).
+> - `regender` (NEW command): per-brand default genderType for gender-silent
+>   products → demo is now **88 WOMEN / 40 MEN / 71 UNISEX** (map + reasoning
+>   in `src/stages/regender.ts`; tolthema/embedded/sakanya→WOMEN,
+>   madebyfade→MEN, suhu/fieldsstore stay UNISEX).
+> - One-off SQL: product `createdAt`/`publishedAt` jittered over 45 days so the
+>   recency feed interleaves brands (batch loads had clustered per-brand).
+>
+> **Why this can bite later — the CODE side applies everywhere:**
+> `MobileCategoriesService.list` (src/mobile/categories/) now **filters
+> categories by gender tab** — a category renders a chip only if it has ≥1
+> ACTIVE product of that gender (UNISEX counts for both; same
+> `genderFilterValues` rule as the feed). 4 new spec tests. Running this code
+> against `ayana` (or prod) with un-curated data → **few/zero category chips
+> and near-identical Women/Men feeds**. That is data starvation, NOT a bug.
+> Before relying on dev/:3000 (or launching prod): give that DB the same
+> treatment — `seed-demo` + `relink` + `regender` with DATABASE_URL pointed at
+> it (or an equivalent admin-driven category setup + gender curate).
+> Also note: manifests on disk keep stale `suggestedCategorySlug` — re-run
+> `transform` before any future `load` of the 6 existing brands.
+>
+> Uncommitted: all of the above (importer + nuwa service/spec) + maya's SDK-54
+> upgrade + screen upgrades (see maya/status.md). Same note added to
+> maya/status.md + athena/CHANGELOG.md.
+
+---
+
+> 🟢 **HANDOFF (previous) — 2026-06-26.**
+>
+> ## 2026-06-26 — Search reels (maya) + session close
+>
+> **Backend (nuwa): clean + committed** at `d4ba296` ("2nd round of mobile
+> integration, notifications and payfast works"). The 2026-06-22 work below
+> (My Orders, Notifications A+B, PayFast smoke test) is all merged. nuwa
+> `CLAUDE.md` now documents the Notifications module + `GET /api/orders` +
+> `PushToken`. **776 tests / 53 suites green.**
+>
+> **maya: reels feature is UNCOMMITTED** (HEAD `312168e`). New "reels" surface
+> on the Search screen + a full-screen TikTok-style feed. Files: `app/reels.tsx`,
+> `components/ReelCard.tsx`, `components/ReelsGrid.tsx`, `lib/reels-fixtures.ts`,
+> `assets/reels/` (9 bundled product mp4s), modified `app/(tabs)/search.tsx`.
+> Full detail in **`maya/status.md`** (frontend). Phase 1 = static fixtures with
+> REAL `yiiva_demo` product data baked in (so "Buy" → live product detail); next
+> phase makes it a dynamic backend feed.
+>
+> **⚠️ Hard-won learning (documented in maya/CLAUDE.md footguns):** `expo-video`
+> `VideoView` renders **black / zero-sized with `StyleSheet.absoluteFill`** — it
+> needs **explicit `width/height: '100%'`** (like the artist/product screens).
+> Also `expo-video` won't play a bare `require()`'d asset number here (Expo Go);
+> resolve to a URI via `Asset.fromModule(mod).uri`. expo-IMAGE accepts require
+> numbers; expo-VIDEO does not.
+>
+> **Run state:** demo nuwa (:3005) and ngrok are STOPPED (killed at session
+> close). To resume: `PORT=3005 DATABASE_URL=<yiiva_demo> npm run start` from nuwa.
+>
+> **▶ NEXT:** commit the maya reels feature; confirm reels playback on reload
+> (the VideoView sizing fix was the last change — visually unverified by Claude);
+> then either make reels dynamic (backend feed) or continue the Search screen work.
+>
+> ---
+>
+> ## 2026-06-22 — My Orders + Notifications + PayFast smoke test ✅ (committed d4ba296)
 >
 > **All work is on the demo env: nuwa :3005 → `yiiva_demo` DB, maya → :3005.**
 > **Backend 776 tests / 53 suites green, tsc clean. maya tsc clean (pre-existing
