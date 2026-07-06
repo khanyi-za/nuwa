@@ -266,6 +266,33 @@ export class MobileMerchantsService {
       where: { storeId: store.id, status: ProductStatus.ACTIVE },
     });
 
+    // The merchant's own site sections — collections in their sortOrder,
+    // hiding any with no ACTIVE products (no dead tabs on the brand page).
+    const collectionRows = await this.prisma.storeCollection.findMany({
+      where: {
+        storeId: store.id,
+        showOnProfile: true,
+        products: { some: { product: { status: ProductStatus.ACTIVE } } },
+      },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      select: {
+        slug: true,
+        name: true,
+        imageUrl: true,
+        _count: {
+          select: {
+            products: { where: { product: { status: ProductStatus.ACTIVE } } },
+          },
+        },
+      },
+    });
+    const collections = collectionRows.map((c) => ({
+      slug: c.slug,
+      name: c.name,
+      image: c.imageUrl ?? null,
+      productCount: c._count.products,
+    }));
+
     let isFollowedByMe: boolean | undefined;
     if (userId) {
       const follow = await this.prisma.storeFollower.findUnique({
@@ -275,7 +302,13 @@ export class MobileMerchantsService {
       isFollowedByMe = !!follow;
     }
 
-    return { merchant: toMerchantProfile(store, { postCount, isFollowedByMe }) };
+    return {
+      merchant: toMerchantProfile(store, {
+        postCount,
+        isFollowedByMe,
+        collections,
+      }),
+    };
   }
 
   /** POST /api/merchants/:id/view — thin merchant-view analytics (Phalo input). */

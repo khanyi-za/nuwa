@@ -16,6 +16,7 @@ import { runLoad } from './src/stages/load';
 import { runSeedDemo } from './src/stages/seed-demo';
 import { runRelinkCategories } from './src/stages/relink-categories';
 import { runRegender } from './src/stages/regender';
+import { runRenav } from './src/stages/renav';
 import { log } from './src/logger';
 
 interface ParsedArgs {
@@ -65,6 +66,8 @@ Commands:
                                                CATEGORY_RULES/seed change (defaults to all brands)
   regender                                     Apply per-brand default genderType to gender-silent
                                                (UNISEX) products so Women/Men feeds diverge
+  renav     [brandSlug…]                       Mirror each brand's site nav onto its collections
+                                               (tab order/labels/visibility; defaults to all brands)
 
 Example:
   npm run import -- extract sakanya --url https://sakanya.co
@@ -120,6 +123,9 @@ async function main(): Promise<void> {
       break;
     case 'regender':
       await runRegender();
+      break;
+    case 'renav':
+      await runRenav(positionals);
       break;
     case 'load': {
       const slug = positionals[0];

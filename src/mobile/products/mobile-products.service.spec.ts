@@ -345,6 +345,26 @@ describe('MobileProductsService', () => {
       expect(where.categories.some.category.OR).toHaveLength(2);
     });
 
+    it('filters by collection slug scoped to the store', async () => {
+      mockPrisma.store.findUnique.mockResolvedValue({ id: 's1', status: 'ACTIVE' });
+      mockPrisma.product.findMany.mockResolvedValue([]);
+      mockPrisma.category.findMany.mockResolvedValue([]);
+
+      await service.merchantProducts('tol_thema', {
+        collection: 'new-in',
+        limit: 20,
+      });
+      const where = mockPrisma.product.findMany.mock.calls[0][0].where;
+      expect(where.collections).toEqual({
+        some: {
+          collection: {
+            storeId: 's1',
+            slug: { equals: 'new-in', mode: 'insensitive' },
+          },
+        },
+      });
+    });
+
     it('404s a non-active store', async () => {
       mockPrisma.store.findUnique.mockResolvedValue({
         id: 's1',

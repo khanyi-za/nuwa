@@ -160,7 +160,12 @@ export class MobileProductsService {
    */
   async merchantProducts(
     slug: string,
-    opts: { clothingType?: string; cursor?: string; limit: number },
+    opts: {
+      clothingType?: string;
+      collection?: string;
+      cursor?: string;
+      limit: number;
+    },
     userId?: string,
   ) {
     const store = await this.prisma.store.findUnique({
@@ -186,6 +191,18 @@ export class MobileProductsService {
               { slug: { equals: opts.clothingType, mode: 'insensitive' } },
               { name: { equals: opts.clothingType, mode: 'insensitive' } },
             ],
+          },
+        },
+      };
+    }
+    // Brand-page collection tab (the merchant's own site section). Scoped to
+    // this store — collection slugs are only unique per store.
+    if (opts.collection) {
+      where.collections = {
+        some: {
+          collection: {
+            storeId: store.id,
+            slug: { equals: opts.collection, mode: 'insensitive' },
           },
         },
       };

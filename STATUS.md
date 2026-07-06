@@ -1,7 +1,60 @@
-# STATUS.md — Last updated 2026-07-02 (session close)
+# STATUS.md — Last updated 2026-07-04 (session close)
 
 > 🟢 **HANDOFF — next session start here.**
 >
+> ## 2026-07-04 — Brand-page collection tabs (mirror merchant site nav) + importer `renav`
+>
+> **Theme:** the maya brand/merchant profile page now sorts its catalogue by the
+> merchant's OWN collections, mirroring each brand's site navigation (owner
+> requirement: "the tabs must mirror those on their site"). nuwa serves the
+> data; the importer's new nav scraper makes demo data match each live site.
+> **UNCOMMITTED in nuwa** (maya's tab UI also uncommitted — maya/status.md).
+>
+> **nuwa changes (96 mobile tests green, tsc clean, verified live on :3005):**
+> - `GET /api/merchants/:username` → new **`collections[]`** (slug, name,
+>   image, productCount) — ordered `sortOrder` asc, only `showOnProfile` rows
+>   with ≥1 ACTIVE product. Serializer: `toMerchantProfile` (+2 spec tests).
+> - `GET /api/merchants/:username/products?collection=<slug>` — store-scoped
+>   collection filter (slugs are only unique per store).
+> - Migration `20260704113000_store_collection_show_on_profile` —
+>   `StoreCollection.showOnProfile Boolean @default(true)` — **applied to BOTH
+>   `ayana` and `yiiva_demo`**. Additive; web/admin surfaces unaffected.
+> - Importer: the homepage scrape (existing logo path) now also parses the
+>   site nav for `/collections/<slug>` links → `navCollections[]` in
+>   storefront.json (header/nav-scoped, product links + image-only anchors
+>   excluded, first-occurrence dedupe). NEW command **`renav [brands…]`**
+>   (`src/stages/renav.ts`) mirrors nav onto loaded StoreCollections IN PLACE
+>   (no wipe-reload): matched → visible + nav order + **nav label wins over
+>   collection title**; unmatched → `showOnProfile=false` (nothing deleted —
+>   products stay reachable under maya's All tab); no nav found → brand left
+>   untouched. Falls back to cached storefront.json when a site is down.
+> - **Ran `renav` on all 6 demo brands against their live sites:** tolthema
+>   30 collections → 8 tabs, suhu 14 → 8 (junk "Home page" gone), sakanya's
+>   first tab reads "New" (their nav label for spring-summer-25). End-to-end
+>   verified: profile tabs → `?collection=` filter returns correct products.
+> - Known data warts (faithful to the sites; per-brand curate override is a
+>   possible later add): embedded shows "Sets" twice (mega-menu dupe labels);
+>   madebyfade "Shop" / fieldsstore "Start shopping" catch-all tabs.
+> - Post-load housekeeping for new brands is now: `seed-demo` + `relink` +
+>   `regender` + **`renav`**. Foundation-doc sections for all three re-*
+>   commands still unwritten (self-documenting; add when convenient).
+>
+> **maya this session (see maya/status.md):** collection-tab UI on
+> `app/artist/[artistId].tsx` (UNCOMMITTED) + the 2026-07-03 screen-upgrade
+> round 2 (cart/3-step checkout/orders/track/wishlist/notifications/account/
+> chat/shop + new category screen) which the owner committed at `dd0bd77`.
+>
+> **Run state:** demo nuwa :3005 is running DETACHED with this build (nohup,
+> log `/tmp/demo-nuwa-3005.log`; stop: `lsof -ti :3005 | xargs kill`).
+>
+> **▶ NEXT:** (a) commit both repos ("brand-page collections mirror site nav");
+> (b) **CONTINUE MERCHANT PROFILE PAGE work — the owner's stated next focus**;
+> (c) on-device pass of the tabs (compare each demo brand against its site);
+> (d) still-parked: nuwa new-arrivals `username` one-liner, notification/email
+> "purchase" copy pass, Auth screens round-2 polish.
+
+---
+
 > ## 2026-07-02 — SDK 54 + maya screen-upgrade round + category taxonomy v2
 >
 > **Theme of the session:** maya visual/UX upgrades screen-by-screen (post-

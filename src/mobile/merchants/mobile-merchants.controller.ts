@@ -73,6 +73,7 @@ export class MobileMerchantsController {
       username,
       {
         clothingType: dto.clothingType,
+        collection: dto.collection,
         cursor: dto.cursor,
         limit: dto.limit ?? 20,
       },

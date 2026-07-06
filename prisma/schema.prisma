@@ -479,6 +479,10 @@ model StoreCollection {
   description String?
   imageUrl    String?
   sortOrder   Int      @default(0)
+  // Whether this collection appears as a catalogue tab on the buyer-facing
+  // brand page. The importer's `renav` sets it from the merchant's own site
+  // nav; defaults true so hand-managed stores show everything.
+  showOnProfile Boolean @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

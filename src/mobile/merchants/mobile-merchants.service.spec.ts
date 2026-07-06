@@ -30,6 +30,7 @@ const profileStore = {
 
 const mockPrisma = {
   store: { findMany: jest.fn(), findUnique: jest.fn() },
+  storeCollection: { findMany: jest.fn() },
   storeFollower: { findMany: jest.fn(), findUnique: jest.fn() },
   product: { count: jest.fn(), groupBy: jest.fn() },
   analyticsEvent: { create: jest.fn() },
@@ -50,6 +51,7 @@ describe('MobileMerchantsService', () => {
     service = module.get(MobileMerchantsService);
     jest.clearAllMocks();
     mockPrisma.$queryRaw.mockResolvedValue([]);
+    mockPrisma.storeCollection.findMany.mockResolvedValue([]);
   });
 
   it('returns trending merchants without isFollowedByMe for guests', async () => {
@@ -214,8 +216,52 @@ describe('MobileMerchantsService', () => {
         postCount: 42,
         messagingEnabled: true,
         contact: { email: 'hello@tolthema.co.za' },
+        collections: [],
       });
       expect(merchant).not.toHaveProperty('isFollowedByMe');
+    });
+
+    it('returns the merchant collections in sortOrder with ACTIVE counts', async () => {
+      mockPrisma.store.findUnique.mockResolvedValue(profileStore);
+      mockPrisma.product.count.mockResolvedValue(42);
+      mockPrisma.storeCollection.findMany.mockResolvedValue([
+        {
+          slug: 'new-in',
+          name: 'New In',
+          imageUrl: 'https://cdn.yiiva.co.za/new-in.jpg',
+          _count: { products: 8 },
+        },
+        {
+          slug: 'dresses',
+          name: 'Dresses',
+          imageUrl: null,
+          _count: { products: 12 },
+        },
+      ]);
+
+      const { merchant } = await service.getProfile('tol_thema');
+
+      expect(merchant.collections).toEqual([
+        {
+          slug: 'new-in',
+          name: 'New In',
+          image: 'https://cdn.yiiva.co.za/new-in.jpg',
+          productCount: 8,
+        },
+        { slug: 'dresses', name: 'Dresses', image: null, productCount: 12 },
+      ]);
+      // Only profile-visible collections with ≥1 ACTIVE product, in the
+      // merchant's order.
+      expect(mockPrisma.storeCollection.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            storeId: 's1',
+            showOnProfile: true,
+            products: { some: { product: { status: 'ACTIVE' } } },
+          },
+          orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+        }),
+      );
     });
 
     it('includes isFollowedByMe for authenticated buyers', async () => {

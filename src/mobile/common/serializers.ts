@@ -249,6 +249,14 @@ interface MerchantProfileRow {
   addresses: { city: string }[];
 }
 
+/** Brand-page catalogue tab: the merchant's own collection, in their order. */
+export interface MerchantProfileCollection {
+  slug: string;
+  name: string;
+  image: string | null;
+  productCount: number;
+}
+
 /**
  * Full merchant profile (merchants.md §2). `heroMedia` ← StoreBannerMedia,
  * `bio` ← store description, `location` ← first public StoreAddress city,
@@ -257,11 +265,17 @@ interface MerchantProfileRow {
  * per-store toggle; Chat backend is Screen 12). `followingCount` is 0 (skipped
  * per MP-1). Only ACTIVE/SUSPENDED/CLOSED stores reach here — the service 404s
  * never-live ones; SUSPENDED/CLOSED return with `status` so maya shows the
- * unavailable placeholder.
+ * unavailable placeholder. `collections` mirrors the merchant's own site
+ * sections (StoreCollection, sortOrder ascending, only collections with ≥1
+ * ACTIVE product).
  */
 export function toMerchantProfile(
   s: MerchantProfileRow,
-  opts: { postCount: number; isFollowedByMe?: boolean },
+  opts: {
+    postCount: number;
+    isFollowedByMe?: boolean;
+    collections?: MerchantProfileCollection[];
+  },
 ) {
   const status =
     s.status === StoreStatus.SUSPENDED
@@ -287,6 +301,7 @@ export function toMerchantProfile(
       : {}),
     messagingEnabled: true,
     contact: { email: s.contactEmail ?? null },
+    collections: opts.collections ?? [],
   };
 }
 

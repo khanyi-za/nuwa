@@ -12,9 +12,16 @@ import { httpGet } from '../http';
 
 export type LogoSource = 'logo-img' | 'og-image' | 'apple-touch';
 
+/** A collection link found in the site's navigation, in DOM order. */
+export interface NavCollection {
+  label: string;
+  slug: string;
+}
+
 export interface StorefrontMeta {
   title: string | null;
   logoCandidates: { source: LogoSource; url: string }[];
+  navCollections: NavCollection[];
 }
 
 /** Normalise a scraped URL to an absolute https URL (decode entities, fix scheme). */
@@ -45,6 +52,55 @@ function findLogoImg(html: string): string | null {
   return null;
 }
 
+/** Strip tags/entities from an anchor's inner HTML → its visible label. */
+function anchorLabel(inner: string): string {
+  return inner
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&#0?39;|&apos;|&rsquo;|&#8217;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** All /collections/<slug> anchors in an HTML fragment, DOM order, deduped. */
+function collectionAnchors(html: string): NavCollection[] {
+  const out: NavCollection[] = [];
+  const seen = new Set<string>();
+  const re = /<a\b[^>]*href=["']([^"']*\/collections\/([a-z0-9_-]+)[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const [, href, slug, inner] = m;
+    // /collections/<slug>/products/<handle> is a product link, not a section.
+    if (/\/collections\/[a-z0-9_-]+\/products\//i.test(href)) continue;
+    const key = slug.toLowerCase();
+    if (seen.has(key)) continue;
+    const label = anchorLabel(inner);
+    if (!label || label.length > 60) continue; // image-only anchors / section blobs
+    seen.add(key);
+    out.push({ label, slug: key });
+  }
+  return out;
+}
+
+/**
+ * The site's nav menu as collection links. Shopify themes render the main menu
+ * inside <header>/<nav> (incl. hidden mobile drawers) — scope there first so
+ * body "shop the collection" cards and footer repeats don't pollute the order.
+ * Fall back to the whole document when the scoped scan finds too little
+ * (first-occurrence dedupe still biases toward the header).
+ */
+export function extractNavCollections(html: string): NavCollection[] {
+  const scoped = [
+    ...(html.match(/<header\b[\s\S]*?<\/header>/gi) ?? []),
+    ...(html.match(/<nav\b[\s\S]*?<\/nav>/gi) ?? []),
+  ].join('\n');
+  const fromScope = collectionAnchors(scoped);
+  if (fromScope.length >= 2) return fromScope;
+  return collectionAnchors(html);
+}
+
 export async function fetchStorefront(baseUrl: string): Promise<StorefrontMeta> {
   const res = await httpGet(`${baseUrl}/`);
   const html = res.text;
@@ -65,5 +121,5 @@ export async function fetchStorefront(baseUrl: string): Promise<StorefrontMeta> 
   push('og-image', firstMatch(/<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["']/i, html));
   push('apple-touch', firstMatch(/<link[^>]+apple-touch-icon[^>]*href=["']([^"']+)["']/i, html));
 
-  return { title, logoCandidates: candidates };
+  return { title, logoCandidates: candidates, navCollections: extractNavCollections(html) };
 }

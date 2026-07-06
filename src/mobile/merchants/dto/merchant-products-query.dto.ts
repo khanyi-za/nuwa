@@ -7,6 +7,11 @@ export class MerchantProductsQueryDto {
   @IsString()
   clothingType?: string;
 
+  /** StoreCollection slug (from the profile's collections[] list). */
+  @IsOptional()
+  @IsString()
+  collection?: string;
+
   // Accepted for forward-compat (MP-7). Only `newest` is effective in v1 —
   // price sorts need cursor-on-price and are deferred to v2.
   @IsOptional()
