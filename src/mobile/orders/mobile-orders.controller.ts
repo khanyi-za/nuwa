@@ -4,11 +4,16 @@ import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { MobileOrdersService } from './mobile-orders.service';
 import { OrdersQueryDto } from './dto/orders-query.dto';
 import { PlaceOrderDto } from './dto/place-order.dto';
+import { ReturnsService } from '../../order/returns/returns.service';
+import { CreateReturnRequestDto } from '../../order/dto/return-request.dto';
 
 // Auth-required (v1 — guest checkout deferred).
 @MobileController('api/orders')
 export class MobileOrdersController {
-  constructor(private readonly service: MobileOrdersService) {}
+  constructor(
+    private readonly service: MobileOrdersService,
+    private readonly returns: ReturnsService,
+  ) {}
 
   @Get()
   list(@Query() dto: OrdersQueryDto, @CurrentUser('id') userId: string) {
@@ -55,5 +60,25 @@ export class MobileOrdersController {
     @CurrentUser('id') userId: string,
   ) {
     return this.service.cancelOrder(userId, orderId);
+  }
+
+  // Returns v1: request within 30 days of delivery; fans out to each
+  // eligible DELIVERED child order of this consolidated order.
+  @Post(':orderId/returns')
+  @HttpCode(201)
+  requestReturn(
+    @Param('orderId') orderId: string,
+    @CurrentUser('id') userId: string,
+    @Body() dto: CreateReturnRequestDto,
+  ) {
+    return this.returns.requestReturn(userId, orderId, dto);
+  }
+
+  @Get(':orderId/returns')
+  listReturns(
+    @Param('orderId') orderId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.returns.listForBuyerOrder(userId, orderId);
   }
 }

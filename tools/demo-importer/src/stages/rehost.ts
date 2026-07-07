@@ -67,6 +67,25 @@ function collectJobs(m: Manifest): AssetJob[] {
   return [...jobs.values()];
 }
 
+/** Cloudinary error objects aren't Errors — dig the message out of either. */
+function errMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  const m = (err as { message?: unknown })?.message;
+  return typeof m === 'string' ? m : JSON.stringify(err);
+}
+
+/**
+ * Shopify-CDN downscale fallback for images over Cloudinary's upload limit
+ * (10MB — brands upload raw 14MB+ collection covers). Shopify's CDN resizes
+ * server-side via a `width` query param, so a retry at 2048px comes in far
+ * under the cap with no visible quality loss at demo sizes.
+ */
+function downscaledUrl(source: string): string | null {
+  if (!/cdn\.shopify\.com|\/cdn\/shop\//.test(source)) return null;
+  if (/[?&]width=/.test(source)) return null;
+  return source + (source.includes('?') ? '&' : '?') + 'width=2048';
+}
+
 function ensureYtDlp(): void {
   try {
     execFileSync('yt-dlp', ['--version'], { stdio: 'ignore' });
@@ -143,13 +162,23 @@ export async function runRehost({ slug, dryRun }: { slug: string; dryRun: boolea
       const publicId = publicIdFor(slug, job.key);
       let secureUrl: string;
       if (job.kind === 'image') {
-        const res = await cloudinary.uploader.upload(job.source, {
+        const opts = {
           public_id: publicId,
-          resource_type: 'image',
+          resource_type: 'image' as const,
           overwrite: false,
           unique_filename: false,
           use_filename: false,
-        });
+        };
+        let res;
+        try {
+          res = await cloudinary.uploader.upload(job.source, opts);
+        } catch (imgErr) {
+          // Oversized originals (>10MB) fail — retry via Shopify CDN downscale.
+          const smaller = downscaledUrl(job.source);
+          if (!smaller) throw imgErr;
+          log.info(`  retrying downscaled (${errMessage(imgErr).slice(0, 60)}): ${job.label}`);
+          res = await cloudinary.uploader.upload(smaller, opts);
+        }
         secureUrl = res.secure_url;
       } else {
         const localPath = downloadVideo(slug, job.key, job.source);
@@ -172,7 +201,7 @@ export async function runRehost({ slug, dryRun }: { slug: string; dryRun: boolea
       log.ok(`[${job.kind}] ${job.label}`);
     } catch (err) {
       failed++;
-      log.error(`failed [${job.kind}] ${job.label}: ${err instanceof Error ? err.message : String(err)}`);
+      log.error(`failed [${job.kind}] ${job.label}: ${errMessage(err)}`);
     }
   }
 

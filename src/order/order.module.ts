@@ -31,6 +31,9 @@ import { OrderCleanupService } from './cron/order-cleanup.service';
 import { WishlistController } from './wishlist/wishlist.controller';
 import { WishlistService } from './wishlist/wishlist.service';
 
+import { MerchantReturnsController } from './returns/merchant-returns.controller';
+import { ReturnsService } from './returns/returns.service';
+
 import { PAYMENT_SERVICE } from './contracts/payment-contract';
 
 /**
@@ -59,6 +62,7 @@ import { PAYMENT_SERVICE } from './contracts/payment-contract';
     BuyerOrdersController,
     AdminOrdersController,
     WishlistController,
+    MerchantReturnsController,
   ],
   providers: [
     OrderService,
@@ -70,11 +74,18 @@ import { PAYMENT_SERVICE } from './contracts/payment-contract';
     AdminOrdersService,
     OrderCleanupService,
     WishlistService,
+    ReturnsService,
     { provide: PAYMENT_SERVICE, useClass: PaymentsService },
   ],
-  // AddressService + CheckoutService + BuyerOrdersService are exported for reuse
-  // by the mobile/buyer API surface (MobileModule). The web routes that own them
-  // are unaffected.
-  exports: [OrderService, AddressService, CheckoutService, BuyerOrdersService],
+  // AddressService + CheckoutService + BuyerOrdersService + ReturnsService are
+  // exported for reuse by the mobile/buyer API surface (MobileModule). The web
+  // routes that own them are unaffected.
+  exports: [
+    OrderService,
+    AddressService,
+    CheckoutService,
+    BuyerOrdersService,
+    ReturnsService,
+  ],
 })
 export class OrderModule {}

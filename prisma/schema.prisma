@@ -235,6 +235,7 @@ model User {
   pushTokens       PushToken[]
   storeEmployments StoreEmployee[]
   conversations    Conversation[]
+  returnRequests   ReturnRequest[]
 
   @@index([email])
   @@index([role])
@@ -349,6 +350,8 @@ model Store {
   dispatchAddresses StoreDispatchAddress[]
   bannerMedia       StoreBannerMedia[]
   conversations     Conversation[]
+  saleCampaigns     SaleCampaign[]
+  returnRequests    ReturnRequest[]
 
   @@index([slug])
   @@index([status])
@@ -603,6 +606,7 @@ model Product {
   cartItems       CartItem[]
   orderItems      OrderItem[]
   contentProducts ContentPostProduct[]
+  saleCampaigns   SaleCampaignProduct[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -845,6 +849,7 @@ model Order {
   payment         Payment?
   shipment        Shipment?
   promotionUsage  PromotionUsage?
+  returnRequests  ReturnRequest[]
 
   @@index([userId])
   @@index([storeId])
@@ -1175,6 +1180,100 @@ model PromotionUsage {
   order     Order     @relation(fields: [orderId], references: [id])
 
   @@map("promotion_usages")
+}
+
+// ============================================================================
+// SALE CAMPAIGNS (catalogue sales — distinct from checkout promo codes above)
+// ============================================================================
+// A merchant "runs a sale": selected products get a discounted priceInCents
+// with the original preserved (both here and on comparePriceInCents so buyer
+// surfaces render the strikethrough). Ending the campaign restores originals.
+// The Promotion model above stays reserved for future checkout promo codes —
+// sale campaigns never touch checkout money math.
+
+enum SaleCampaignStatus {
+  ACTIVE
+  ENDED
+}
+
+model SaleCampaign {
+  id            String             @id @default(cuid())
+  storeId       String
+  name          String
+  discountType  DiscountType // PERCENTAGE or FIXED_AMOUNT (FREE_SHIPPING rejected service-side)
+  discountValue Int // percent (1–90) for PERCENTAGE; cents off for FIXED_AMOUNT
+  status        SaleCampaignStatus @default(ACTIVE)
+  startsAt      DateTime           @default(now())
+  endsAt        DateTime? // null = runs until manually ended; cron sweeps expired
+  endedAt       DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  store    Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  products SaleCampaignProduct[]
+
+  @@index([storeId, status])
+  @@index([status, endsAt])
+  @@map("sale_campaigns")
+}
+
+model SaleCampaignProduct {
+  id                          String @id @default(cuid())
+  campaignId                  String
+  productId                   String
+  originalPriceInCents        Int
+  originalComparePriceInCents Int?
+  salePriceInCents            Int
+  // Variants with price overrides get discounted too; originals snapshot here
+  // as [{ variantId, priceInCents }] so ending the sale restores them exactly.
+  originalVariantPrices       Json?
+
+  campaign SaleCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  product  Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, productId])
+  @@index([productId])
+  @@map("sale_campaign_products")
+}
+
+// ============================================================================
+// RETURNS
+// ============================================================================
+// v1 is per-Order (per-item returns are v2). Buyer requests within 30 days of
+// delivery; merchant approves/rejects and marks the parcel received; the
+// actual money movement stays on the admin PayFast refund tool. `reason` is a
+// vocabulary string (WRONG_SIZE | NOT_AS_DESCRIBED | DAMAGED | CHANGED_MIND |
+// OTHER), validated at the DTO layer like cancel reasons.
+
+enum ReturnRequestStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  RECEIVED
+  CLOSED
+}
+
+model ReturnRequest {
+  id            String              @id @default(cuid())
+  orderId       String
+  storeId       String
+  buyerId       String
+  reason        String
+  details       String?
+  status        ReturnRequestStatus @default(REQUESTED)
+  merchantNotes String?
+  resolvedAt    DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  buyer User  @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, status])
+  @@index([orderId])
+  @@index([buyerId])
+  @@map("return_requests")
 }
 
 // ============================================================================

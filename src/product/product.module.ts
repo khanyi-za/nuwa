@@ -17,6 +17,10 @@ import { TagController } from './tag/tag.controller';
 import { TagService } from './tag/tag.service';
 import { PublicProductController } from './public-product.controller';
 import { PublicCatalogController } from './public-catalog.controller';
+import { InventoryController } from './inventory/inventory.controller';
+import { InventoryService } from './inventory/inventory.service';
+import { SaleCampaignController } from './sale/sale-campaign.controller';
+import { SaleCampaignService } from './sale/sale-campaign.service';
 
 @Module({
   imports: [StoreModule],
@@ -31,6 +35,8 @@ import { PublicCatalogController } from './public-catalog.controller';
     TagController,
     PublicProductController,
     PublicCatalogController,
+    InventoryController,
+    SaleCampaignController,
   ],
   providers: [
     ProductService,
@@ -40,6 +46,8 @@ import { PublicCatalogController } from './public-catalog.controller';
     VariantService,
     CategoryLinkService,
     TagService,
+    InventoryService,
+    SaleCampaignService,
   ],
   exports: [ProductService],
 })

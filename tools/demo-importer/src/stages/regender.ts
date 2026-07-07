@@ -29,6 +29,11 @@ const BRAND_DEFAULT_GENDER: Record<string, GenderType> = {
   madebyfade: GenderType.MEN,
   suhu: GenderType.UNISEX,
   fieldsstore: GenderType.UNISEX,
+  // 2026-07-06 demo brands: both carry mixed/kids ranges with explicit
+  // gendering in titles/tags where it matters — inference catches those;
+  // the silent remainder is genuinely unisex.
+  breazies: GenderType.UNISEX,
+  freedomofmovement: GenderType.UNISEX,
 };
 
 export async function runRegender(): Promise<void> {

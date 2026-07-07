@@ -98,6 +98,13 @@ export interface AdminOrderDetail {
     amountNetInCents: number;
     platformCommissionInCents: number;
     merchantPayoutInCents: number;
+    refundedAmountInCents: number;
+    /** Parent PayFast transaction — feeds the refund + reconcile admin tools. */
+    paymentGroup: {
+      id: string;
+      mPaymentId: string;
+      status: string;
+    };
   } | null;
 }
 
@@ -235,6 +242,10 @@ export class AdminOrdersService {
             amountNetInCents: true,
             platformCommissionInCents: true,
             merchantPayoutInCents: true,
+            refundedAmountInCents: true,
+            paymentGroup: {
+              select: { id: true, mPaymentId: true, status: true },
+            },
           },
         },
       },

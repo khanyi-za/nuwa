@@ -80,6 +80,7 @@ export class ProductService {
         comparePriceInCents: dto.comparePriceInCents,
         sku: dto.sku?.trim(),
         totalStock: dto.totalStock,
+        lowStockThreshold: dto.lowStockThreshold,
       },
     });
   }

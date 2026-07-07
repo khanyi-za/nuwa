@@ -1,7 +1,104 @@
-# STATUS.md — Last updated 2026-07-04 (session close)
+# STATUS.md — Last updated 2026-07-06 (session close)
 
-> 🟢 **HANDOFF — next session start here.**
+> 🟢 **HANDOFF — next session start here. MERCHANT DEMOS ARE 2026-07-07.**
 >
+> ## 2026-07-06 — Merchant-demo feature day: admin orders UI, variants, live
+> ## analytics, earnings, promotions (sales), low-stock, returns + demo seeding
+>
+> **Theme:** built the athena gaps for tomorrow's in-person brand demos — all
+> MVP-bound. **UNCOMMITTED in BOTH nuwa and athena** (athena detail:
+> athena/CHANGELOG.md top entry). nuwa: **829 tests / 58 suites green, tsc
+> clean.** Everything below verified live end-to-end (nuwa :3005 → athena BFF).
+>
+> **nuwa new endpoints (all follow existing conventions, all spec-tested):**
+> - `GET /stores/:id/analytics` (`src/store/analytics/`) — live-computed KPI
+>   feed for athena's dashboard (14d revenue/orders series + trends vs prior
+>   14d; followers/products/rating flat sparks). Phalo Phase 3 later replaces
+>   the internals behind the SAME shape.
+> - `GET /stores/:id/earnings` (`src/store/earnings/`) — accrued money
+>   visibility from Payment rows (gross/5.5% commission/payout/refunded;
+>   lifetime + month summaries; month-scoped ledger, cursor-paginated).
+> - `GET /stores/:id/inventory/low-stock` (`src/product/inventory/`) —
+>   variant- + reservation-aware items at/below `lowStockThreshold` (now
+>   merchant-editable via UpdateProductDto).
+> - **Sale campaigns** (`src/product/sale/`, migration
+>   `20260706095805_sale_campaigns_and_returns` — applied to BOTH DBs):
+>   `GET/POST /stores/:id/sales`, `GET :campaignId`, `POST :campaignId/end`.
+>   Applying discounts priceInCents (+ variant overrides) and parks originals
+>   on comparePriceInCents; end/cron-sweep restores (hand-edits win). One live
+>   sale per product; R1 floor; NEW `SaleCampaign`/`SaleCampaignProduct`
+>   models. The old `Promotion` model stays reserved for future checkout promo
+>   codes — checkout money math untouched.
+> - **Returns v1** (`src/order/returns/`, same migration — NEW `ReturnRequest`
+>   model): buyer `POST/GET /api/orders/:id/returns` (30d from delivery, per
+>   eligible DELIVERED child order); merchant `stores/:id/returns` list +
+>   approve/reject/received/close. Money movement stays on the admin refund
+>   tool. Buyer notifications on approve/reject = follow-up.
+> - **Admin order detail** now exposes `payment.refundedAmountInCents` +
+>   `payment.paymentGroup {id, mPaymentId, status}` (feeds athena's refund +
+>   reconcile UI).
+> - **BUG FIX (payments):** the ITN flow set Order → CONFIRMED without
+>   `confirmedAt` (and system-cancels without `cancelledAt`) — broke maya's
+>   `cancellationEligibleUntil`, timeline rows, and analytics bucketing.
+>   Fixed in `payments-notify.service.ts`; demo DB backfilled (YV-2026-W4413).
+>
+> **athena (see athena/CHANGELOG.md):** `/admin/orders` (list + detail with
+> force-confirm/cancel/edit/refund/reconcile), product-editor Variants
+> section, live `useStoreAnalytics` (PHALO SWAP POINT swapped, sample
+> fallback kept), `/dashboard/earnings` (+CSV export), `/dashboard/promotions`,
+> `/dashboard/returns`, Overview Stock-alerts card. AppShell nav: +Returns,
+> +Earnings, +Promotions; admin nav: +Orders.
+>
+> **Demo env prepped (yiiva_demo ONLY):** NEW importer command **`seed-orders`**
+> (`tools/demo-importer/src/stages/seed-orders.ts`) — demo order history with
+> real commission math, 4 demo buyers
+> (`naledi/sipho/lerato/thandi.demo@demo.yiiva.co.za` / `DemoPass1`,
+> orderNumbers `YV-2026-D····`, accountStatus ACTIVE), seeded returns —
+> re-run = wipe+reseed, real buyer untouched. LIVE sale left running:
+> Tol'thema "Winter Warmers — 20% off" (4 products). PayFast-sandbox notes:
+> reconcile + refunds only work in production (sandbox 401s the APIs).
+>
+> **▶ 3 FOCUS BRANDS RESEEDED for the 2026-07-07 demos** (same session, later):
+> **fieldsstore** (fresh re-extract, 50 products/187 variants/20 tabs all with
+> covers, 3 hero videos preserved), **breazies** (NEW — 50 products/10 tabs),
+> **freedomofmovement** (NEW — 50 products, renamed from vendor "FOM SA",
+> 88 visible tabs of their 129-link mega-menu — ⚠ busy; trim via
+> `StoreCollection.showOnProfile` if owner wants). All logins
+> `<slug>@demo.yiiva.co.za` / `DemoPass1`. `seed-orders` re-run: **151 orders
+> across all 8 stores** + 5 returns. Importer upgrades this pass:
+> `curate --cap N` (default 50) with **nav-coverage-aware selection** +
+> collection trimming (junk guard vs FOM's 1,064 collections), `curate
+> --force` re-bootstrap that preserves curated `videos[]`, rehost
+> **oversize-image downscale retry** (fixes the old fieldsstore 14MB
+> collection-cover failure permanently). Pre-reload FK cleanup required
+> deleting fieldsstore's old orders incl. the sandbox smoke-test order
+> YV-2026-W4413 (acceptable loss; ITN proof is in git history/logs).
+> **Hero media DONE (2026-07-07 morning):** owner supplied 3 IG reels per
+> brand → rehosted (yt-dlp, Chrome cookies) → applied via NEW importer
+> command **`rebanner <slug…>`** (`src/stages/rebanner.ts`) which re-applies
+> StoreBannerMedia from curated `videos[]` IN PLACE — the post-load hero
+> workflow now that loaded stores carry FK'd orders and can't be reloaded.
+> All 3 profiles lead with a video cover (3 videos + 2 images each); order
+> history verified intact.
+>
+> **Run state:** demo nuwa :3005 RUNNING detached with this build (log
+> `/tmp/demo-nuwa-3005.log`; stop: `lsof -ti :3005 | xargs kill`). athena:
+> `npm run dev` (`.env.local` → :3005). Merchant logins
+> `<slug>@demo.yiiva.co.za` / `DemoPass1`; admin `khanyisomthamo2@gmail.com` /
+> `khanyi@Admin26`.
+>
+> **▶ NEXT:** (a) commit both repos (suggested split — nuwa: "merchant money
+> +ops endpoints: analytics, earnings, sales, low-stock, returns + ITN
+> confirmedAt fix"; athena: "admin orders + variants + live analytics +
+> earnings/promotions/returns/low-stock"); (b) DEMO DAY — if anything misfires,
+> restart :3005 per Run state above; (c) follow-ups parked: buyer notifications
+> on return approve/reject, `lowStockThreshold` field in the product editor
+> Basics UI, payout disbursement records (Payout model), promo codes at
+> checkout, per-item returns v2, maya returns UI + on-sale strikethrough
+> serializer field.
+
+---
+
 > ## 2026-07-04 — Brand-page collection tabs (mirror merchant site nav) + importer `renav`
 >
 > **Theme:** the maya brand/merchant profile page now sorts its catalogue by the

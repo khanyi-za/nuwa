@@ -78,6 +78,12 @@ const baseOrderRow = {
     amountNetInCents: 90_000,
     platformCommissionInCents: 4_950,
     merchantPayoutInCents: 85_050,
+    refundedAmountInCents: 0,
+    paymentGroup: {
+      id: 'pg-1',
+      mPaymentId: 'm-pay-1',
+      status: 'PENDING',
+    },
   },
 };
 

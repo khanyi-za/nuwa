@@ -302,12 +302,15 @@ describe('PaymentsNotifyService', () => {
       );
     });
 
-    it('transitions all child Orders PENDING → CONFIRMED', async () => {
+    it('transitions all child Orders PENDING → CONFIRMED with confirmedAt', async () => {
       await service.handle(buildItnBody(), SOURCE_IP);
       expect(mockPrisma.order.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: { in: [ORDER_1, ORDER_2] }, status: 'PENDING' },
-          data: { status: 'CONFIRMED' },
+          data: {
+            status: 'CONFIRMED',
+            confirmedAt: expect.any(Date),
+          },
         }),
       );
     });
@@ -363,7 +366,11 @@ describe('PaymentsNotifyService', () => {
       );
       expect(mockPrisma.order.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: { status: 'CANCELLED', cancelReason: 'SYSTEM:PAYMENT_FAILED' },
+          data: {
+            status: 'CANCELLED',
+            cancelReason: 'SYSTEM:PAYMENT_FAILED',
+            cancelledAt: expect.any(Date),
+          },
         }),
       );
     });
@@ -385,6 +392,7 @@ describe('PaymentsNotifyService', () => {
           data: {
             status: 'CANCELLED',
             cancelReason: 'SYSTEM:PAYMENT_CANCELLED',
+            cancelledAt: expect.any(Date),
           },
         }),
       );

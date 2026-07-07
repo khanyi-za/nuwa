@@ -309,7 +309,7 @@ export class PaymentsNotifyService {
         if (targetStatus === PaymentStatus.COMPLETED) {
           await tx.order.updateMany({
             where: { id: { in: orderIds }, status: 'PENDING' },
-            data: { status: 'CONFIRMED' },
+            data: { status: 'CONFIRMED', confirmedAt: new Date() },
           });
         } else if (
           targetStatus === PaymentStatus.FAILED ||
@@ -321,7 +321,7 @@ export class PaymentsNotifyService {
               : 'SYSTEM:PAYMENT_CANCELLED';
           await tx.order.updateMany({
             where: { id: { in: orderIds }, status: 'PENDING' },
-            data: { status: 'CANCELLED', cancelReason },
+            data: { status: 'CANCELLED', cancelReason, cancelledAt: new Date() },
           });
         }
 
