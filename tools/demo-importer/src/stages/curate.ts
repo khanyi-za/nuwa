@@ -166,6 +166,14 @@ function applyHighlightCaps(
     }
   });
 
+  // Gift cards/vouchers are the merchant's own-site instruments — selling one
+  // through YIIVA wouldn't redeem anywhere, and they look wrong in the feed.
+  // Auto-exclude (owner call 2026-07-15; existing demo rows were archived).
+  const GIFT_CARD_RE = /gift ?(card|voucher)/i;
+  m.products.forEach((p) => {
+    if (p.include && GIFT_CARD_RE.test(p.title)) p.include = false;
+  });
+
   // Eligible = transform's pre-include (has images + stock), in catalogue order.
   const eligible = m.products.filter((p) => p.include);
   const eligibleCount = eligible.length;

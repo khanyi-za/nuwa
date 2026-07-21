@@ -29,6 +29,28 @@ const LOADABLE_STATUSES: StoreStatus[] = [
   StoreStatus.CLOSED,
 ];
 
+// Trending-card select, shared by the ranked/fallback queries + the demo
+// spotlight injection.
+const TRENDING_STORE_SELECT = {
+  id: true,
+  slug: true,
+  displayName: true,
+  logoUrl: true,
+  followerCount: true,
+} as const;
+
+type TrendingStoreRow = {
+  id: string;
+  slug: string;
+  displayName: string;
+  logoUrl: string | null;
+  followerCount: number;
+};
+
+// Where the demo spotlight brand sits in Trending Brands: position 2 reads
+// as organically hot; a forced #1 on every load reads as rigged.
+const SPOTLIGHT_TRENDING_INDEX = 1;
+
 @Injectable()
 export class MobileMerchantsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -56,27 +78,13 @@ export class MobileMerchantsService {
       };
     }
 
-    const storeSelect = {
-      id: true,
-      slug: true,
-      displayName: true,
-      logoUrl: true,
-      followerCount: true,
-    } as const;
-
-    let stores: {
-      id: string;
-      slug: string;
-      displayName: string;
-      logoUrl: string | null;
-      followerCount: number;
-    }[] = [];
+    let stores: TrendingStoreRow[] = [];
 
     const rankedIds = await this.phaloTrendingStoreIds();
     if (rankedIds.length > 0) {
       const candidates = await this.prisma.store.findMany({
         where: { ...where, id: { in: rankedIds } },
-        select: storeSelect,
+        select: TRENDING_STORE_SELECT,
       });
       const byId = new Map(candidates.map((s) => [s.id, s]));
       stores = rankedIds
@@ -92,9 +100,11 @@ export class MobileMerchantsService {
         where,
         orderBy: [{ followerCount: 'desc' }, { id: 'desc' }],
         take: opts.limit,
-        select: storeSelect,
+        select: TRENDING_STORE_SELECT,
       });
     }
+
+    stores = await this.applyTrendingSpotlight(stores, where, opts.limit);
 
     let followed = new Set<string>();
     if (opts.userId && stores.length > 0) {
@@ -111,6 +121,41 @@ export class MobileMerchantsService {
         toTrendingMerchant(s, authed ? followed.has(s.id) : undefined),
       ),
     };
+  }
+
+  /**
+   * DEMO-DAY spotlight for Trending Brands — same env knob as the feed
+   * (FEED_SPOTLIGHT_STORE): the pitched brand always holds a slot in the
+   * rail, hoisted to SPOTLIGHT_TRENDING_INDEX (or injected there if the
+   * ranking didn't surface it). Respects the caller's `where` (gender
+   * filter + ACTIVE), so a brand with no stock in the tab stays out. No-op
+   * with zero extra queries when the env var is unset.
+   */
+  private async applyTrendingSpotlight(
+    stores: TrendingStoreRow[],
+    where: Prisma.StoreWhereInput,
+    limit: number,
+  ): Promise<TrendingStoreRow[]> {
+    const slug = process.env.FEED_SPOTLIGHT_STORE?.trim();
+    if (!slug) return stores;
+
+    const insertAt = Math.min(SPOTLIGHT_TRENDING_INDEX, stores.length);
+    const existing = stores.findIndex((s) => s.slug === slug);
+    if (existing >= 0) {
+      if (existing <= insertAt) return stores;
+      const [spot] = stores.splice(existing, 1);
+      stores.splice(insertAt, 0, spot);
+      return stores;
+    }
+
+    const spot = await this.prisma.store.findFirst({
+      where: { ...where, slug },
+      select: TRENDING_STORE_SELECT,
+    });
+    if (!spot) return stores; // unknown slug or gender-filtered out
+
+    stores.splice(insertAt, 0, spot);
+    return stores.slice(0, limit);
   }
 
   /**
@@ -268,6 +313,9 @@ export class MobileMerchantsService {
 
     // The merchant's own site sections — collections in their sortOrder,
     // hiding any with no ACTIVE products (no dead tabs on the brand page).
+    // Cover fallback: many merchants never set a collection image on their
+    // site, so when imageUrl is null we fall back to the primary image of one
+    // of the collection's ACTIVE products — every tab is guaranteed a cover.
     const collectionRows = await this.prisma.storeCollection.findMany({
       where: {
         storeId: store.id,
@@ -279,6 +327,21 @@ export class MobileMerchantsService {
         slug: true,
         name: true,
         imageUrl: true,
+        products: {
+          where: { product: { status: ProductStatus.ACTIVE } },
+          take: 1,
+          select: {
+            product: {
+              select: {
+                images: {
+                  orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }],
+                  take: 1,
+                  select: { url: true },
+                },
+              },
+            },
+          },
+        },
         _count: {
           select: {
             products: { where: { product: { status: ProductStatus.ACTIVE } } },
@@ -289,7 +352,7 @@ export class MobileMerchantsService {
     const collections = collectionRows.map((c) => ({
       slug: c.slug,
       name: c.name,
-      image: c.imageUrl ?? null,
+      image: c.imageUrl ?? c.products[0]?.product.images[0]?.url ?? null,
       productCount: c._count.products,
     }));
 

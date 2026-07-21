@@ -29,7 +29,7 @@ const profileStore = {
 };
 
 const mockPrisma = {
-  store: { findMany: jest.fn(), findUnique: jest.fn() },
+  store: { findMany: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn() },
   storeCollection: { findMany: jest.fn() },
   storeFollower: { findMany: jest.fn(), findUnique: jest.fn() },
   product: { count: jest.fn(), groupBy: jest.fn() },
@@ -136,6 +136,64 @@ describe('MobileMerchantsService', () => {
     ]);
   });
 
+  describe('trending — spotlight mode (FEED_SPOTLIGHT_STORE)', () => {
+    const rail = (slugs: string[]) =>
+      slugs.map((slug, i) => ({
+        ...store,
+        id: `s-${slug}`,
+        slug,
+        followerCount: 1000 - i,
+      }));
+
+    afterEach(() => {
+      delete process.env.FEED_SPOTLIGHT_STORE;
+    });
+
+    it('injects an unranked spotlight brand at position 2, capped at limit', async () => {
+      process.env.FEED_SPOTLIGHT_STORE = 'netterose';
+      mockPrisma.store.findMany.mockResolvedValue(rail(['a', 'b', 'c', 'd']));
+      mockPrisma.store.findFirst.mockResolvedValue({
+        ...store,
+        id: 's-spot',
+        slug: 'netterose',
+      });
+
+      const { merchants } = await service.trending({ limit: 4 });
+
+      expect(merchants.map((m) => m.username)).toEqual(['a', 'netterose', 'b', 'c']);
+      // Injection respects the caller's where (ACTIVE + gender scope).
+      expect(mockPrisma.store.findFirst.mock.calls[0][0].where.slug).toBe('netterose');
+    });
+
+    it('hoists an already-ranked spotlight brand without duplicating it', async () => {
+      process.env.FEED_SPOTLIGHT_STORE = 'c';
+      mockPrisma.store.findMany.mockResolvedValue(rail(['a', 'b', 'c', 'd']));
+
+      const { merchants } = await service.trending({ limit: 4 });
+
+      expect(merchants.map((m) => m.username)).toEqual(['a', 'c', 'b', 'd']);
+      expect(mockPrisma.store.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('skips injection when the gender filter excludes the brand', async () => {
+      process.env.FEED_SPOTLIGHT_STORE = 'menswear-only';
+      mockPrisma.store.findMany.mockResolvedValue(rail(['a', 'b']));
+      mockPrisma.store.findFirst.mockResolvedValue(null);
+
+      const { merchants } = await service.trending({ genderType: 'women', limit: 4 });
+
+      expect(merchants.map((m) => m.username)).toEqual(['a', 'b']);
+    });
+
+    it('makes no extra queries when spotlight mode is off', async () => {
+      mockPrisma.store.findMany.mockResolvedValue(rail(['a', 'b']));
+
+      await service.trending({ limit: 4 });
+
+      expect(mockPrisma.store.findFirst).not.toHaveBeenCalled();
+    });
+  });
+
   describe('directory', () => {
     const dirStore = {
       id: 's1',
@@ -229,12 +287,16 @@ describe('MobileMerchantsService', () => {
           slug: 'new-in',
           name: 'New In',
           imageUrl: 'https://cdn.yiiva.co.za/new-in.jpg',
+          products: [
+            { product: { images: [{ url: 'https://cdn.yiiva.co.za/p1.jpg' }] } },
+          ],
           _count: { products: 8 },
         },
         {
           slug: 'dresses',
           name: 'Dresses',
           imageUrl: null,
+          products: [],
           _count: { products: 12 },
         },
       ]);
@@ -243,6 +305,7 @@ describe('MobileMerchantsService', () => {
 
       expect(merchant.collections).toEqual([
         {
+          // Merchant-set cover wins over the product fallback.
           slug: 'new-in',
           name: 'New In',
           image: 'https://cdn.yiiva.co.za/new-in.jpg',
@@ -262,6 +325,33 @@ describe('MobileMerchantsService', () => {
           orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
         }),
       );
+    });
+
+    it('falls back to a product primary image when the collection has no cover', async () => {
+      mockPrisma.store.findUnique.mockResolvedValue(profileStore);
+      mockPrisma.product.count.mockResolvedValue(42);
+      mockPrisma.storeCollection.findMany.mockResolvedValue([
+        {
+          slug: 'kimono',
+          name: 'Kimono',
+          imageUrl: null,
+          products: [
+            { product: { images: [{ url: 'https://cdn.yiiva.co.za/kimono-1.jpg' }] } },
+          ],
+          _count: { products: 4 },
+        },
+      ]);
+
+      const { merchant } = await service.getProfile('tol_thema');
+
+      expect(merchant.collections).toEqual([
+        {
+          slug: 'kimono',
+          name: 'Kimono',
+          image: 'https://cdn.yiiva.co.za/kimono-1.jpg',
+          productCount: 4,
+        },
+      ]);
     });
 
     it('includes isFollowedByMe for authenticated buyers', async () => {

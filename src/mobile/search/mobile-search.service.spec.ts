@@ -3,7 +3,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MobileSearchService } from './mobile-search.service';
 
 const mockPrisma = {
-  tag: { findMany: jest.fn() },
+  store: { findMany: jest.fn() },
+  product: { count: jest.fn() },
   analyticsEvent: { create: jest.fn() },
 };
 
@@ -22,22 +23,64 @@ describe('MobileSearchService', () => {
   });
 
   describe('suggestions', () => {
-    it('returns top tags by usageCount as #hashtags', async () => {
-      mockPrisma.tag.findMany.mockResolvedValue([
-        { name: 'heritage' },
-        { name: 'minimalist' },
-      ]);
+    it('serves only terms that match enough live products, capped at 8', async () => {
+      mockPrisma.store.findMany.mockResolvedValue([]);
+      // Every candidate qualifies → the cap decides the count.
+      mockPrisma.product.count.mockResolvedValue(10);
 
       const result = await service.suggestions({});
 
-      expect(result).toEqual({
-        trending: ['#heritage', '#minimalist'],
-        suggestions: [],
-      });
-      expect(mockPrisma.tag.findMany.mock.calls[0][0].orderBy).toEqual([
-        { usageCount: 'desc' },
-        { name: 'asc' },
+      expect(result.suggestions).toEqual([]);
+      expect(result.trending).toHaveLength(8);
+      for (const term of result.trending) {
+        expect(term).not.toMatch(/^#/); // real search terms, not hashtags
+      }
+    });
+
+    it('drops candidates below the match threshold', async () => {
+      mockPrisma.store.findMany.mockResolvedValue([]);
+      mockPrisma.product.count.mockResolvedValue(0);
+
+      const result = await service.suggestions({});
+
+      expect(result.trending).toEqual([]);
+    });
+
+    it('blends top brand names into the candidate pool', async () => {
+      mockPrisma.store.findMany.mockResolvedValue([
+        { displayName: "Tol'thema" },
       ]);
+      // Only the first candidate (the brand) qualifies.
+      mockPrisma.product.count.mockImplementation(({ where }) =>
+        Promise.resolve(
+          JSON.stringify(where).includes("Tol'thema") ? 5 : 0,
+        ),
+      );
+
+      const result = await service.suggestions({});
+
+      expect(result.trending).toEqual(["Tol'thema"]);
+      expect(mockPrisma.store.findMany).toHaveBeenCalledWith({
+        where: { status: 'ACTIVE' },
+        orderBy: { followerCount: 'desc' },
+        take: 3,
+        select: { displayName: true },
+      });
+    });
+
+    it('caches the validated terms — second call hits no queries', async () => {
+      mockPrisma.store.findMany.mockResolvedValue([]);
+      mockPrisma.product.count.mockResolvedValue(10);
+
+      const first = await service.suggestions({});
+      mockPrisma.store.findMany.mockClear();
+      mockPrisma.product.count.mockClear();
+
+      const second = await service.suggestions({});
+
+      expect(second.trending).toEqual(first.trending);
+      expect(mockPrisma.store.findMany).not.toHaveBeenCalled();
+      expect(mockPrisma.product.count).not.toHaveBeenCalled();
     });
   });
 

@@ -30,7 +30,10 @@ const CATEGORIES: { name: string; slug: string; sortOrder: number; imageUrl: str
   { name: 'Matching Sets', slug: 'sets', sortOrder: 10, imageUrl: 'https://res.cloudinary.com/yiiva-dev/image/upload/v1782999062/demo/categories/sets.jpg' },
   { name: 'Activewear', slug: 'activewear', sortOrder: 11, imageUrl: 'https://res.cloudinary.com/yiiva-dev/image/upload/v1782999064/demo/categories/activewear.jpg' },
   { name: 'Swimwear', slug: 'swimwear', sortOrder: 12, imageUrl: 'https://res.cloudinary.com/yiiva-dev/image/upload/v1782999060/demo/categories/swimwear.jpg' },
-  { name: 'Headwear', slug: 'headwear', sortOrder: 13, imageUrl: 'https://res.cloudinary.com/yiiva-dev/image/upload/v1782999051/demo/categories/headwear.jpg' },
+  // "Lingerie" in the display name is deliberate: universal search matches
+  // category names, so searching "lingerie" surfaces the whole category.
+  { name: 'Lingerie & Underwear', slug: 'underwear', sortOrder: 13, imageUrl: 'https://res.cloudinary.com/yiiva-dev/image/upload/v1784120318/demo/categories/underwear.jpg' },
+  { name: 'Headwear', slug: 'headwear', sortOrder: 14, imageUrl: 'https://res.cloudinary.com/yiiva-dev/image/upload/v1782999051/demo/categories/headwear.jpg' },
   { name: 'Jewellery', slug: 'jewellery', sortOrder: 14, imageUrl: 'https://res.cloudinary.com/yiiva-dev/image/upload/v1782999061/demo/categories/jewellery.jpg' },
   { name: 'Bags', slug: 'bags', sortOrder: 15, imageUrl: 'https://res.cloudinary.com/yiiva-dev/image/upload/v1782999047/demo/categories/bags.png' },
   { name: 'Eyewear', slug: 'eyewear', sortOrder: 16, imageUrl: 'https://res.cloudinary.com/yiiva-dev/image/upload/v1782999065/demo/categories/eyewear.jpg' },

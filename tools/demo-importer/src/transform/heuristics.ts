@@ -98,6 +98,13 @@ const CATEGORY_RULES: { slug: string; re: RegExp }[] = [
   { slug: 'dresses', re: /\b(dress|gown)\b/i },
   { slug: 'skirts', re: /\bskirts?\b/i },
   { slug: 'sets', re: /\b(sets?|co-?ords?|two[- ]?piece|tracksuits?)\b/i },
+  // Before swimwear/tops/accessories: lingerie vocabulary is specific, and
+  // bodysuits/garters/harnesses would otherwise leak into tops/accessories
+  // (added 2026-07-15 for the intimates brands — netterose, amani).
+  {
+    slug: 'underwear',
+    re: /\b(lingerie|underwear|intimates?|bralettes?|bras?|knickers?|panties|panty|briefs?|thongs?|g-?strings?|bodysuits?|garters?|garter ?belts?|suspenders?|harness(es)?|corsets?|teddy|teddies|babydolls?|chemises?|negligees?|crotchless|boxers?)\b/i,
+  },
   { slug: 'swimwear', re: /\b(swim|bikinis?|boardshorts?)\b/i },
   { slug: 'activewear', re: /\b(active|gym|sports?|leggings?|tights?|training|yoga|workout|performance)\b/i },
   { slug: 'eyewear', re: /\b(eyewear|sunglasses|shades|optical)\b/i },

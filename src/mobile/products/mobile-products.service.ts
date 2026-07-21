@@ -1,9 +1,15 @@
+import { createHash, randomBytes } from 'crypto';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, ProductStatus, StoreStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { genderFilterValues } from '../common/gender';
 import type { GenderParam } from '../common/gender';
-import { decodeCursor, encodeCursor } from '../common/cursor';
+import {
+  decodeCursor,
+  decodeDiscoveryCursor,
+  encodeCursor,
+  encodeDiscoveryCursor,
+} from '../common/cursor';
 import { Paginated } from '../common/paginated';
 import {
   PersonalFlags,
@@ -35,6 +41,16 @@ const FEED_SELECT = {
   store: { select: { id: true, slug: true, displayName: true, logoUrl: true } },
 } satisfies Prisma.ProductSelect;
 
+/**
+ * Compact a search query for matching against store slugs: lowercase,
+ * alphanumerics only ("Tol thema" → "tolthema", "so broke" → "sobroke").
+ * Returns '' (skip the match) below 3 chars — too noisy for substrings.
+ */
+function compactForSlugMatch(q: string): string {
+  const compact = q.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return compact.length >= 3 ? compact : '';
+}
+
 /** ACTIVE-product + ACTIVE-store base filter, with optional gender narrowing. */
 function baseProductWhere(genderType?: GenderParam): Prisma.ProductWhereInput {
   return {
@@ -52,6 +68,10 @@ export class MobileProductsService {
    * Gender-filtered main grid, cursor-paginated. Personalised bookmark/follow
    * flags are included only for authenticated buyers; likes are local-only in
    * v1 so `isLikedByMe` is always false (see phalo-smart-engine memory).
+   *
+   * Ordering is the brand-diverse discovery shuffle (queryDiscoveryPage), not
+   * plain recency — batch-imported catalogues made recency order read as one
+   * brand's entire drop at a time.
    */
   async feed(dto: FeedQueryDto, userId?: string) {
     const where = baseProductWhere(dto.genderType);
@@ -60,7 +80,7 @@ export class MobileProductsService {
         some: { categoryId: { in: await this.resolveCategoryIds(dto.category) } },
       };
     }
-    return this.queryFeedPage(
+    return this.discoveryPage(
       where,
       { cursor: dto.cursor, limit: dto.limit ?? 20 },
       userId,
@@ -84,11 +104,19 @@ export class MobileProductsService {
     userId?: string,
   ) {
     const q = opts.q;
+    // Brand names get stylized ("F I E L D S", "Tol'thema", "KOIKOI") so a
+    // displayName substring match alone misses reasonable queries like
+    // "fields" or "koi koi". Store slugs ARE the compact form of the brand
+    // name — match the compacted query against them too.
+    const compactQ = compactForSlugMatch(q);
     const where: Prisma.ProductWhereInput = {
       ...baseProductWhere(opts.genderType),
       OR: [
         { title: { contains: q, mode: 'insensitive' } },
         { store: { displayName: { contains: q, mode: 'insensitive' } } },
+        ...(compactQ
+          ? [{ store: { slug: { contains: compactQ, mode: 'insensitive' as const } } }]
+          : []),
         {
           categories: {
             some: { category: { name: { contains: q, mode: 'insensitive' } } },
@@ -105,7 +133,12 @@ export class MobileProductsService {
     return this.queryFeedPage(where, opts, userId);
   }
 
-  /** GET /api/search/category — products whose category name/slug matches. */
+  /**
+   * GET /api/search/category — products whose category name/slug matches.
+   * This is a browse surface (Shop category cards, maya's category screen),
+   * not a text search, so it gets the same brand-diverse discovery ordering
+   * as the feed.
+   */
   async searchByCategory(
     opts: {
       category: string;
@@ -128,7 +161,7 @@ export class MobileProductsService {
         },
       },
     };
-    return this.queryFeedPage(where, opts, userId);
+    return this.discoveryPage(where, opts, userId);
   }
 
   /** GET /api/search/smart-category — products tagged matching (Tag = smartCategory). */
@@ -209,22 +242,52 @@ export class MobileProductsService {
     }
 
     const page = await this.queryFeedPage(where, opts, userId);
-    const categories = await this.distinctStoreCategories(store.id);
+    const storeCategories = await this.distinctStoreCategories(store.id);
     return new Paginated(
-      { products: page.data.products, categories },
+      {
+        products: page.data.products,
+        categories: storeCategories.map((c) => c.slug),
+        // Brand-own imagery for the profile's category cards (one ACTIVE
+        // product's primary image per category) — same idea as the
+        // collection-cover fallback. Additive; `categories` stays the plain
+        // slug list existing clients consume.
+        categoryCovers: storeCategories,
+      },
       page.pagination,
     );
   }
 
-  private async distinctStoreCategories(storeId: string): Promise<string[]> {
+  private async distinctStoreCategories(
+    storeId: string,
+  ): Promise<{ slug: string; image: string | null }[]> {
     const cats = await this.prisma.category.findMany({
       where: {
         products: { some: { product: { storeId, status: ProductStatus.ACTIVE } } },
       },
-      select: { slug: true },
+      select: {
+        slug: true,
+        products: {
+          where: { product: { storeId, status: ProductStatus.ACTIVE } },
+          take: 1,
+          select: {
+            product: {
+              select: {
+                images: {
+                  orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }],
+                  take: 1,
+                  select: { url: true },
+                },
+              },
+            },
+          },
+        },
+      },
       orderBy: { name: 'asc' },
     });
-    return cats.map((c) => c.slug);
+    return cats.map((c) => ({
+      slug: c.slug,
+      image: c.products[0]?.product.images[0]?.url ?? null,
+    }));
   }
 
   /** GET /api/search/merchant — products from stores whose name/slug matches. */
@@ -237,6 +300,7 @@ export class MobileProductsService {
     },
     userId?: string,
   ) {
+    const compactQ = compactForSlugMatch(opts.merchantName);
     const where: Prisma.ProductWhereInput = {
       ...baseProductWhere(opts.genderType),
       store: {
@@ -244,6 +308,9 @@ export class MobileProductsService {
         OR: [
           { displayName: { contains: opts.merchantName, mode: 'insensitive' } },
           { slug: { contains: opts.merchantName, mode: 'insensitive' } },
+          ...(compactQ
+            ? [{ slug: { contains: compactQ, mode: 'insensitive' as const } }]
+            : []),
         ],
       },
     };
@@ -251,21 +318,39 @@ export class MobileProductsService {
   }
 
   /**
-   * "Smart dynamic" new-arrivals carousel. v1 heuristic = most recent ACTIVE
-   * products in the requested gender; the future Phalo engine replaces the
+   * "Smart dynamic" new-arrivals carousel. v1 heuristic = brand-diverse
+   * recency: each store's newest ACTIVE product first (round-robin by store,
+   * recency order within rounds, no shuffle) — plain newest-N read as one
+   * batch-loaded brand's entire drop. The future Phalo engine replaces the
    * ranking without changing this shape (see phalo-smart-engine memory).
    */
   async newArrivals(dto: NewArrivalsQueryDto) {
     const limit = dto.limit ?? 6;
 
-    const rows = await this.prisma.product.findMany({
+    const candidates = await this.prisma.product.findMany({
       where: {
         status: ProductStatus.ACTIVE,
         store: { status: StoreStatus.ACTIVE },
         genderType: { in: genderFilterValues(dto.genderType) },
       },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, storeId: true },
+    });
+
+    // Stable sort: rounds ascend, recency order preserved within a round.
+    const seqByStore = new Map<string, number>();
+    const pageIds = candidates
+      .map((p) => {
+        const round = seqByStore.get(p.storeId) ?? 0;
+        seqByStore.set(p.storeId, round + 1);
+        return { id: p.id, round };
+      })
+      .sort((a, b) => a.round - b.round)
+      .slice(0, limit)
+      .map((p) => p.id);
+
+    const rows = await this.prisma.product.findMany({
+      where: { id: { in: pageIds } },
       select: {
         id: true,
         title: true,
@@ -274,8 +359,10 @@ export class MobileProductsService {
         store: { select: { displayName: true } },
       },
     });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const page = pageIds.flatMap((id) => byId.get(id) ?? []);
 
-    return { products: rows.map(toCarouselProduct) };
+    return { products: page.map(toCarouselProduct) };
   }
 
   /**
@@ -361,13 +448,15 @@ export class MobileProductsService {
   }
 
   /**
-   * "Smart dynamic" similar-items carousel. v1 heuristic = recent ACTIVE
-   * products in the same gender, excluding the source (Phalo replaces later).
+   * "Smart dynamic" similar-items carousel. v1 heuristic = the SAME BRAND's
+   * other recent ACTIVE products, excluding the source (owner call 2026-07-09:
+   * the rail is brand-scoped on every product page). Phalo replaces the
+   * ranking later without changing this shape.
    */
   async similar(productId: string, limit: number) {
     const base = await this.prisma.product.findUnique({
       where: { id: productId },
-      select: { id: true, genderType: true, status: true },
+      select: { id: true, storeId: true, status: true },
     });
     if (!base || base.status !== ProductStatus.ACTIVE) {
       throw new NotFoundException({
@@ -381,7 +470,7 @@ export class MobileProductsService {
         status: ProductStatus.ACTIVE,
         store: { status: StoreStatus.ACTIVE },
         id: { not: productId },
-        ...(base.genderType ? { genderType: base.genderType } : {}),
+        storeId: base.storeId,
       },
       orderBy: { createdAt: 'desc' },
       take: limit,
@@ -438,6 +527,161 @@ export class MobileProductsService {
 
     const products = page.map((p) => toFeedProduct(p, flags.get(p.id)));
     const nextCursor = hasMore ? encodeCursor(page[page.length - 1].id) : null;
+
+    return new Paginated({ products }, { limit: opts.limit, nextCursor, hasMore });
+  }
+
+  /**
+   * Routes discovery surfaces (feed + category browse) to the active ordering:
+   * the plain brand round-robin, or — when FEED_SPOTLIGHT_STORE is set — the
+   * demo-day spotlight variant that quietly over-represents one brand. Env-only
+   * switch so dev/prod behavior is untouched unless deliberately enabled.
+   */
+  private async discoveryPage(
+    where: Prisma.ProductWhereInput,
+    opts: { cursor?: string; limit: number },
+    userId?: string,
+  ) {
+    const slug = process.env.FEED_SPOTLIGHT_STORE?.trim();
+    if (!slug) return this.queryDiscoveryPage(where, opts, userId);
+
+    const weight = Math.max(2, Number(process.env.FEED_SPOTLIGHT_WEIGHT) || 3);
+    const store = await this.prisma.store.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
+    if (!store) return this.queryDiscoveryPage(where, opts, userId);
+
+    return this.querySpotlightDiscoveryPage(where, opts, userId, {
+      storeId: store.id,
+      weight,
+    });
+  }
+
+  /**
+   * DEMO-DAY variant of queryDiscoveryPage — same brand round-robin + seeded
+   * shuffle, except the spotlight store fills `weight` slots per round instead
+   * of one (its n-th product joins round floor(n / weight)). The within-round
+   * shuffle scatters those slots, so the brand simply shows up ~weight× as
+   * often as anyone else — frequent but with no visible pattern. Enabled via
+   * FEED_SPOTLIGHT_STORE=<store slug> (+ optional FEED_SPOTLIGHT_WEIGHT,
+   * default 3) on the server process; unset it to fall back to the standard
+   * algorithm. Deliberately kept separate from queryDiscoveryPage.
+   */
+  private async querySpotlightDiscoveryPage(
+    where: Prisma.ProductWhereInput,
+    opts: { cursor?: string; limit: number },
+    userId: string | undefined,
+    spotlight: { storeId: string; weight: number },
+  ): Promise<Paginated<{ products: ReturnType<typeof toFeedProduct>[] }>> {
+    const { seed, offset } = opts.cursor
+      ? decodeDiscoveryCursor(opts.cursor)
+      : { seed: randomBytes(4).toString('hex'), offset: 0 };
+
+    const candidates = await this.prisma.product.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, storeId: true },
+    });
+
+    const seqByStore = new Map<string, number>();
+    const ordered = candidates
+      .map((p) => {
+        const seq = seqByStore.get(p.storeId) ?? 0;
+        seqByStore.set(p.storeId, seq + 1);
+        const round =
+          p.storeId === spotlight.storeId
+            ? Math.floor(seq / spotlight.weight)
+            : seq;
+        return {
+          id: p.id,
+          round,
+          shuffleKey: createHash('sha1').update(`${seed}:${p.id}`).digest('hex'),
+        };
+      })
+      .sort(
+        (a, b) => a.round - b.round || a.shuffleKey.localeCompare(b.shuffleKey),
+      );
+
+    const hasMore = ordered.length > offset + opts.limit;
+    const pageIds = ordered.slice(offset, offset + opts.limit).map((p) => p.id);
+
+    const rows = await this.prisma.product.findMany({
+      where: { id: { in: pageIds } },
+      select: FEED_SELECT,
+    });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const page = pageIds.flatMap((id) => byId.get(id) ?? []);
+
+    const flags = await this.personalFlags(page, userId);
+    const products = page.map((p) => toFeedProduct(p, flags.get(p.id)));
+    const nextCursor = hasMore
+      ? encodeDiscoveryCursor(seed, offset + opts.limit)
+      : null;
+
+    return new Paginated({ products }, { limit: opts.limit, nextCursor, hasMore });
+  }
+
+  /**
+   * Discovery-grid query: brand round-robin with a seeded shuffle. Products are
+   * ranked within their store by recency (round 0 = each store's newest), then
+   * ordered by (round, sha1(seed:productId)) — so every store appears once per
+   * round before any store repeats, and the order within a round is a stable
+   * pseudo-random arrangement per seed. A fresh load (no cursor) draws a new
+   * seed → new arrangement; the cursor carries {seed, offset} so infinite
+   * scroll stays consistent within one session.
+   *
+   * v1 heuristic — the ordering is Phalo's seam (product scores later replace
+   * the round key without changing the response shape). The id-scan per page is
+   * fine at current catalogue scale; move to precomputed ordering when it grows.
+   */
+  private async queryDiscoveryPage(
+    where: Prisma.ProductWhereInput,
+    opts: { cursor?: string; limit: number },
+    userId?: string,
+  ): Promise<Paginated<{ products: ReturnType<typeof toFeedProduct>[] }>> {
+    const { seed, offset } = opts.cursor
+      ? decodeDiscoveryCursor(opts.cursor)
+      : { seed: randomBytes(4).toString('hex'), offset: 0 };
+
+    // Recency order doubles as the within-store ranking: the n-th time a store
+    // appears is that product's round n.
+    const candidates = await this.prisma.product.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, storeId: true },
+    });
+
+    const roundByStore = new Map<string, number>();
+    const ordered = candidates
+      .map((p) => {
+        const round = roundByStore.get(p.storeId) ?? 0;
+        roundByStore.set(p.storeId, round + 1);
+        return {
+          id: p.id,
+          round,
+          shuffleKey: createHash('sha1').update(`${seed}:${p.id}`).digest('hex'),
+        };
+      })
+      .sort(
+        (a, b) => a.round - b.round || a.shuffleKey.localeCompare(b.shuffleKey),
+      );
+
+    const hasMore = ordered.length > offset + opts.limit;
+    const pageIds = ordered.slice(offset, offset + opts.limit).map((p) => p.id);
+
+    const rows = await this.prisma.product.findMany({
+      where: { id: { in: pageIds } },
+      select: FEED_SELECT,
+    });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const page = pageIds.flatMap((id) => byId.get(id) ?? []);
+
+    const flags = await this.personalFlags(page, userId);
+    const products = page.map((p) => toFeedProduct(p, flags.get(p.id)));
+    const nextCursor = hasMore
+      ? encodeDiscoveryCursor(seed, offset + opts.limit)
+      : null;
 
     return new Paginated({ products }, { limit: opts.limit, nextCursor, hasMore });
   }

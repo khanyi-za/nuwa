@@ -25,3 +25,32 @@ export function decodeCursor(token: string): string {
   }
   return id;
 }
+
+/**
+ * Discovery-feed cursor: carries the shuffle seed + the row offset so a scroll
+ * session keeps one stable arrangement while a fresh load (no cursor) reshuffles.
+ * Same opaque-token contract as `encodeCursor` — clients never see the parts.
+ */
+export function encodeDiscoveryCursor(seed: string, offset: number): string {
+  return Buffer.from(`d1:${seed}:${offset}`, 'utf8').toString('base64url');
+}
+
+export function decodeDiscoveryCursor(token: string): {
+  seed: string;
+  offset: number;
+} {
+  let decoded = '';
+  try {
+    decoded = Buffer.from(token, 'base64url').toString('utf8');
+  } catch {
+    decoded = '';
+  }
+  const match = /^d1:([0-9a-f]+):(\d+)$/.exec(decoded);
+  if (!match) {
+    throw new BadRequestException({
+      code: 'INVALID_CURSOR',
+      message: 'The pagination cursor is invalid or expired.',
+    });
+  }
+  return { seed: match[1], offset: Number(match[2]) };
+}

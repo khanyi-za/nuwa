@@ -40,6 +40,34 @@ export class MobileCategoriesService {
         name: true,
         imageUrl: true,
         sortOrder: true,
+        // Gender-aware card imagery: on a gendered call the chip image becomes
+        // the newest matching product's primary image (women tab → a women's/
+        // unisex shot, men tab → men's/unisex), so switching tabs visibly
+        // changes the cards. The seeded Category.imageUrl stays the fallback
+        // and serves ungendered surfaces (brand-page rail) unchanged.
+        ...(productScope
+          ? {
+              products: {
+                where: productScope,
+                take: 1,
+                orderBy: { product: { createdAt: 'desc' as const } },
+                select: {
+                  product: {
+                    select: {
+                      images: {
+                        orderBy: [
+                          { isPrimary: 'desc' as const },
+                          { sortOrder: 'asc' as const },
+                        ],
+                        take: 1,
+                        select: { url: true },
+                      },
+                    },
+                  },
+                },
+              },
+            }
+          : {}),
         _count: {
           select: { products: productScope ? { where: productScope } : true },
         },
@@ -47,7 +75,19 @@ export class MobileCategoriesService {
     });
 
     return {
-      categories: categories.map((c) => toCategoryChip(c, c._count.products)),
+      categories: categories.map((c) => {
+        // The conditional spread hides the nested select from Prisma's type
+        // inference — narrow the row shape manually.
+        const genderCover = (
+          c as unknown as {
+            products?: { product: { images: { url: string }[] } }[];
+          }
+        ).products?.[0]?.product.images[0]?.url;
+        return toCategoryChip(
+          { ...c, imageUrl: genderCover ?? c.imageUrl },
+          c._count.products,
+        );
+      }),
     };
   }
 }

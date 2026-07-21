@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { GenderType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MobileProductsService } from './mobile-products.service';
@@ -75,8 +75,14 @@ describe('MobileProductsService', () => {
   });
 
   describe('feed', () => {
+    // Discovery feed makes two product queries: candidate {id, storeId} rows
+    // (recency-ordered), then FEED_SELECT hydration for the page's ids.
+    const candidateRow = { id: 'p1', storeId: 's1' };
+
     it('maps rows to feed-card shape and omits personalised fields for guests', async () => {
-      mockPrisma.product.findMany.mockResolvedValue([feedRow]);
+      mockPrisma.product.findMany
+        .mockResolvedValueOnce([candidateRow])
+        .mockResolvedValueOnce([feedRow]);
 
       const result = await service.feed({ genderType: 'women', limit: 20 });
 
@@ -104,7 +110,9 @@ describe('MobileProductsService', () => {
     });
 
     it('includes personalised flags for authenticated buyers', async () => {
-      mockPrisma.product.findMany.mockResolvedValue([feedRow]);
+      mockPrisma.product.findMany
+        .mockResolvedValueOnce([candidateRow])
+        .mockResolvedValueOnce([feedRow]);
       mockPrisma.wishlistItem.findMany.mockResolvedValue([{ productId: 'p1' }]);
       mockPrisma.storeFollower.findMany.mockResolvedValue([]);
 
@@ -116,18 +124,19 @@ describe('MobileProductsService', () => {
       expect(product.merchant.isFollowedByMe).toBe(false);
     });
 
-    it('sets hasMore + nextCursor when an extra row is returned', async () => {
-      mockPrisma.product.findMany.mockResolvedValue([
-        feedRow,
-        { ...feedRow, id: 'p2' },
-      ]);
+    it('sets hasMore + a discovery cursor when more rows remain', async () => {
+      mockPrisma.product.findMany
+        .mockResolvedValueOnce([candidateRow, { id: 'p2', storeId: 's1' }])
+        .mockResolvedValueOnce([feedRow]);
 
       const result = await service.feed({ genderType: 'women', limit: 1 });
 
       expect(result.pagination.hasMore).toBe(true);
-      expect(result.pagination.nextCursor).toBe(
-        Buffer.from('p1', 'utf8').toString('base64url'),
-      );
+      const decoded = Buffer.from(
+        result.pagination.nextCursor!,
+        'base64url',
+      ).toString('utf8');
+      expect(decoded).toMatch(/^d1:[0-9a-f]{8}:1$/);
       expect((result.data as { products: any[] }).products).toHaveLength(1);
     });
 
@@ -140,19 +149,154 @@ describe('MobileProductsService', () => {
         GenderType.UNISEX,
       ]);
     });
+
+    // Six products across three stores, clustered per-store in recency order —
+    // the exact shape batch imports produce.
+    const clusteredCandidates = [
+      { id: 'a1', storeId: 'store-a' },
+      { id: 'a2', storeId: 'store-a' },
+      { id: 'a3', storeId: 'store-a' },
+      { id: 'b1', storeId: 'store-b' },
+      { id: 'b2', storeId: 'store-b' },
+      { id: 'c1', storeId: 'store-c' },
+    ];
+    const hydrated = clusteredCandidates.map((c) => ({
+      ...feedRow,
+      id: c.id,
+      store: { ...feedRow.store, id: c.storeId },
+    }));
+
+    it('round-robins brands: every store appears once before any repeats', async () => {
+      mockPrisma.product.findMany
+        .mockResolvedValueOnce(clusteredCandidates)
+        .mockResolvedValueOnce(hydrated);
+
+      const result = await service.feed({ genderType: 'women', limit: 6 });
+
+      const ids = (result.data as { products: any[] }).products.map(
+        (p) => p.id,
+      );
+      // Round 0 = each store's newest, round 1 = seconds, round 2 = the rest.
+      expect(new Set(ids.slice(0, 3))).toEqual(new Set(['a1', 'b1', 'c1']));
+      expect(new Set(ids.slice(3, 5))).toEqual(new Set(['a2', 'b2']));
+      expect(ids[5]).toBe('a3');
+    });
+
+    it('the cursor continues the same arrangement without duplicates', async () => {
+      mockPrisma.product.findMany
+        .mockResolvedValueOnce(clusteredCandidates)
+        .mockResolvedValueOnce(hydrated)
+        .mockResolvedValueOnce(clusteredCandidates)
+        .mockResolvedValueOnce(hydrated);
+
+      const page1 = await service.feed({ genderType: 'women', limit: 3 });
+      const page2 = await service.feed({
+        genderType: 'women',
+        limit: 3,
+        cursor: page1.pagination.nextCursor!,
+      });
+
+      const ids1 = (page1.data as { products: any[] }).products.map((p) => p.id);
+      const ids2 = (page2.data as { products: any[] }).products.map((p) => p.id);
+      expect(new Set([...ids1, ...ids2]).size).toBe(6);
+      expect(page2.pagination.hasMore).toBe(false);
+      expect(page2.pagination.nextCursor).toBeNull();
+    });
+
+    it('rejects a malformed discovery cursor with 400 INVALID_CURSOR', async () => {
+      await expect(
+        service.feed({ genderType: 'women', cursor: 'not-a-cursor' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('feed — spotlight mode (FEED_SPOTLIGHT_STORE)', () => {
+    afterEach(() => {
+      delete process.env.FEED_SPOTLIGHT_STORE;
+      delete process.env.FEED_SPOTLIGHT_WEIGHT;
+    });
+
+    // Spotlight brand (store-f) has 6 products; two other brands have 2 each.
+    const spotlightCandidates = [
+      { id: 'f1', storeId: 'store-f' },
+      { id: 'f2', storeId: 'store-f' },
+      { id: 'f3', storeId: 'store-f' },
+      { id: 'f4', storeId: 'store-f' },
+      { id: 'f5', storeId: 'store-f' },
+      { id: 'f6', storeId: 'store-f' },
+      { id: 'a1', storeId: 'store-a' },
+      { id: 'a2', storeId: 'store-a' },
+      { id: 'b1', storeId: 'store-b' },
+      { id: 'b2', storeId: 'store-b' },
+    ];
+    const spotlightHydrated = spotlightCandidates.map((c) => ({
+      ...feedRow,
+      id: c.id,
+      store: { ...feedRow.store, id: c.storeId },
+    }));
+
+    it('gives the spotlight store `weight` slots per round, shuffled among the rest', async () => {
+      process.env.FEED_SPOTLIGHT_STORE = 'fieldsstore';
+      mockPrisma.store.findUnique.mockResolvedValue({ id: 'store-f' });
+      mockPrisma.product.findMany
+        .mockResolvedValueOnce(spotlightCandidates)
+        .mockResolvedValueOnce(spotlightHydrated);
+
+      const result = await service.feed({ genderType: 'women', limit: 10 });
+
+      const ids = (result.data as { products: any[] }).products.map(
+        (p) => p.id,
+      );
+      // Round 0 = each brand's first slot(s): a1, b1 + THREE spotlight items.
+      expect(new Set(ids.slice(0, 5))).toEqual(
+        new Set(['a1', 'b1', 'f1', 'f2', 'f3']),
+      );
+      // Round 1 = the remainder.
+      expect(new Set(ids.slice(5))).toEqual(
+        new Set(['a2', 'b2', 'f4', 'f5', 'f6']),
+      );
+      expect(mockPrisma.store.findUnique).toHaveBeenCalledWith({
+        where: { slug: 'fieldsstore' },
+        select: { id: true },
+      });
+    });
+
+    it('falls back to the standard round-robin when the spotlight slug matches no store', async () => {
+      process.env.FEED_SPOTLIGHT_STORE = 'ghost-store';
+      mockPrisma.store.findUnique.mockResolvedValue(null);
+      mockPrisma.product.findMany
+        .mockResolvedValueOnce(spotlightCandidates)
+        .mockResolvedValueOnce(spotlightHydrated);
+
+      const result = await service.feed({ genderType: 'women', limit: 10 });
+
+      const ids = (result.data as { products: any[] }).products.map(
+        (p) => p.id,
+      );
+      // Standard algorithm: round 0 is one item per store.
+      expect(new Set(ids.slice(0, 3))).toEqual(new Set(['f1', 'a1', 'b1']));
+    });
+
+    it('does not touch the store table when spotlight mode is off', async () => {
+      mockPrisma.product.findMany.mockResolvedValue([]);
+      await service.feed({ genderType: 'women' });
+      expect(mockPrisma.store.findUnique).not.toHaveBeenCalled();
+    });
   });
 
   describe('newArrivals', () => {
     it('maps rows to carousel shape', async () => {
-      mockPrisma.product.findMany.mockResolvedValue([
-        {
-          id: 'p9',
-          title: 'Knit Golfer',
-          priceInCents: 65000,
-          images: [{ url: 'https://cdn.yiiva.co.za/p9.jpg' }],
-          store: { displayName: 'SUHU' },
-        },
-      ]);
+      mockPrisma.product.findMany
+        .mockResolvedValueOnce([{ id: 'p9', storeId: 's1' }])
+        .mockResolvedValueOnce([
+          {
+            id: 'p9',
+            title: 'Knit Golfer',
+            priceInCents: 65000,
+            images: [{ url: 'https://cdn.yiiva.co.za/p9.jpg' }],
+            store: { displayName: 'SUHU' },
+          },
+        ]);
 
       const { products } = await service.newArrivals({
         genderType: 'men',
@@ -167,6 +311,35 @@ describe('MobileProductsService', () => {
         image: 'https://cdn.yiiva.co.za/p9.jpg',
         merchant: { displayName: 'SUHU' },
       });
+    });
+
+    it('takes each brand\'s newest first — no single-brand rail', async () => {
+      // Recency order: brand A's entire fresh drop, then B's, then C's.
+      mockPrisma.product.findMany
+        .mockResolvedValueOnce([
+          { id: 'a1', storeId: 'store-a' },
+          { id: 'a2', storeId: 'store-a' },
+          { id: 'a3', storeId: 'store-a' },
+          { id: 'b1', storeId: 'store-b' },
+          { id: 'c1', storeId: 'store-c' },
+        ])
+        .mockResolvedValueOnce(
+          ['a1', 'a2', 'b1', 'c1'].map((id) => ({
+            id,
+            title: id,
+            priceInCents: 1000,
+            images: [],
+            store: { displayName: id[0] },
+          })),
+        );
+
+      const { products } = await service.newArrivals({
+        genderType: 'women',
+        limit: 4,
+      });
+
+      // Round 0 in recency order (a1, b1, c1), then round 1 begins (a2).
+      expect(products.map((p) => p.id)).toEqual(['a1', 'b1', 'c1', 'a2']);
     });
   });
 
@@ -220,10 +393,10 @@ describe('MobileProductsService', () => {
   });
 
   describe('similar', () => {
-    it('returns same-gender carousel items excluding the source', async () => {
+    it('returns the same brand\'s other items, excluding the source', async () => {
       mockPrisma.product.findUnique.mockResolvedValue({
         id: 'p1',
-        genderType: GenderType.WOMEN,
+        storeId: 's1',
         status: 'ACTIVE',
       });
       mockPrisma.product.findMany.mockResolvedValue([
@@ -241,7 +414,8 @@ describe('MobileProductsService', () => {
       expect(products[0].id).toBe('p2');
       const arg = mockPrisma.product.findMany.mock.calls[0][0];
       expect(arg.where.id).toEqual({ not: 'p1' });
-      expect(arg.where.genderType).toBe(GenderType.WOMEN);
+      expect(arg.where.storeId).toBe('s1');
+      expect(arg.where.genderType).toBeUndefined();
     });
 
     it('throws 404 when the base product is missing', async () => {
@@ -287,8 +461,27 @@ describe('MobileProductsService', () => {
         'Mosadi Kimono',
       );
       const where = mockPrisma.product.findMany.mock.calls[0][0].where;
-      expect(where.OR).toHaveLength(4);
+      expect(where.OR).toHaveLength(5); // + compacted-slug brand match
       expect(where.genderType.in).toEqual([GenderType.WOMEN, GenderType.UNISEX]);
+    });
+
+    it('matches stylized brand names via the compacted slug', async () => {
+      mockPrisma.product.findMany.mockResolvedValue([]);
+
+      // "so broke" should reach slug "sobroke" even though the displayName
+      // is "BROKE" and contains-match fails.
+      await service.searchUniversal({ q: 'So Broke!', limit: 20 });
+
+      const where = mockPrisma.product.findMany.mock.calls[0][0].where;
+      const slugTerm = where.OR.find((t: any) => t.store?.slug);
+      expect(slugTerm.store.slug.contains).toBe('sobroke');
+    });
+
+    it('skips the slug term for tiny queries', async () => {
+      mockPrisma.product.findMany.mockResolvedValue([]);
+      await service.searchUniversal({ q: 'ab', limit: 20 });
+      const where = mockPrisma.product.findMany.mock.calls[0][0].where;
+      expect(where.OR).toHaveLength(4);
     });
 
     it('category search matches category name or slug', async () => {
@@ -306,30 +499,46 @@ describe('MobileProductsService', () => {
       expect(where.tags.some.tag.name.contains).toBe('heritage');
     });
 
-    it('merchant search matches store name or slug', async () => {
+    it('merchant search matches store name, slug, or compacted slug', async () => {
       mockPrisma.product.findMany.mockResolvedValue([]);
       await service.searchByMerchant({ merchantName: 'tol', limit: 20 });
       const where = mockPrisma.product.findMany.mock.calls[0][0].where;
-      expect(where.store.OR).toHaveLength(2);
+      expect(where.store.OR).toHaveLength(3);
     });
   });
 
   describe('merchantProducts', () => {
-    it('returns the store catalogue + distinct category slugs', async () => {
+    it('returns the store catalogue + category slugs with brand-own covers', async () => {
       mockPrisma.store.findUnique.mockResolvedValue({ id: 's1', status: 'ACTIVE' });
       mockPrisma.product.findMany.mockResolvedValue([feedRow]);
       mockPrisma.category.findMany.mockResolvedValue([
-        { slug: 'kimono' },
-        { slug: 'shirt' },
+        {
+          slug: 'kimono',
+          products: [
+            { product: { images: [{ url: 'https://cdn.yiiva.co.za/k.jpg' }] } },
+          ],
+        },
+        // No imaged product in this category → cover null.
+        { slug: 'shirt', products: [] },
       ]);
 
       const result = await service.merchantProducts('tol_thema', { limit: 20 });
 
       expect((result.data as any).products[0].name).toBe('Mosadi Kimono');
       expect((result.data as any).categories).toEqual(['kimono', 'shirt']);
+      expect((result.data as any).categoryCovers).toEqual([
+        { slug: 'kimono', image: 'https://cdn.yiiva.co.za/k.jpg' },
+        { slug: 'shirt', image: null },
+      ]);
       expect(mockPrisma.product.findMany.mock.calls[0][0].where.storeId).toBe(
         's1',
       );
+      // Cover source is scoped to THIS store's ACTIVE products.
+      const catWhere = mockPrisma.category.findMany.mock.calls[0][0].select
+        .products.where;
+      expect(catWhere).toEqual({
+        product: { storeId: 's1', status: 'ACTIVE' },
+      });
     });
 
     it('filters by clothingType via category slug/name', async () => {

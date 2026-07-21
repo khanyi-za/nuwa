@@ -1,6 +1,114 @@
-# STATUS.md — Last updated 2026-07-06 (session close)
+# STATUS.md — Last updated 2026-07-09 (session close)
 
-> 🟢 **HANDOFF — next session start here. MERCHANT DEMOS ARE 2026-07-07.**
+> 🟢 **HANDOFF — next session start here.**
+>
+> ## 2026-07-09 — Discovery-feed algorithm + FIELDS demo package + 7 new
+> ## demo brands (15 total)
+>
+> Big feature/bug day across nuwa + maya prepping the FIELDS in-person pitch
+> (owner demo'd + sent them an unlisted video). **ALL UNCOMMITTED in both
+> repos** (incl. the 07-07 collection-cover fallback below). nuwa: **841
+> tests / 58 suites green, tsc clean.** maya: tsc clean (known VideoCard
+> error only), lint clean. maya detail: maya/status.md top entry.
+>
+> **nuwa — discovery feed rewritten (mobile-products.service.ts):**
+> - NEW `queryDiscoveryPage`: brand round-robin + seeded shuffle. Round r =
+>   each store's r-th newest item; order by (round, sha1(seed:productId)).
+>   Cursor is now `d1:{seed}:{offset}` (cursor.ts `encodeDiscoveryCursor`) —
+>   opaque to maya, so ZERO client changes; fresh load reshuffles, scroll
+>   stays stable. Applied to `feed()` + `searchByCategory()` (browse
+>   surfaces). Text search / smart-category / merchant catalogue stay on
+>   recency (`queryFeedPage` untouched). Fixes "category view = one brand's
+>   whole drop in upload order". ⚠ id-scan per page — fine at demo scale,
+>   precompute when catalogue grows (lettersWithBrands precedent).
+> - NEW **spotlight variant** (`querySpotlightDiscoveryPage`, env-only):
+>   `FEED_SPOTLIGHT_STORE=<slug>` (+`FEED_SPOTLIGHT_WEIGHT`, default 3) gives
+>   one brand `weight` slots per round — ~3× frequency, shuffled, no visible
+>   pattern. Built for the FIELDS pitch; reusable for any brand pitch.
+>   Documented in .env.example. Unset env → byte-identical standard path.
+> - **Trending search chips** (mobile-search.service.ts) — replaced junk
+>   `#Shopify-tag` output (`#1KG`, `#AW24`…) with curated realistic vocab +
+>   top-3 brand names, **catalogue-validated** (term must match ≥3 live
+>   products via searchUniversal's rule — every chip lands), daily-seeded
+>   rotation of 8, 1h in-process cache. Still the Phalo trending_searches
+>   seam.
+> - **`similar()` is now brand-scoped** — same store's other ACTIVE products,
+>   newest first (was cross-brand same-gender). ⚠ single-product merchants
+>   → empty rail (fallback parked). maya header still says "Similar Items";
+>   "More from this brand" copy offered, not taken yet.
+> - **Gender-aware Home category cards** (mobile-categories.service.ts) —
+>   gendered `GET /api/categories` now serves each chip's image from the
+>   newest matching-gender product (UNISEX both tabs); seeded
+>   Category.imageUrl = fallback + ungendered surfaces. Women vs men differ
+>   on 19 card images (verified live).
+> - **`categoryCovers` on merchant-products** — additive per-category
+>   brand-own cover (like the 07-07 collection fallback). maya uses it on
+>   the brand profile's Categories rail, **gated to fieldsstore** (owner
+>   scope); drop the gate to roll out to all brands.
+>
+> **Demo env (yiiva_demo): 7 NEW BRANDS SEEDED → 15 total.** Full pipeline
+> (extract→transform→curate cap-50 nav-aware→rehost 1,343 imgs→load) +
+> relink (586 links) + regender (map in regender.ts extended: klothandkin/
+> 5thavefashion/hannahlavery silent→WOMEN; rest UNISEX; ACTIVE dist now
+> 240W/105M/271U) + renav. New logins `<slug>@demo.yiiva.co.za`/`DemoPass1`:
+> wildthingsco (7 products — tiny), klothandkin, 5thavefashion (display name
+> carries site's "S3-25" tag), wearegods, artclubandfriends, sobroke (⚠ 3
+> duplicate "SHOP NOW" tabs, faithful to their nav), hannahlavery. All
+> verified via A–Z + profiles + feed mix. **NOT run: seed-orders** (would
+> wipe demo order history mid-FIELDS-followup) — new brands have no orders.
+> No hero videos yet — `rebanner` when owner supplies reels.
+>
+> **Run state:** demo nuwa :3005 RUNNING detached **with
+> `FEED_SPOTLIGHT_STORE=fieldsstore`** (log /tmp/demo-nuwa-3005.log; stop:
+> `lsof -ti :3005 | xargs kill`). ⚠ Restart WITHOUT the env var to restore
+> the fair feed once the FIELDS window passes.
+>
+> **2026-07-10 addendum — Shopify-app research:** NEW
+> `docs/shopify-app/shopify-app-foundation.md` — feasibility research
+> (verified vs shopify.dev) + design sketch for a Shopify app that onboards
+> merchants with their real catalogue/inventory (the consent-based
+> productionisation of the demo importer). Key findings: v1 import + v2
+> webhook sync fully feasible + review-free via custom distribution;
+> GraphQL-only (REST is legacy); ⚠ order-push-back-into-Shopify is
+> policy-gated (external checkout disallowed for new public apps) — parked
+> as Phase 4; compliant workaround = `inventoryAdjustQuantities` stock
+> decrement. Open questions SA-1…SA-6 in the doc. NOT scheduled — research
+> only, no code.
+>
+> **▶ NEXT:** (a) **COMMIT nuwa + maya** (this + 07-07 fallback below —
+> suggested nuwa msg: "discovery feed round-robin + spotlight, trending
+> chips, brand-scoped similar, gendered category covers + 7 demo brands");
+> (b) parked: seed-orders for new brands, sobroke tab labels +
+> 5thavefashion display-name cleanups, hero reels for the 7, "More from
+> this brand" copy, new-release-notification plumbing (maya's Subscribe
+> popup now PROMISES it — enum NEW_FOLLOWER exists, nothing fires on
+> product publish), single-product similar-rail fallback.
+
+---
+
+> ## 2026-07-07 — Collection-cover fallback (maya brand-page redesign support)
+>
+> Post-demo maya UI session (detail in **maya/status.md** — brand page now has
+> a Collections/Categories toggle + card rails + full-screen browse sheet).
+> nuwa's one change (UNCOMMITTED): **collection cover image fallback** in
+> `MobileMerchantsService.getProfile` — when a StoreCollection has no
+> merchant-set `imageUrl`, the profile serves the primary image of one of its
+> ACTIVE products as `collections[].image`. Read-time only (no DB writes;
+> merchant-set covers always win; works for all future merchants). Before:
+> 5 of 8 demo brands had gaps (embedded 0/5, FOM 33/88). After: **100%
+> coverage, all 156 tabs across 8 brands** — verified live on :3005.
+> +1 spec test (mobile-merchants suite → 17). **830 tests / 58 suites green,
+> tsc clean.** Demo :3005 RUNNING this build.
+>
+> Also audited for the "Subscribe" vocabulary pass (UI-only, decided
+> 2026-07-07): nuwa has NO user-facing "follower" copy — NEW_FOLLOWER is
+> enum-only with no template/dispatch. When that notification ships, write
+> its copy as "subscriber". API/schema vocabulary stays "follow" everywhere.
+>
+> **▶ NEXT:** commit (this + anything left from 2026-07-06 below); maya
+> follow-ups live in maya/status.md.
+
+---
 >
 > ## 2026-07-06 — Merchant-demo feature day: admin orders UI, variants, live
 > ## analytics, earnings, promotions (sales), low-stock, returns + demo seeding

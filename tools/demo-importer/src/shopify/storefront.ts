@@ -113,7 +113,10 @@ export async function fetchStorefront(baseUrl: string): Promise<StorefrontMeta> 
   const candidates: { source: LogoSource; url: string }[] = [];
   const push = (source: LogoSource, raw: string | null) => {
     if (!raw) return;
-    const url = normalizeUrl(raw, baseUrl);
+    // Some themes emit the srcset TEMPLATE url (…_{width}x.png) — resolve the
+    // placeholder or the download 404s at rehost (netterose, 2026-07-15).
+    const resolved = raw.replace(/\{width\}/g, '400').replace(/\{height\}/g, '400');
+    const url = normalizeUrl(resolved, baseUrl);
     if (url && !candidates.some((c) => c.url === url)) candidates.push({ source, url });
   };
 

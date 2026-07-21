@@ -1,0 +1,151 @@
+# Shopify App — Foundation (research + design sketch)
+
+> Status: **RESEARCH DONE, NOT SCHEDULED.** No code exists. This doc captures
+> the feasibility research (verified against shopify.dev, 2026-07-09) and the
+> intended shape so the project can start cold from here.
+>
+> One-line pitch: a Shopify app that lets a merchant onboard onto YIIVA in
+> minutes — OAuth consent → their catalogue, variants, images and REAL
+> inventory sync into nuwa automatically — replacing manual re-entry.
+
+## §1 Why (strategic fit)
+
+YIIVA's client-acquisition funnel already has a **pitch tool**: the demo
+importer (`tools/demo-importer/`, see `docs/demo-importer/`) pre-loads a
+target brand's catalogue from *public* Shopify JSON so the in-person demo is
+personalised. The Shopify app is the **conversion tool** — when the brand
+says yes, they install the app and onboard with consent + private data:
+
+```
+importer (no consent, public data, demo env)  →  pitch
+shopify app (OAuth consent, real data, prod)  →  onboard + stay in sync
+```
+
+The importer has already de-risked the hardest part: its `transform` stage IS
+the Shopify→YIIVA catalogue mapping (products/variants/images/collections,
+option + gender + category heuristics). The app productionises that mapping
+behind OAuth instead of `products.json`.
+
+What the app adds that public JSON cannot:
+- **Real per-variant inventory quantities** (`read_inventory`) — public
+  `products.json` has no stock; the importer fabricates it. YIIVA's whole
+  reserve/release stock model is only as good as its numbers.
+- **Ongoing sync via webhooks** — price/stock/product changes propagate
+  automatically. A one-time import goes stale in a week; sync makes YIIVA
+  trustworthy as a second sales channel.
+- **Double-sell prevention** — decrement the merchant's Shopify stock when a
+  YIIVA order lands (`write_inventory`), so the same unit can't sell twice.
+
+Caveat from the 50-brand survey (`data/brand_listing.xlsx`): not every target
+is on Shopify — the app complements manual onboarding, it doesn't replace it.
+(7/7 of the 2026-07-09 seeding batch were Shopify, so coverage is strong.)
+
+## §2 Research findings (verified 2026-07-09 against shopify.dev)
+
+### Confirmed feasible
+| Claim | Finding | Source |
+|---|---|---|
+| OAuth scopes for catalogue + inventory + orders | `read_products`/`write_products` (Product, ProductVariant, Collection), `read_inventory`/`write_inventory` (InventoryLevel, InventoryItem), `read_orders`/`write_orders`. `read_all_orders` (past 60d window) needs special approval. | shopify.dev/docs/api/usage/access-scopes |
+| Webhook topics for sync | `products/create`/`update`/`delete`, `inventory_levels/update`, `orders/create` all exist. Delivery: HTTPS, Pub/Sub, EventBridge. Subscribe via app TOML or `webhookSubscriptionCreate`. | shopify.dev/docs/api/webhooks |
+| Review-free distribution at acquisition scale | **Custom distribution** apps skip Shopify review entirely. Mandatory GDPR webhooks (`customers/data_request`, `customers/redact`, `shop/redact`) apply to **App Store apps only**. | shopify.dev/docs/apps/launch/distribution, /docs/apps/build/privacy-law-compliance |
+| Rate limits comfortable | GraphQL Admin API is cost-based: 100 pts/s (standard plan) · 200 (Advanced) · 1000 (Plus); single query ≤ 1,000 pts. A 50–200 product catalogue sync is trivial. | shopify.dev/docs/api/usage/limits |
+
+### Corrections / constraints discovered
+1. **⚠ External-checkout order push-back is policy-gated.** New PUBLIC apps
+   may NOT run their own checkout and register the order back into Shopify —
+   public apps must route buyers through the merchant's Shopify checkout
+   (staff answer, community.shopify.dev thread 34413). YIIVA's architecture
+   (own cart + PayFast checkout) is exactly that pattern. Marketplace-style
+   **sales channels** with their own checkout DO exist as an approved
+   category, but approval requires owning the marketplace AND intent to
+   onboard "several hundred Shopify merchants in the first year"
+   (shopify.dev/docs/apps/build/sales-channels). → Not a v1 concern; a
+   someday-negotiation once YIIVA has merchant volume.
+2. **Custom distribution is per-store.** One custom app installs on ONE store
+   (or stores within one Plus organization) and can't use the Billing API
+   (irrelevant — commission is taken YIIVA-side). At ~50 brands that means
+   one custom app per merchant (Partner-dashboard scriptable), or the
+   integrator-standard alternative: the merchant creates an admin custom app
+   in their own Shopify admin and hands YIIVA the Admin API token (no OAuth,
+   no review, instant). **Distribution choice is permanent per app** — the
+   custom-phase apps and an eventual public app are separate artifacts.
+3. **GraphQL-only from day one.** REST Admin API is legacy (Oct 2024); new
+   public apps must be exclusively GraphQL since 2025-04-01; product/variant
+   REST endpoints were deprecated 2025-02 (GraphQL product APIs support
+   2,000 variants). Do not write any REST integration code.
+4. **Shopify's Marketplace Kit is dead** (deprecated CLI 2 / old Polaris;
+   community told to migrate off — github.com/Shopify/marketplace-kit-feedback
+   #16). No prescribed framework to conform to: a plain OAuth + webhook
+   receiver + GraphQL sync worker is the current-day correct shape.
+5. **Compliant double-sell workaround** (until sales-channel approval): on a
+   YIIVA sale, do NOT create a Shopify order — decrement stock via
+   `write_inventory` (`inventoryAdjustQuantities`). Stock stays true (the
+   part that actually prevents double-selling); the merchant fulfils from
+   athena rather than their Shopify orders screen.
+6. Future-relevant channel tooling if/when approved: Contextual Product
+   Feeds, `channelCreate`, and (API 2026-07) channel markets + order
+   attribution definitions.
+
+## §3 Intended architecture (sketch — not locked)
+
+A contained new domain, either `nuwa/src/shopify/` or a small separate
+service. Three parts:
+
+1. **OAuth + token storage** — per-merchant Shopify access token, encrypted
+   at rest, linked to `Store`. (Custom-app-token variant for the acquisition
+   phase: merchant pastes an admin-created token instead of OAuth.)
+2. **Webhook receiver** — `POST /shopify/webhook/...`. Crib from the two
+   hardened webhook patterns in nuwa: PayFast ITN (idempotency table +
+   signature verify) and ShipLogic (raw-body hash + CAS guards). Shopify
+   webhooks are HMAC-signed (`X-Shopify-Hmac-Sha256` over the raw body) —
+   `rawBody: true` is already enabled in `main.ts`.
+3. **Sync worker** — GraphQL Admin API pulls + webhook-driven deltas →
+   reuse/port the importer's `transform` mapping. Images re-hosted to
+   Cloudinary (keeps the `@IsCloudinaryUrl` invariant; the importer's
+   `rehost` stage is the reusable prior art) rather than hot-linking
+   Shopify's CDN.
+
+Inventory ownership: **Shopify is the source of truth** for merchants using
+the app. YIIVA syncs down (webhooks + periodic reconcile) and pushes
+decrements up on YIIVA sales. Two-way conflict resolution beyond that is
+explicitly out of scope until it hurts.
+
+## §4 Phase plan
+
+| Phase | Name | Scope | Gate |
+|---|---|---|---|
+| 1 | One-time import wizard | OAuth (or pasted admin token) → pull catalogue via GraphQL → transform → rehost → create Store/Products/Variants/Images. Essentially the importer with consent + real stock. | none — custom distribution, no review |
+| 2 | Continuous sync | Webhook receiver (`products/*`, `inventory_levels/update`) + periodic reconcile job + `inventoryAdjustQuantities` decrement on YIIVA order CONFIRMED (post-ITN hook, best-effort, same contract as shipment booking). | none |
+| 3 | Public App Store listing | Same app, public distribution: app review, GDPR webhooks, Billing API if ever needed. | Shopify app review |
+| 4 | Sales-channel order push-back | YIIVA orders appear in the merchant's Shopify admin; fulfil from their existing workflow. | Sales-channel approval — needs "several hundred merchants in year 1" credibility; blocked by current external-checkout policy for new public apps |
+
+## §5 Open questions (unresolved — answer before Phase 1)
+
+- SA-1: nuwa module vs separate service? (Leaning nuwa module — reuses
+  Prisma/Cloudinary/notification plumbing; the sync worker is light.)
+- SA-2: OAuth app per merchant (Partner dashboard, scriptable) vs
+  merchant-created admin tokens for the acquisition phase? (Token variant is
+  zero-friction but scatters secrets; decide with the first real onboarding.)
+- SA-3: Variant-option mapping edge cases the importer punts on (3-option
+  products, 100+ variants) — GraphQL supports 2,000 variants; YIIVA's
+  variant model needs a look before promising fidelity.
+- SA-4: What happens on `products/delete` / unpublish for a product with
+  YIIVA order history? (Probably ARCHIVED, mirroring the existing rule that
+  ordered products archive rather than delete.)
+- SA-5: Price drift during an open YIIVA cart/checkout — accept (stock model
+  already tolerates races) or re-quote on webhook?
+- SA-6: Which store fields sync ongoing vs import-once (title/description
+  yes; collections/nav — probably import-once + `renav`-style refresh)?
+
+## §6 Sources
+
+- https://shopify.dev/docs/apps/launch/distribution
+- https://shopify.dev/docs/api/usage/access-scopes
+- https://shopify.dev/docs/api/webhooks
+- https://shopify.dev/docs/apps/build/sales-channels
+- https://shopify.dev/docs/apps/launch/shopify-app-store/app-store-requirements
+- https://shopify.dev/docs/api/usage/limits
+- https://shopify.dev/docs/apps/build/privacy-law-compliance
+- https://community.shopify.dev/t/clarification-on-sales-channel-requirements-for-external-marketplace-checkout-order-creation-in-shopify/34413
+- https://github.com/Shopify/marketplace-kit-feedback/discussions/16
+- https://www.lazertechnologies.com/insights/shopifys-rest-api-deprecation-and-graphql-migration-guide

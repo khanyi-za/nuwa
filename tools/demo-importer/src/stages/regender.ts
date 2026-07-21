@@ -34,6 +34,33 @@ const BRAND_DEFAULT_GENDER: Record<string, GenderType> = {
   // the silent remainder is genuinely unisex.
   breazies: GenderType.UNISEX,
   freedomofmovement: GenderType.UNISEX,
+  // 2026-07-09 batch (owner-confirmed defaults): the three womenswear-led
+  // brands default silent items to WOMEN (hannahlavery's menswear was already
+  // inferred MEN and stays); the streetwear/art brands are genuinely unisex.
+  klothandkin: GenderType.WOMEN,
+  '5thavefashion': GenderType.WOMEN,
+  hannahlavery: GenderType.WOMEN,
+  wildthingsco: GenderType.UNISEX,
+  wearegods: GenderType.UNISEX,
+  artclubandfriends: GenderType.UNISEX,
+  sobroke: GenderType.UNISEX,
+  // 2026-07-12 batch (owner-confirmed): womenswear/jewellery/swim brands
+  // default silent→WOMEN; eyewear, bags, streetwear, footwear and genuinely
+  // mixed ranges (burnt, koikoi, aliverti, freestylesa had strong W+M
+  // inference) stay UNISEX.
+  pichulik: GenderType.WOMEN,
+  netterose: GenderType.WOMEN,
+  kokonova: GenderType.WOMEN,
+  sittingpretty: GenderType.WOMEN,
+  weareamani: GenderType.WOMEN,
+  balloeyewear: GenderType.UNISEX,
+  saksak: GenderType.UNISEX,
+  burnt: GenderType.UNISEX,
+  praiaeyewear: GenderType.UNISEX,
+  koikoi: GenderType.UNISEX,
+  stiebeuel: GenderType.UNISEX,
+  aliverti: GenderType.UNISEX,
+  freestylesa: GenderType.UNISEX,
 };
 
 export async function runRegender(): Promise<void> {

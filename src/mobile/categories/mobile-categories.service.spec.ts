@@ -79,4 +79,52 @@ describe('MobileCategoriesService', () => {
       in: [GenderType.UNISEX],
     });
   });
+
+  it('gendered calls serve a matching product image as the chip image', async () => {
+    mockPrisma.category.findMany.mockResolvedValue([
+      {
+        slug: 'knitwear',
+        name: 'Knitwear',
+        imageUrl: 'https://cdn.yiiva.co.za/seeded-knitwear.png',
+        sortOrder: 2,
+        products: [
+          {
+            product: {
+              images: [{ url: 'https://cdn.yiiva.co.za/womens-knit.jpg' }],
+            },
+          },
+        ],
+        _count: { products: 15 },
+      },
+      // No imaged product for this one → seeded image stays.
+      {
+        slug: 'shorts',
+        name: 'Shorts',
+        imageUrl: 'https://cdn.yiiva.co.za/seeded-shorts.png',
+        sortOrder: 3,
+        products: [],
+        _count: { products: 2 },
+      },
+    ]);
+
+    const { categories } = await service.list('women');
+
+    expect(categories[0].image).toBe('https://cdn.yiiva.co.za/womens-knit.jpg');
+    expect(categories[1].image).toBe('https://cdn.yiiva.co.za/seeded-shorts.png');
+    // The cover source is scoped to the SAME gender rule as the chips.
+    const sel = mockPrisma.category.findMany.mock.calls[0][0].select;
+    expect(sel.products.where.product.genderType).toEqual({
+      in: [GenderType.WOMEN, GenderType.UNISEX],
+    });
+    expect(sel.products.take).toBe(1);
+  });
+
+  it('ungendered calls do not fetch product covers (seeded images untouched)', async () => {
+    mockPrisma.category.findMany.mockResolvedValue([]);
+
+    await service.list();
+
+    const sel = mockPrisma.category.findMany.mock.calls[0][0].select;
+    expect(sel.products).toBeUndefined();
+  });
 });
