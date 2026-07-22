@@ -1441,3 +1441,60 @@ model AnalyticsEvent {
   @@index([userId, createdAt])
   @@map("analytics_events")
 }
+
+// ============================================================================
+// SHOPIFY APP (merchant onboarding — docs/shopify-app/shopify-app-foundation.md)
+// ============================================================================
+
+enum ShopifyConnectionStatus {
+  ACTIVE
+  DISCONNECTED
+}
+
+enum ShopifyImportStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+// A merchant's link to their Shopify shop. Phase 1 auth = merchant-created
+// custom-app Admin API token (pasted); OAuth slots in later behind the same
+// row. The token is AES-256-GCM encrypted at rest (SHOPIFY_TOKEN_KEY).
+// userId/storeId are FK-less on purpose (AnalyticsEvent precedent) — the
+// connection may exist before the Store does.
+model ShopifyConnection {
+  id             String                  @id @default(cuid())
+  userId         String // YIIVA user who connected the shop
+  storeId        String?                 @unique // set once import creates/links the Store
+  shopDomain     String                  @unique // canonical *.myshopify.com host
+  encryptedToken String // AES-256-GCM: iv.ciphertext.authTag (base64url)
+  shopName       String?
+  currencyCode   String?
+  status         ShopifyConnectionStatus @default(ACTIVE)
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  importJobs ShopifyImportJob[]
+
+  @@index([userId])
+  @@map("shopify_connections")
+}
+
+// One catalogue-import run (Phase 1 wizard). Async: created PENDING, worked
+// in-process, polled by the onboarding UI.
+model ShopifyImportJob {
+  id           String              @id @default(cuid())
+  connectionId String
+  connection   ShopifyConnection   @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  status       ShopifyImportStatus @default(PENDING)
+  // Progress + result counts: { products, variants, images, collections, … }
+  summary      Json?
+  error        String?
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  createdAt    DateTime            @default(now())
+
+  @@index([connectionId, createdAt])
+  @@map("shopify_import_jobs")
+}

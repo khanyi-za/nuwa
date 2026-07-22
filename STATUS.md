@@ -1,6 +1,62 @@
-# STATUS.md — Last updated 2026-07-21
+# STATUS.md — Last updated 2026-07-22 (session close)
 
 > 🟢 **HANDOFF — next session start here.**
+>
+> ## 2026-07-22 — Payouts (Phase 6) DONE · commission 2.5% · PayFast purged ·
+> ## Shopify onboarding Phase 1a
+>
+> Everything below through "PayFast sweep" is COMMITTED; **Shopify Phase 1a
+> is UNCOMMITTED** (nuwa only). nuwa: **702 tests / 57 suites green, tsc
+> clean.** Demo :3005 running this build (fair feed).
+>
+> **Paystack payouts (migration Phase 6) — COMPLETE + live-verified:**
+> merchants onboard a bank once (`POST /stores/:id/payout-account`, 33 SA
+> banks via /banks; subaccount at Paystack, we keep code + bank/last4 only) →
+> checkout attaches a per-transaction FLAT multi-split (verified to the cent:
+> R1,260 subtotal → R1,228.50 to FIELDS' test subaccount ACCT_zylcsf9tuii9h2g,
+> split SPL_aERVf7WZyt). PS-8 DECIDED: bearer `all-proportional` (at 2.5%
+> commission YIIVA is margin-negative on cards otherwise). PS-3 v1: refunds
+> pull from main balance; clawback = manual ops. Unconfigured stores' shares
+> stay on main balance (manual payout, incremental onboarding); split failure
+> degrades gracefully (buyer checkout never blocked). athena: NEW
+> "Automatic payouts" section in Settings (settlement-account-section.tsx +
+> BFF + hooks; prefills from legacy bank fields; legacy PayoutSection kept
+> for the review record).
+>
+> **Commission 5.5% → 2.5%** (early-adopter strategy; `COMMISSION_RATE` in
+> order/checkout/totals.ts; historical Payment rows keep their locked rate).
+> See `commission-rate` memory.
+>
+> **PayFast dependency audit: ZERO functional deps anywhere.** Swept 39 stale
+> comments/spec-titles + the admin error string to provider-neutral; purged 9
+> inert PAYFAST_ vars from .env. Remaining mentions = deliberate history.
+> ⚠ The buyer WEB frontend (separate repo) still expects the deleted
+> `payfast:{actionUrl,fields}` block — must adopt `payment.redirect` pre-launch.
+>
+> **Shopify onboarding (docs/shopify-app/shopify-app-foundation.md) —
+> Phase 1a BUILT (UNCOMMITTED):** goal = 3–5-click merchant onboarding.
+> SA-1 decided: nuwa module (`src/shopify/`). SA-2: merchant-created
+> custom-app Admin token first, OAuth later. Shipped: ShopifyConnection +
+> ShopifyImportJob models (migrated BOTH DBs), AES-256-GCM token crypto
+> (SHOPIFY_TOKEN_KEY in .env, 64-hex), GraphQL-only ShopifyClient (API
+> 2026-07, cost-aware THROTTLED retries, 401→reconnect), and
+> `POST/GET/DELETE /shopify/connection` (live token validation before
+> storing, domain normalization, canonical-domain trust, cross-account
+> guard, ZAR-only currencySupported flag). 20 new tests.
+>
+> **▶ NEXT:** (a) commit Shopify Phase 1a; (b) **Phase 1b**: paginated
+> catalogue pull (products/variants/images/collections/locations) + port the
+> demo importer's mapping heuristics (gender, CATEGORY_RULES 19-cat tree,
+> options) into `src/shopify/mapping/`; then 1c: async import job → Store/
+> Products/Variants + Cloudinary rehost (server-side upload from Shopify CDN
+> URLs — no disk), store lands in DRAFT→review. Import must REFUSE non-ZAR
+> shops. (c) Owner errand: Shopify Partner dev store + custom app
+> (read_products/read_inventory/read_locations) + shpat_ token for live e2e.
+> (d) Later: onboarding UI ("clicks 1–5" discussion pending), Phase 2 sync +
+> stock decrement, Paystack LIVE activation, production env plumbing,
+> ShipLogic prod smoke, phalo deploy.
+
+---
 >
 > ## 2026-07-21 — PAYSTACK MIGRATION COMPLETE (Phases 1–5, PayFast deleted)
 >

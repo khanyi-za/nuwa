@@ -1,6 +1,34 @@
 # Shopify App — Foundation (research + design sketch)
 
-> Status: **RESEARCH DONE, NOT SCHEDULED.** No code exists. This doc captures
+> Status: **PHASE 1 COMPLETE (1a + 1b + 1c shipped 2026-07-22) — the one-time
+> import wizard backend is fully built.** SA-1 decided: nuwa module
+> (`src/shopify/`). SA-2 decided: merchant-created custom-app Admin token
+> first; OAuth later behind the same ShopifyConnection row.
+> Phase 1a = connect/validate/encrypted-storage + GraphQL client (cost-aware
+> throttling, API 2026-07). Phase 1b = paginated catalogue pull (ACTIVE
+> products/variants/images, collections+membership, locations; nested-
+> connection continuations resolved; cost-budgeted page sizes) + the
+> importer's mapping heuristics ported to `src/shopify/mapping/` (pure:
+> gender inference w/ provenance, 19-rule category tree, option→color/size/
+> material, REAL inventoryQuantity with untracked-stock stand-in + oversold
+> clamp, weight-unit→grams) + `GET /shopify/import/preview` (read-only
+> pull+map+summary; refuses non-ZAR with SHOP_CURRENCY_UNSUPPORTED).
+> Phase 1c = async import executor: `POST /shopify/import` (optional
+> defaultGenderType for gender-silent products — the regender map made
+> self-serve) → ShopifyImportJob (PENDING→RUNNING via CAS; polled at
+> `GET /shopify/import/latest`) → pull+map → existing store reused or DRAFT
+> store created from shop identity (+ best-effort brand logo) → per-product
+> server-side Cloudinary rehost (remote-URL upload, hash-keyed public_ids
+> under stores/{id}/import/ so re-runs resume; >10MB Shopify originals retry
+> via ?width=2048) → products land ACTIVE w/ real stock, namespaced deduped
+> variant SKUs, collection/category/tag links; image-less products skipped;
+> per-product failures counted not fatal; re-run = additive refresh (skips
+> existing slugs); starter banner seeded for import-created stores.
+> SA-4 (products/delete → ARCHIVED) unchanged, Phase 2 concern.
+> ⚠ Not yet verified against a live shop — needs the owner's Partner dev
+> store + shpat_ token (read_products/read_inventory/read_locations).
+> Next: Phase 2 continuous sync (webhooks + reconcile + stock decrement).
+> Original research status: This doc captures
 > the feasibility research (verified against shopify.dev, 2026-07-09) and the
 > intended shape so the project can start cold from here.
 >

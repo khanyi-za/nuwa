@@ -16,6 +16,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { ShippingModule } from './shipping/shipping.module';
 import { MobileModule } from './mobile/mobile.module';
+import { ShopifyModule } from './shopify/shopify.module';
 import { ChatModule } from './chat/chat.module';
 
 @Module({
@@ -34,6 +35,7 @@ import { ChatModule } from './chat/chat.module';
     UploadsModule,
     ShippingModule,
     MobileModule,
+    ShopifyModule,
     ChatModule,
   ],
   controllers: [AppController],
