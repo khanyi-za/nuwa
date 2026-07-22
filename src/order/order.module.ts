@@ -47,8 +47,7 @@ import { PAYMENT_SERVICE } from './contracts/payment-contract';
  *   PaymentsModule is imported so PaystackService's deps (PaystackConfig,
  *   PaystackClient) resolve from PaymentsModule's exports — `useClass`
  *   constructs the service here, so every constructor dep must be visible.
- *   Rollback: import `PaymentsService` and rebind (PayFast code remains
- *   until the migration's cleanup step).
+ *   PayFast predecessor deleted at migration Phase 5 (2026-07-21).
  * - SHIPPING_SERVICE: bound to the real `ShippingService` (shipping-module
  *   Phase 4). ShippingModule is imported and exports the token; OrderModule
  *   gets the real implementation by importing the module.

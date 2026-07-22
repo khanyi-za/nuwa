@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 /**
  * PaystackConfig — single source of truth for Paystack environment
- * configuration (PayfastConfig pattern: validate everything at boot, fail
+ * configuration (house boot-validation pattern: validate everything at boot, fail
  * fast on misconfiguration).
  *
  * Env vars:

@@ -123,9 +123,9 @@ export class MobileOrdersService {
 
   /**
    * POST /api/orders — auth-required delivery checkout. Reuses the web
-   * CheckoutService.commit (TX1 → PayFast → TX2/rollback). The maya "order" is
-   * the PaymentGroup (one PayFast transaction across N per-store orders). The
-   * mobile WebView auto-submits `payment.fields` to `payment.actionUrl`.
+   * CheckoutService.commit (TX1 → payment init → TX2/rollback). The maya "order" is
+   * the PaymentGroup (one provider transaction across N per-store orders). The
+   * mobile WebView navigates to `payment.redirect.url` (hosted checkout).
    */
   async placeOrder(userId: string, dto: PlaceOrderDto) {
     let result: Awaited<ReturnType<CheckoutService['commit']>>;

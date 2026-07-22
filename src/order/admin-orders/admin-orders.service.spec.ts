@@ -534,7 +534,7 @@ describe('AdminOrdersService', () => {
       paymentGroup: { pfPaymentId: 'pf-uuid-456' },
     };
 
-    it('full refund: calls PayFast, transitions Order → REFUNDED', async () => {
+    it('full refund: calls the provider, transitions Order → REFUNDED', async () => {
       mockPrisma.order.findUnique.mockResolvedValue({
         id: ORDER_ID,
         status: OrderStatus.CONFIRMED,
@@ -643,7 +643,7 @@ describe('AdminOrdersService', () => {
 
       await expect(
         service.requestRefund(ORDER_ID, refundDto),
-      ).rejects.toThrow(/No PayFast transaction recorded/);
+      ).rejects.toThrow(/No provider transaction recorded/);
       expect(mockPaymentService.refundPayment).not.toHaveBeenCalled();
     });
 

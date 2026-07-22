@@ -13,9 +13,9 @@ import { GuestInfoDto } from './guest-info.dto';
 
 /**
  * Commit request — locks the quote, creates Orders + PaymentGroup,
- * calls PayFast, returns the redirect URL.
+ * calls the payment provider, returns the redirect URL.
  *
- * Same address/guest/items shape as the quote DTO, plus PayFast callback
+ * Same address/guest/items shape as the quote DTO, plus provider callback
  * URLs and optional buyer notes.
  */
 export class CheckoutCommitDto {

@@ -14,7 +14,7 @@ const DEFAULT_TIMEOUT_MS = 15_000;
  * shipping module to call rates, shipments, tracking, etc. Bearer auth header
  * is attached automatically.
  *
- * Mirrors `PayfastClient`'s use of Node's global `fetch` + `AbortController`
+ * Mirrors the payments client's use of Node's global `fetch` + `AbortController`
  * for request timeouts. Errors are normalised: HTTP non-2xx becomes a thrown
  * `ShipLogicApiError` carrying status + body; network errors throw a
  * `InternalServerErrorException` so callers can distinguish them.

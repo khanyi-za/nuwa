@@ -22,7 +22,7 @@ const API_TIMEOUT_MS = 15_000;
 
 /**
  * PaystackClient — typed HTTP wrapper for outbound Paystack REST calls
- * (PayfastClient pattern: global fetch + AbortController timeouts,
+ * (house HTTP-client pattern: global fetch + AbortController timeouts,
  * InternalServerErrorException on transport/API failure).
  *
  * Auth is a Bearer secret key — NO request signing exists on this API

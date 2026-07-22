@@ -30,7 +30,7 @@ export class OrderCleanupService {
   /**
    * Emit a single structured log line per cycle. Ops sets up alerts on:
    *   - reconcileRequired > 0 (immediate investigation)
-   *   - olderThan30Min growing (PayFast latency or our processing issue)
+   *   - olderThan30Min growing (provider webhook latency or our processing issue)
    *   - cancelledThisCycle high (payment success rate dropping)
    */
   private async emitSummaryLog(cancelledThisCycle: number): Promise<void> {

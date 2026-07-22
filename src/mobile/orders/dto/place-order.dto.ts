@@ -2,7 +2,7 @@ import { IsOptional, IsString, MinLength } from 'class-validator';
 
 /**
  * maya POST /orders body. v1 supports authenticated delivery checkout via
- * PayFast redirect. `addressId`, `returnUrl`, `cancelUrl` are used; the rest are
+ * Paystack redirect. `addressId`, `returnUrl`, `paymentMethod` are used; the rest are
  * accepted for forward-compat with maya's documented body but ignored in v1
  * (pickup, saved cards, Apple Pay, promo, guest email are all deferred).
  */
@@ -11,11 +11,11 @@ export class PlaceOrderDto {
   @MinLength(1)
   addressId!: string;
 
-  /** Deep link PayFast redirects to after payment (e.g. yiivaapp://payment-return). */
+  /** Where the provider's hosted page returns the buyer (https sentinel). */
   @IsString()
   returnUrl!: string;
 
-  /** Deep link PayFast redirects to on cancel. */
+  /** Accepted for compat; Paystack has no cancel URL (WebView intercept + cron). */
   @IsString()
   cancelUrl!: string;
 

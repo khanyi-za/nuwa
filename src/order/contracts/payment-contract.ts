@@ -66,7 +66,7 @@ export interface PaymentRedirect {
   /** Where the buyer goes to pay (hosted checkout). */
   url: string;
 
-  /** GET → plain navigation (Paystack). POST → render `fields` as a form and submit (PayFast). */
+  /** GET → plain navigation (Paystack). POST → render `fields` as a form and submit (legacy form-flow providers). */
   method: 'GET' | 'POST';
 
   /** Hidden form inputs — POST-form providers only. */

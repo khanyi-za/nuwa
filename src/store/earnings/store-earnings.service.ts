@@ -16,7 +16,7 @@ import { StoreService } from '../store.service';
  * is the authoritative record — nothing is recomputed).
  *
  * Definitions:
- * - A payment counts as EARNED once its status is COMPLETED (the PayFast ITN
+ * - A payment counts as EARNED once its status is COMPLETED (the provider webhook
  *   landed). Later refunds keep status COMPLETED and accumulate on
  *   refundedAmountInCents — reported separately, never rewritten history.
  * - grossInCents = the store's subtotal slice (shipping is YIIVA→courier

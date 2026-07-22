@@ -37,7 +37,7 @@ async function bootstrap() {
   app.set('trust proxy', trustProxy);
 
   // CORS is app-wide. Without it, the browser blocks every cross-origin
-  // request from the Next.js frontend. The PayFast ITN webhook is server-to-
+  // request from the Next.js frontend. Payment/shipping webhooks are server-to-
   // server (no Origin header) and is unaffected. `credentials: true` is
   // required for the refresh-token httpOnly cookie. See cors.config.ts for
   // the env-driven allowlist + production guard.

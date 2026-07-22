@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
  * value is missing or empty, so configuration errors surface immediately rather
  * than at first upload-signature request.
  *
- * Mirrors the PayfastConfig pattern in the payments module.
+ * Mirrors the payments module's boot-validation pattern (now PaystackConfig).
  */
 @Injectable()
 export class CloudinaryConfig implements OnModuleInit {

@@ -137,7 +137,7 @@ export class CheckoutService {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // COMMIT — creates Orders + Payments, calls PayFast, clears cart
+  // COMMIT — creates Orders + Payments, calls the payment provider, clears cart
   // ═══════════════════════════════════════════════════════════════════════════
 
   async commit(
@@ -329,10 +329,10 @@ export class CheckoutService {
       throw err;
     }
 
-    // ─── PayFast init (outside TX) ─────────────────────────────────────
+    // ─── Payment init (outside TX) ─────────────────────────────────────
     let paymentResponse;
     try {
-      // Build buyer info for PayFast.
+      // Build buyer info for the provider's hosted checkout.
       const buyer = await this.prisma.user.findUnique({
         where: { id: actualUserId },
         select: { email: true, firstName: true, lastName: true },
@@ -778,7 +778,7 @@ export class CheckoutService {
   }
 
   /**
-   * TX 3 — compensating transaction when PayFast init fails.
+   * TX 3 — compensating transaction when payment init fails.
    * Deletes Orders + Payments + PaymentGroup. For guests, also releases
    * the stock that was reserved inside the (now-committed) TX 1.
    */

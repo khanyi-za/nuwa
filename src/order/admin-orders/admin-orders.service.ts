@@ -99,7 +99,7 @@ export interface AdminOrderDetail {
     platformCommissionInCents: number;
     merchantPayoutInCents: number;
     refundedAmountInCents: number;
-    /** Parent PayFast transaction — feeds the refund + reconcile admin tools. */
+    /** Parent provider transaction — feeds the refund + reconcile admin tools. */
     paymentGroup: {
       id: string;
       mPaymentId: string;
@@ -394,12 +394,12 @@ export class AdminOrdersService {
   }
 
   /**
-   * Issue a refund via PayFast's REST API. Supports partial refunds; multiple
+   * Issue a refund via the payment provider. Supports partial refunds; multiple
    * partial refunds are allowed as long as cumulative ≤ Payment.amountGrossInCents.
    *
-   * The flow is synchronous on the admin side: we call PayFast, on success
+   * The flow is synchronous on the admin side: we call the provider, on success
    * we accumulate `Payment.refundedAmountInCents` and transition Order status.
-   * PayFast asynchronously confirms via a refund ITN, which `PaymentsNotifyService`
+   * Paystack asynchronously confirms via refund.* webhooks, which `PaystackWebhookService`
    * records for audit (see `transactionType: REFUND` PaymentEvent rows).
    *
    * Order status transitions:
@@ -441,7 +441,7 @@ export class AdminOrdersService {
 
     if (!payment.paymentGroup.pfPaymentId) {
       throw new BadRequestException(
-        'No PayFast transaction recorded yet; cannot refund via API. ' +
+        'No provider transaction recorded yet; cannot refund via API. ' +
           'Wait for the payment ITN to confirm before refunding.',
       );
     }

@@ -22,7 +22,7 @@ import { StoreService } from '../store.service';
  * - Window: last 14 calendar days (UTC), inclusive of today, vs the previous
  *   14 days for trend deltas.
  * - Revenue = SUM(Order.subtotalInCents) of orders CONFIRMED in the window
- *   (confirmedAt is when the PayFast ITN landed). Shipping is excluded —
+ *   (confirmedAt is when the payment webhook landed). Shipping is excluded —
  *   it is YIIVA→courier money, never the merchant's. Refunds are not
  *   subtracted in v1.
  * - Orders = COUNT of orders confirmed in the window.

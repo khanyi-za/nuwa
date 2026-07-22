@@ -375,7 +375,7 @@ describe('CheckoutService', () => {
       expect('splits' in initArg).toBe(false);
     });
 
-    it('creates orders, payments, calls PayFast, clears cart', async () => {
+    it('creates orders, payments, calls the payment provider, clears cart', async () => {
       const result = await service.commit(USER_ID, {
         addressId: ADDRESS_ID,
         returnUrl: 'https://yiiva.co.za/return',
@@ -426,7 +426,7 @@ describe('CheckoutService', () => {
         }),
       );
 
-      // PayFast called with grand total (subtotal + shipping).
+      // Provider called with grand total (subtotal + shipping).
       expect(mockPayment.initializePayment).toHaveBeenCalledWith(
         expect.objectContaining({
           totalAmountInCents: 101_000,
@@ -440,9 +440,9 @@ describe('CheckoutService', () => {
       });
     });
 
-    it('rolls back orders on PayFast init failure', async () => {
+    it('rolls back orders on payment init failure', async () => {
       (mockPayment.initializePayment as jest.Mock).mockRejectedValueOnce(
-        new Error('PayFast timeout'),
+        new Error('provider timeout'),
       );
 
       await expect(
@@ -569,7 +569,7 @@ describe('CheckoutService', () => {
       mockPrisma.product.findUnique.mockResolvedValue(baseProduct);
       // user.findUnique is called twice:
       // 1. Inside tx: email collision check → null (no existing account)
-      // 2. After tx: fetch buyer info for PayFast request
+      // 2. After tx: fetch buyer info for the payment request
       mockPrisma.user.findUnique
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce({
@@ -638,7 +638,7 @@ describe('CheckoutService', () => {
       ).rejects.toThrow(ConflictException);
     });
 
-    it('releases guest stock on PayFast failure rollback', async () => {
+    it('releases guest stock on payment failure rollback', async () => {
       // Re-mock user.findUnique for this test (beforeEach mocks consumed).
       mockPrisma.user.findUnique.mockReset();
       mockPrisma.user.findUnique
@@ -649,7 +649,7 @@ describe('CheckoutService', () => {
           lastName: 'Buyer',
         });
       (mockPayment.initializePayment as jest.Mock).mockRejectedValueOnce(
-        new Error('PayFast down'),
+        new Error('provider down'),
       );
 
       await expect(
@@ -773,7 +773,7 @@ describe('CheckoutService', () => {
         return Promise.resolve();
       });
 
-      // Set up for a commit that will fail at PayFast.
+      // Set up for a commit that will fail at the payment provider.
       mockPrisma.cart.findUnique.mockResolvedValue(cartWithItems);
       mockPrisma.address.findUnique.mockResolvedValue(baseAddress);
       mockPrisma.order.findUnique.mockResolvedValue(null);
@@ -792,7 +792,7 @@ describe('CheckoutService', () => {
         lastName: 'Dlamini',
       });
       (mockPayment.initializePayment as jest.Mock).mockRejectedValueOnce(
-        new Error('PayFast down'),
+        new Error('provider down'),
       );
 
       await expect(

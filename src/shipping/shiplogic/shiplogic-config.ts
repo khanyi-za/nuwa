@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
  * value is missing or malformed, so configuration errors surface immediately
  * rather than at first rate quote.
  *
- * Mirrors `PayfastConfig` — same boot-validation rhythm and helpers.
+ * Mirrors the payments config (now `PaystackConfig`) — same boot-validation rhythm and helpers.
  */
 @Injectable()
 export class ShipLogicConfig implements OnModuleInit {

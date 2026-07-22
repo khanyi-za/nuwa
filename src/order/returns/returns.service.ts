@@ -22,7 +22,7 @@ import { CreateReturnRequestDto } from '../dto/return-request.dto';
  *   REQUESTED → REJECTED (terminal)
  *
  * Money movement is NOT here — once the parcel is RECEIVED, the refund goes
- * through the existing admin PayFast refund tool, and the merchant/ops closes
+ * through the existing admin refund tool (Paystack), and the merchant/ops closes
  * the request. 404-not-403 for cross-user/cross-store access throughout.
  */
 

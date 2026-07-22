@@ -28,7 +28,7 @@ import {
  * after Order.CONFIRMED leaves the Order paid-but-unbooked, flagged for ops.
  *
  * Idempotent: if a Shipment row already exists for the orderId, returns it
- * unchanged. Re-invocations are safe (PayFast retries, ops manual replay).
+ * unchanged. Re-invocations are safe (provider webhook retries, ops manual replay).
  *
  * Failure policy (per shipping-module-foundation §16):
  *   - HTTP 4xx (bad request — usually bad address) → throw BadRequestException
