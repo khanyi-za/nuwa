@@ -332,6 +332,13 @@ model Store {
   averageRating Float   @default(0)
   followerCount Int     @default(0)
 
+  // Paystack subaccount for split payouts (migration Phase 6). The
+  // subaccount holds the merchant's bank details ON PAYSTACK'S SIDE — we
+  // persist only the code + display metadata, never account numbers.
+  paystackSubaccountCode String? @unique
+  payoutBankName         String? // display-only, e.g. "FNB"
+  payoutAccountLast4     String? // display-only, e.g. "1234"
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

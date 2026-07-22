@@ -14,7 +14,10 @@ import {
   PAYMENT_SERVICE,
   PaymentInitRequest,
 } from '../contracts/payment-contract';
-import type { IPaymentService } from '../contracts/payment-contract';
+import type {
+  IPaymentService,
+  PaymentInitResponse,
+} from '../contracts/payment-contract';
 import { SHIPPING_SERVICE } from '../contracts/shipping-contract';
 import type {
   IShippingService,
@@ -43,18 +46,17 @@ export interface CheckoutQuoteView extends CheckoutTotals {
 }
 
 /**
- * Returned to the frontend after a successful checkout commit. The frontend
- * renders `payfast.fields` as hidden inputs in a form with `action=payfast.actionUrl`
- * and auto-submits, redirecting the buyer to PayFast's hosted checkout page.
+ * Returned to the frontend after a successful checkout commit.
+ * `payment.redirect` is the provider-neutral hosted-checkout handoff:
+ * GET → navigate to `url` (Paystack); a POST provider would also carry
+ * `fields` for a hidden-form auto-submit.
  */
 export interface CheckoutCommitResult {
   orderNumbers: string[];
   paymentGroupId: string;
+  /** OUR payment reference (kept under its legacy name for API compat). */
   mPaymentId: string;
-  payfast: {
-    actionUrl: string;
-    fields: Record<string, string>;
-  };
+  payment: PaymentInitResponse;
 }
 
 // ─── Resolved item used internally ──────────────────────────────────────────
@@ -341,16 +343,43 @@ export class CheckoutService {
           ? `YIIVA Order ${orderNumbers[0]}`
           : `YIIVA Order (${orderNumbers.length} stores)`;
 
+      // Merchant payout splits (Paystack Phase 6): stores WITH a configured
+      // subaccount get their share (subtotal − commission) settled directly;
+      // unconfigured stores' shares stay on the main balance for manual
+      // payout — incremental onboarding, nobody's checkout is blocked.
+      const storesWithSubaccounts = await this.prisma.store.findMany({
+        where: {
+          id: { in: totals.stores.map((s) => s.storeId) },
+          paystackSubaccountCode: { not: null },
+        },
+        select: { id: true, paystackSubaccountCode: true },
+      });
+      const subaccountByStore = new Map(
+        storesWithSubaccounts.map((s) => [s.id, s.paystackSubaccountCode!]),
+      );
+      const splits = totals.stores
+        .filter(
+          (s) =>
+            subaccountByStore.has(s.storeId) &&
+            s.subtotalInCents - s.commissionInCents > 0,
+        )
+        .map((s) => ({
+          subaccountCode: subaccountByStore.get(s.storeId)!,
+          // Same math the Payment row locks: subtotal − commission.
+          amountInCents: s.subtotalInCents - s.commissionInCents,
+        }));
+
       const initReq: PaymentInitRequest = {
         orderIds,
-        mPaymentId,
+        reference: mPaymentId,
         totalAmountInCents: totals.grandTotalInCents,
         buyerEmail: buyer!.email,
         buyerFirstName: buyer!.firstName,
         buyerLastName: buyer!.lastName,
         itemName,
         returnUrl: dto.returnUrl,
-        cancelUrl: dto.cancelUrl,
+        channels: dto.paymentChannels,
+        ...(splits.length ? { splits } : {}),
       };
 
       paymentResponse = await this.payment.initializePayment(initReq);
@@ -373,7 +402,7 @@ export class CheckoutService {
       orderNumbers,
       paymentGroupId,
       mPaymentId,
-      payfast: paymentResponse,
+      payment: paymentResponse,
     };
   }
 

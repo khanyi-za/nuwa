@@ -14,7 +14,6 @@ import { AdminRefundOrderDto } from '../dto/admin-refund-order.dto';
 const refundDto: AdminRefundOrderDto = {
   amountInCents: 90_000,
   reason: 'Buyer changed mind',
-  accType: 'savings',
 };
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
@@ -549,11 +548,10 @@ describe('AdminOrdersService', () => {
       const result = await service.requestRefund(ORDER_ID, refundDto);
 
       expect(mockPaymentService.refundPayment).toHaveBeenCalledWith({
-        pfPaymentId: 'pf-uuid-456',
+        providerPaymentId: 'pf-uuid-456',
         amountInCents: 90_000,
         reason: 'Buyer changed mind',
-        accType: 'savings',
-        notifyBuyer: undefined,
+              notifyBuyer: undefined,
       });
       expect(result.status).toBe(OrderStatus.REFUNDED);
       expect(result.cumulativeRefundedInCents).toBe(90_000);

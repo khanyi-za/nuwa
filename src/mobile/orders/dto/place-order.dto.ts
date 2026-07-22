@@ -19,11 +19,16 @@ export class PlaceOrderDto {
   @IsString()
   cancelUrl!: string;
 
+  /**
+   * Payment channel chosen on the Payment step (card | eft | qr) — restricts
+   * the Paystack hosted page to that method. Unknown values → all channels.
+   */
+  @IsOptional() @IsString() paymentMethod?: string;
+
   // ── Accepted but ignored in v1 ──────────────────────────────────────────
   @IsOptional() @IsString() shippingMethod?: string;
   @IsOptional() @IsString() shippingRateId?: string;
   @IsOptional() @IsString() pickupLocationId?: string;
-  @IsOptional() @IsString() paymentMethod?: string;
   @IsOptional() @IsString() paymentMethodId?: string;
   @IsOptional() @IsString() applePayToken?: string;
   @IsOptional() @IsString() promoCode?: string;

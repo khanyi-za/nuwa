@@ -87,6 +87,8 @@ const cartWithItems = {
 
 const mockPrisma = {
   cart: { findUnique: jest.fn() },
+  // Split lookup: stores with configured Paystack subaccounts (Phase 6).
+  store: { findMany: jest.fn().mockResolvedValue([]) },
   cartItem: { deleteMany: jest.fn() },
   address: { findUnique: jest.fn() },
   product: { findUnique: jest.fn() },
@@ -129,15 +131,13 @@ const mockShipping: IShippingService = {
 };
 
 const mockPayment: IPaymentService = {
+  // Contract v3 GET-redirect provider (Paystack-style hosted checkout).
   initializePayment: jest.fn().mockResolvedValue({
-    actionUrl: 'https://sandbox.payfast.co.za/eng/process',
-    fields: {
-      merchant_id: '10000100',
-      m_payment_id: 'm-stub',
-      amount: '550.00',
-      item_name: 'YIIVA Order YV-2026-001234',
-      signature: 'stub-sig',
+    redirect: {
+      url: 'https://checkout.paystack.com/stub-access',
+      method: 'GET',
     },
+    providerRef: 'stub-access',
   }),
   refundPayment: jest.fn(),
 };
@@ -265,7 +265,7 @@ describe('CheckoutService', () => {
         storeId: STORE_ID,
         subtotalInCents: 90_000, // 45000 × 2
         shippingInCents: 11_000, // per-store ShipLogic quote
-        commissionInCents: 4_950, // 90000 × 0.055 (shipping is NOT commissionable)
+        commissionInCents: 2_250, // 90000 × 0.025 (shipping is NOT commissionable)
         totalInCents: 101_000, // subtotal + per-store shipping
       });
       expect(result.grandSubtotalInCents).toBe(90_000);
@@ -342,6 +342,39 @@ describe('CheckoutService', () => {
       });
     });
 
+    it('passes payout splits for stores with configured subaccounts', async () => {
+      mockPrisma.store.findMany.mockResolvedValue([
+        { id: STORE_ID, paystackSubaccountCode: 'ACCT_store1' },
+      ]);
+
+      await service.commit(USER_ID, {
+        addressId: ADDRESS_ID,
+        returnUrl: 'https://yiiva.co.za/return',
+        cancelUrl: 'https://yiiva.co.za/cancel',
+      });
+
+      const initArg = (mockPayment.initializePayment as jest.Mock).mock
+        .calls[0][0];
+      // subtotal 90000 − 2.5% commission 2250 = merchant share 87750.
+      expect(initArg.splits).toEqual([
+        { subaccountCode: 'ACCT_store1', amountInCents: 87_750 },
+      ]);
+    });
+
+    it('omits splits entirely when no store has a subaccount', async () => {
+      mockPrisma.store.findMany.mockResolvedValue([]);
+
+      await service.commit(USER_ID, {
+        addressId: ADDRESS_ID,
+        returnUrl: 'https://yiiva.co.za/return',
+        cancelUrl: 'https://yiiva.co.za/cancel',
+      });
+
+      const initArg = (mockPayment.initializePayment as jest.Mock).mock
+        .calls[0][0];
+      expect('splits' in initArg).toBe(false);
+    });
+
     it('creates orders, payments, calls PayFast, clears cart', async () => {
       const result = await service.commit(USER_ID, {
         addressId: ADDRESS_ID,
@@ -350,8 +383,8 @@ describe('CheckoutService', () => {
       });
 
       expect(result.orderNumbers).toHaveLength(1);
-      expect(result.payfast.actionUrl).toContain('sandbox.payfast');
-      expect(result.payfast.fields.signature).toBeDefined();
+      expect(result.payment.redirect.url).toContain('checkout.paystack.com');
+      expect(result.payment.redirect.method).toBe('GET');
       expect(result.paymentGroupId).toBeDefined();
       expect(result.mPaymentId).toBeDefined();
 
@@ -387,8 +420,8 @@ describe('CheckoutService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             amountGrossInCents: 90_000,
-            platformCommissionInCents: 4_950,
-            merchantPayoutInCents: 85_050, // 90000 - 4950
+            platformCommissionInCents: 2_250,
+            merchantPayoutInCents: 87_750, // 90000 - 4950
           }),
         }),
       );
@@ -568,8 +601,8 @@ describe('CheckoutService', () => {
       const result = await service.commit(null, guestCommitDto);
 
       expect(result.orderNumbers).toHaveLength(1);
-      expect(result.payfast.actionUrl).toContain('sandbox.payfast');
-      expect(result.payfast.fields.signature).toBeDefined();
+      expect(result.payment.redirect.url).toContain('checkout.paystack.com');
+      expect(result.payment.redirect.method).toBe('GET');
 
       // Guest user created.
       expect(mockPrisma.user.create).toHaveBeenCalledWith(

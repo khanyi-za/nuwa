@@ -4,7 +4,7 @@ You are working on **Nuwa**, the backend API for YIIVA — a South African comme
 
 ## What this project does
 
-YIIVA is a multi-merchant marketplace. Merchants create stores, list products, and fulfill orders. Buyers browse across stores, build multi-brand carts, and check out in a single transaction. YIIVA handles payments (PayFast), shipping (The Courier Guy), and takes a 5.5% commission on subtotals.
+YIIVA is a multi-merchant marketplace. Merchants create stores, list products, and fulfill orders. Buyers browse across stores, build multi-brand carts, and check out in a single transaction. YIIVA handles payments (Paystack), shipping (The Courier Guy), and takes a 2.5% commission on subtotals (dropped from 5.5% on 2026-07-22 — early-adopter acquisition strategy).
 
 The API serves a Next.js frontend (separate repo). This is the backend only.
 
@@ -18,7 +18,7 @@ AppModule
  ├── StoreModule       — Store CRUD, admin review, employee invites, addresses, banner media
  ├── ProductModule     — Products, variants, images, collections, tags, categories
  ├── OrderModule       — Cart, checkout, orders (buyer + merchant + admin views), addresses, wishlist, cron cleanup
- ├── PaymentsModule    — PayFast integration: signing, ITN webhook, refunds, reconciliation
+ ├── PaymentsModule    — Paystack integration: hosted-checkout init, webhook, refunds, reconciliation
  ├── ShippingModule    — ShipLogic/TCG: rate quotes, shipment creation, label download, tracking webhook, dispatch addresses CRUD
  ├── UploadsModule     — Cloudinary signed-upload signing endpoint + IsCloudinaryUrl validator (global)
  ├── MobileModule      — Buyer/mobile `/api` surface for maya (envelope + vocab translation; never touches web/admin routes)
@@ -32,7 +32,7 @@ AppModule
 
 **Key dependency rules:**
 - OrderModule imports StoreModule + ProductModule directly.
-- OrderModule imports PaymentsModule and binds `PAYMENT_SERVICE` to the real `PaymentsService` via `useClass`. PaymentsService's deps (`PayfastConfig`, `PayfastSignatureService`) resolve from PaymentsModule's exports.
+- OrderModule imports PaymentsModule and binds `PAYMENT_SERVICE` to the real `PaystackService` via `useClass`. PaystackService's deps (`PaystackConfig`, `PaystackClient`) resolve from PaymentsModule's exports.
 - OrderModule imports ShippingModule and consumes Shipping via the `SHIPPING_SERVICE` injection-token contract. ShippingModule exports the token bound (via `useExisting`) to the real `ShippingService`.
 - PaymentsModule imports ShippingModule (one-way) and injects `ShipmentCreationService` into `PaymentsNotifyService` — post-ITN hook books real ShipLogic shipments after Order → CONFIRMED, OUTSIDE the DB transaction.
 - BuyerOrdersService injects `ShipmentCancellationService` (via OrderModule's import of ShippingModule) — best-effort ShipLogic cancel after Order.cancelOrder succeeds.
@@ -40,21 +40,21 @@ AppModule
 - No circular dependencies. PaymentsModule reads from `OrderModule`-owned tables (PaymentGroup, Payment, Order) but does not import OrderModule. ShippingModule does not import OrderModule or PaymentsModule.
 - PrismaModule is global — every module injects PrismaService without importing PrismaModule.
 - UploadsModule is @Global — exports `CloudinaryConfig` and `IsCloudinaryUrlConstraint` so any DTO across modules can use `@IsCloudinaryUrl()` without importing UploadsModule. Imports StoreModule for `canManageStore` in the signing endpoint's per-context authz.
-- PaymentsModule must export PayfastConfig, PayfastSignatureService, AND PayfastClient. OrderModule binds `PAYMENT_SERVICE` via `useClass: PaymentsService` — that constructs PaymentsService in OrderModule's context, so every constructor dep of PaymentsService must be visible there.
+- PaymentsModule must export PaystackConfig AND PaystackClient. OrderModule binds `PAYMENT_SERVICE` via `useClass: PaystackService` — that constructs PaystackService in OrderModule's context, so every constructor dep of PaystackService must be visible there.
 - ShippingModule imports StoreModule for `canManageStore` authz (used by dispatch-address CRUD and label download). Exports `SHIPPING_SERVICE`, `ShipLogicConfig`, `ShipLogicClient`, `ShipmentCreationService`, `ShipmentCancellationService`.
 
 ### Why it's structured this way
 
-Each module owns its own controllers, services, DTOs, and specs. Sub-features within a module get their own subdirectory (e.g., `order/cart/`, `order/checkout/`, `order/merchant-orders/`, `payments/payfast/`). This keeps feature boundaries clear and allows parallel development.
+Each module owns its own controllers, services, DTOs, and specs. Sub-features within a module get their own subdirectory (e.g., `order/cart/`, `order/checkout/`, `order/merchant-orders/`, `payments/paystack/`). This keeps feature boundaries clear and allows parallel development.
 
 The contract/stub pattern (`PAYMENT_SERVICE`, `SHIPPING_SERVICE` tokens) lets the full checkout flow be coded and tested end-to-end without those modules existing. When they ship, only the module-level binding changes — zero consumer code changes. **Both Payments and Shipping have now shipped this way** — ShippingModule exports `SHIPPING_SERVICE` bound to the real `ShippingService` (replacing the legacy `ShippingStubService`). The stub class still exists in `src/order/contracts/stubs/` for potential test use, but is no longer bound in production.
 
 ### Global middleware and guards
 
-- **CORS** (global, `main.ts`): `app.enableCors(buildCorsOptions())` from `src/cors.config.ts`. Env-driven `CORS_ORIGINS` allowlist (comma-separated). Production fails to boot if `CORS_ORIGINS` is empty. `credentials: true` to support the refresh-token cookie. PayFast ITN webhook is server-to-server and unaffected.
+- **CORS** (global, `main.ts`): `app.enableCors(buildCorsOptions())` from `src/cors.config.ts`. Env-driven `CORS_ORIGINS` allowlist (comma-separated). Production fails to boot if `CORS_ORIGINS` is empty. `credentials: true` to support the refresh-token cookie. Payment/shipping webhooks are server-to-server and unaffected.
 - **ValidationPipe** (global, `main.ts`): `whitelist: true`, `forbidNonWhitelisted: true`, `transform: true`. DTOs use class-validator decorators.
 - **`useContainer(app.select(AppModule), { fallbackOnErrors: true })`** in `main.ts` — wires class-validator to NestJS DI so custom validators (e.g. `IsCloudinaryUrl`) can inject providers. Required for any DI-based validator going forward.
-- **`NestFactory.create(AppModule, { rawBody: true })`** in `main.ts` — captures `req.rawBody` as a `Buffer`. Required for the ShipLogic webhook (`POST /shipping/webhook/:secret`) which hashes the exact request bytes for idempotency. PayFast notify (form-urlencoded parsed body) is unaffected.
+- **`NestFactory.create(AppModule, { rawBody: true })`** in `main.ts` — captures `req.rawBody` as a `Buffer`. Required by BOTH webhooks: Paystack (`POST /payments/webhook`, HMAC-SHA512 over the exact bytes) and ShipLogic (`POST /shipping/webhook/:secret`, byte hashing for idempotency).
 - **JwtAuthGuard** (global APP_GUARD): Every route requires JWT unless decorated with `@Public()`. Handles `TokenExpiredError` vs `JsonWebTokenError` distinctly for frontend silent-refresh flow.
 - **ThrottlerGuard** (global APP_GUARD): 100 requests per 60 seconds.
 
@@ -80,7 +80,7 @@ feature.module.ts          — NestJS module declaration
 - **ConflictException (409)**: Duplicate data, stock race, email collision, duplicate wishlist add.
 - **BadRequestException (400)**: Validation failures, invalid state transitions, empty update payloads.
 - **ForbiddenException (403)**: Only for account-level issues (suspended, wrong role) or store-level access (`canManageStore` returns false). Never for resource ownership.
-- **InternalServerErrorException (500)**: Only for truly unexpected failures (PayFast timeout, order number collision exhaustion).
+- **InternalServerErrorException (500)**: Only for truly unexpected failures (Paystack timeout, order number collision exhaustion).
 
 ### Testing patterns
 
@@ -128,7 +128,7 @@ describe('ServiceName', () => {
 
 - **Prisma client** for all queries. Raw SQL (`$executeRaw`) only for atomic stock operations in `src/order/cart/stock.ts`.
 - **Transactions** (`$transaction`) for multi-step writes that must be atomic (stock + cart, order creation + payment group, cron cleanup per-item).
-- **Never put HTTP calls inside a DB transaction.** The checkout flow does TX1 (create orders) → HTTP (PayFast) → TX2 (clear cart) or TX3 (rollback).
+- **Never put HTTP calls inside a DB transaction.** The checkout flow does TX1 (create orders) → HTTP (Paystack init) → TX2 (clear cart) or TX3 (rollback).
 - **Selective queries**: Always use `select` to avoid loading sensitive fields (passwordHash, tokens). Never `findUnique` without narrowing the return shape when it includes sensitive data.
 - **Soft deletes**: Addresses use `deletedAt`. Filter with `where: { deletedAt: null }`.
 
@@ -140,8 +140,8 @@ describe('ServiceName', () => {
 
 - **Shipping**: **Real ShipLogic rates, per-store** (as of shipping-module Phase 4). Each Order gets its own quote based on the store's primary `StoreDispatchAddress` → buyer's delivery address. `Order.shippingInCents = per-store rate`. `Order.totalInCents = subtotal + per-store shipping`. `PaymentGroup.shippingInCents = grand sum across all stores in the cart`. YIIVA pays The Courier Guy directly — merchants never handle shipping money. On ShipLogic 5xx/network → falls back to `SHIPPING_RATE_FALLBACK_CENTS` (default 11000 = R110). On 4xx → `BadRequestException` to caller (e.g. bad address).
 - **`computeCheckoutTotals` signature**: `(items, Map<storeId, number>)` — per-store shipping passed in as a Map. Each `CheckoutStoreGroup` has its own `shippingInCents` and `totalInCents = subtotal + shipping`.
-- **Commission**: 5.5% of subtotal only (shipping not commissionable). Locked on `Payment` row at order creation time.
-- **PaymentGroup**: One PayFast transaction covering N orders. `amountGrossInCents = grandSubtotal + grandShipping`.
+- **Commission**: 2.5% of subtotal only (shipping not commissionable; `COMMISSION_RATE` in `order/checkout/totals.ts` — was 5.5% until 2026-07-22). Locked on `Payment` row at order creation time, so historical rows keep their original rate. ⚠ At 2.5%, card processing fees (~2.9%+R1+VAT) exceed commission — fee bearing on split payouts is a business decision (PS-8).
+- **PaymentGroup**: One Paystack transaction covering N orders. `amountGrossInCents = grandSubtotal + grandShipping`.
 - **Payment**: Per-order slice. `amountGrossInCents = store subtotal` (no shipping). `merchantPayoutInCents = subtotal - commission`. Shipping cost stays on PaymentGroup, not allocated to merchant payouts.
 - **Shipment booking**: After `PaymentGroup → COMPLETED` and child `Order → CONFIRMED`, `PaymentsNotifyService` fires `ShipmentCreationService.createShipmentForOrder(orderId)` for each Order **outside** the DB transaction. Idempotent on existing Shipment row. Failures are logged + swallowed; Order stays CONFIRMED for ops review.
 - **Shipment cancel propagation**: `BuyerOrdersService.cancelOrder` fires `ShipmentCancellationService.cancelShipmentForOrder(orderId)` best-effort after local cancel succeeds. ShipLogic 4xx (already collected, etc.) logged + swallowed.
@@ -166,36 +166,72 @@ All cancel reasons are stored in `Order.cancelReason`. The prefix indicates the 
 | Admin | `ADMIN:REASON` | `ADMIN:FRAUD`, `ADMIN:POLICY_VIOLATION` |
 | System | `SYSTEM:REASON` | `SYSTEM:PAYMENT_TIMEOUT`, `SYSTEM:PAYMENT_FAILED`, `SYSTEM:PAYMENT_CANCELLED` |
 
-### PayFast integration patterns
+### Paystack integration patterns
 
-PayFast uses **two distinct signature algorithms** that must not be confused:
+Paystack replaced PayFast in 2026-07 (decision record, verified pricing/API
+facts, and full phase history: `docs/payments-module/paystack-migration-foundation.md`).
+No request signing exists on this API — outbound calls are Bearer-key REST
+(`PaystackClient`: initialize / verify / refund); amounts are **integer ZAR
+cents end-to-end** (no decimal-string conversion anywhere).
 
-| Mode | Used for | Field ordering | Trim |
-|---|---|---|---|
-| Form flow | Initiating a redirect payment | Fixed (FORM_FIELD_ORDER) | Yes |
-| API flow | Refunds, transaction history, postback | Alphabetical (ksort) | No |
-| ITN verify | Verifying incoming webhook | Insertion order, **break at signature** | No |
+**Config (`PaystackConfig`)**: `PAYSTACK_SECRET_KEY` (mode is DERIVED from the
+`sk_test_`/`sk_live_` prefix; production refuses a test key at boot) +
+`PAYSTACK_CALLBACK_URL`. The webhook URL is configured on the Paystack
+dashboard per mode, not in env.
 
-`PayfastSignatureService` exposes them as separate methods (`signFormPayload`, `signApiRequest`, `verifyItnSignature`, `buildPostbackBody`). Never share code paths. The `phpUrlencode()` helper in `payments/payfast/url-encode.ts` byte-matches PHP's `urlencode()` — any change requires re-running the vector tests.
+**Checkout handoff**: `initializePayment` → hosted checkout `authorization_url`
+returned as contract-v3 `redirect { url, method: 'GET' }`. WE generate the
+`reference` (persisted as `PaymentGroup.mPaymentId` — legacy column name).
+An optional `channels` restriction (`card` | `eft` | `qr`) narrows the hosted
+page to the method chosen on maya's Payment step.
 
-**ITN webhook (POST /payments/notify):**
-1. Validate signature → IP allowlist → look up PaymentGroup → amount match → postback to PayFast → INSERT PaymentEvent (idempotency key: SHA-256 itnHash) → state transition under CAS → return 200.
-2. The `PaymentEvent` table is the audit log + idempotency primitive. Replays fail the unique constraint and are acked as 200 no-ops.
-3. State transitions use optimistic CAS (`updateMany` with status guard) — no row locks held.
-4. **CANCELLED-stays-CANCELLED rule**: a late COMPLETED ITN never resurrects a cancelled order. Sets `PaymentGroup.status = RECONCILE_REQUIRED` for manual ops handling.
-
-**Source IP allowlist** (`PayfastIpAllowlistService`):
-- DNS-resolved at boot from `PAYFAST_NOTIFY_HOSTS`, refreshed hourly.
-- Fail-closed: empty allowlist rejects all ITNs.
-- Dev bypass: `PAYFAST_SKIP_IP_CHECK=true` (refused at boot if `NODE_ENV=production`).
-- IPv4-mapped IPv6 (`::ffff:1.2.3.4`) normalized before comparison.
+**Webhook (POST /payments/webhook, `PaystackWebhookService`):**
+1. Verify HMAC-SHA512 of `req.rawBody` against `x-paystack-signature`
+   (constant-time) → parse → route by event → look up PaymentGroup by
+   reference → EXACT integer amount match → INSERT PaymentEvent (idempotency
+   key: SHA-256 of raw body, on the `itnHash` column) → CAS state transition →
+   ack 200. No IP allowlist / postback — the HMAC is cryptographically
+   sufficient.
+2. The `PaymentEvent` table is the audit log + idempotency primitive. Replays
+   fail the unique constraint and are acked as 200 no-ops.
+3. State transitions use optimistic CAS (`updateMany` with status guard) — no
+   row locks held. `charge.success` also records Paystack's `fees` into
+   `amountFeeInCents`/`amountNetInCents`.
+4. **CANCELLED-stays-CANCELLED rule**: a late `charge.success` never
+   resurrects a cancelled order. Sets `PaymentGroup.status =
+   RECONCILE_REQUIRED` for manual ops handling.
+5. Unknown event types are acked silently; unknown references are acked with a
+   CRITICAL log (valid signature + unknown reference = data loss).
 
 **Refund flow (`AdminOrdersService.requestRefund`):**
-- Synchronous on the admin side — calls PayFast, accumulates `Payment.refundedAmountInCents`, transitions Order status (`REFUND_REQUESTED` for partial; `REFUNDED` when cumulative = gross).
-- Refund ITN handling is confirmation-only — does NOT mutate `refundedAmountInCents` (already done synchronously).
-- **Refunds are sandbox-impossible**: PayFast rejects refund API calls in sandbox. Production smoke test required for first refund.
+- Synchronous on the admin side — calls Paystack, accumulates
+  `Payment.refundedAmountInCents`, transitions Order status
+  (`REFUND_REQUESTED` for partial; `REFUNDED` when cumulative = gross).
+- `refund.*` webhooks are confirmation-only — `refund.processed` CASes the
+  PaymentGroup to PARTIALLY_REFUNDED/REFUNDED from the child aggregate;
+  `refund.failed` flags a money-mismatch for manual ops (local books are
+  already ahead).
+- **Refunds WORK in test mode** (verified 2026-07-21) — full lifecycle
+  exercisable without production credentials, unlike PayFast.
 
-**Trust proxy:** `app.set('trust proxy', N)` in `main.ts` from `PayfastConfig.trustProxy`. Defaults to 1 (Railway's edge hop). Override via `TRUST_PROXY` env var. Without correct config, `req.ip` is the LB's IP and the allowlist rejects everything.
+**Merchant payout splits (Phase 6)**: stores with a configured Paystack
+subaccount (`Store.paystackSubaccountCode`, onboarded via
+`POST /stores/:storeId/payout-account`; bank details live at Paystack, we
+store code + display metadata only) get their share (subtotal − commission)
+settled DIRECTLY to their bank via a per-transaction flat multi-split
+(`bearer_type: all-proportional` — PS-8; at 2.5% commission YIIVA would be
+margin-negative on cards otherwise). Unconfigured stores' shares stay on the
+main balance for manual payout. Split-creation failure degrades gracefully
+(CRITICAL log, checkout proceeds unsplit). Refunds on split orders pull from
+the MAIN balance — merchant clawback is manual ops (PS-3 v1 policy).
+
+**Reconciliation**: `GET /admin/payments/groups/:id/reconcile`
+(`PaystackReconcileService`) — single-transaction `GET /transaction/verify`
+by our reference; verdicts MATCH / MISMATCH / NOT_FOUND / MATCH_PENDING.
+
+**Trust proxy:** `app.set('trust proxy', N)` in `main.ts` from the
+`TRUST_PROXY` env var directly. Defaults to 1 (Railway's edge hop). Affects
+`req.ip` recorded on webhook audit rows.
 
 ### ShipLogic / TCG integration patterns
 
@@ -260,7 +296,7 @@ Buyer notifications shipped in two phases (`src/notifications/`, `@Global` like 
 - **`PushService`** (Expo): `registerToken`/`removeToken` (upsert by token) + `sendToUser` (POST `https://exp.host/--/api/v2/push/send`, prunes `DeviceNotRegistered`). Reads the new `PushToken` model.
 - **Mobile surface** (`src/mobile/notifications/`, on `api/me`): `GET /notifications` (cursor-paginated inbox + `unreadCount`), `GET /notifications/unread-count`, `PATCH /notifications/:id/read`, `POST /notifications/read-all`, `POST`/`DELETE /push-tokens`.
 - **Maya caveat:** Expo push **delivery** is untestable in Expo Go / iOS Simulator (no APNs); emails + the in-app inbox work everywhere. Push delivery needs a dev build on a physical device.
-- Events map to the existing `NotificationType` enum — **no enum change**. Order-confirmed email fires exactly when the PayFast ITN flips the order to CONFIRMED.
+- Events map to the existing `NotificationType` enum — **no enum change**. Order-confirmed email fires exactly when the Paystack charge.success webhook flips the order to CONFIRMED.
 
 ### Cursor-based pagination
 
@@ -319,7 +355,7 @@ src/
       cart.service.ts              — Cart CRUD, stock reservation
       stock.ts                     — reserveStock/releaseStock (raw SQL)
     checkout/
-      checkout.service.ts          — Quote + commit (multi-order, PayFast, guest)
+      checkout.service.ts          — Quote + commit (multi-order, Paystack init, guest)
       totals.ts                    — Pure computation (group by store, commission)
     merchant-orders/
       merchant-orders.service.ts   — List, detail, status transitions, cancel
@@ -339,20 +375,16 @@ src/
       phone.ts                     — SA phone normalization (+27...)
 
   payments/
-    payments.module.ts             — Registers controllers + services
-    payments.service.ts            — IPaymentService impl: initializePayment, refundPayment
-    payments.controller.ts         — POST /payments/notify (public ITN webhook)
+    payments.module.ts             — Registers controllers + services (Paystack-only since 2026-07)
+    paystack.service.ts            — IPaymentService impl: initializePayment, refundPayment
+    paystack-webhook.controller.ts — POST /payments/webhook (public, HMAC-verified)
+    paystack-webhook.service.ts    — Verify → PaymentEvent idempotency → CAS apply → side effects
+    paystack-reconcile.service.ts  — Read-only reconciliation via /transaction/verify
     payments-admin.controller.ts   — GET /admin/payments/groups/:id/reconcile (admin-only)
-    payments-notify.service.ts     — Four-step ITN validation, state machine, CAS apply
-    payments-reconcile.service.ts  — Read-only reconciliation tool
-    payfast/
-      payfast-config.ts            — Env validation at boot, sandbox toggle, host list
-      payfast-signature.service.ts — signFormPayload, signApiRequest, verifyItnSignature, buildPostbackBody
-      payfast-client.service.ts    — verifyItnPostback, createRefund, fetchTransactionHistory
-      payfast-ip-allowlist.service.ts — DNS-resolved IP allowlist, hourly refresh, fail-closed
-      payfast-types.ts             — ItnPayload, status mapping (COMPLETE → COMPLETED)
-      url-encode.ts                — phpUrlencode() helper, byte-matches PHP urlencode
-      field-order.ts               — Canonical FORM_FIELD_ORDER from PayFast SDK
+    paystack/
+      paystack-config.ts           — Env validation at boot; mode derived from key prefix
+      paystack-client.service.ts   — Typed REST client: initialize, verify, refund
+      paystack-types.ts            — Wire types (envelope, charge, refund, webhook events)
 
   shipping/
     shipping.module.ts             — Registers everything; exports SHIPPING_SERVICE + ShipmentCreation + ShipmentCancellation services
@@ -387,7 +419,8 @@ docs/
   order-module/
     order-module-foundation.md     — ALL phase decisions, schema changes, architecture
   payments-module/
-    payments-module-foundation.md  — PayFast integration design, schema, phase plan
+    payments-module-foundation.md  — original PayFast-era design (schema/architecture still apply)
+    paystack-migration-foundation.md — Paystack decision record, contract v3, webhook mapping, splits plan
   shipping-module/
     shipping-module-foundation.md  — ShipLogic integration: locked decisions Q11–Q26, schema, phase plan, status mapping table
   thecourierguy/
@@ -407,7 +440,7 @@ Read `prisma/schema.prisma` for the full schema. Key models:
 - **Cart/CartItem** — One cart per user, lazy-created on first add
 - **Order** — One per store per checkout. Status: PENDING→CONFIRMED→PROCESSING→READY_FOR_DISPATCH→DISPATCHED→IN_TRANSIT→DELIVERED
 - **OrderItem** — Snapshot of product details at order time
-- **PaymentGroup** — One PayFast transaction, covers N orders. Holds shippingInCents. Status: PENDING→COMPLETED|FAILED|CANCELLED, COMPLETED→PARTIALLY_REFUNDED|REFUNDED, plus RECONCILE_REQUIRED terminal.
+- **PaymentGroup** — One Paystack transaction, covers N orders. Holds shippingInCents. Status: PENDING→COMPLETED|FAILED|CANCELLED, COMPLETED→PARTIALLY_REFUNDED|REFUNDED, plus RECONCILE_REQUIRED terminal.
 - **Payment** — Per-order slice with commission math. One-to-one with Order. `refundedAmountInCents` accumulates per partial refund.
 - **PaymentEvent** — Audit log of every received ITN. `itnHash` unique constraint enforces idempotency. `transactionType: PAYMENT | REFUND`.
 - **Address** — Buyer delivery addresses, soft delete, max 4, one default
@@ -420,9 +453,8 @@ Read `prisma/schema.prisma` for the full schema. Key models:
 - **No e2e tests** — only unit tests exist. `test/` directory has config but no test files.
 - **Pre-existing TS2502 errors** in spec files (address, cart, checkout, cron) from `$transaction` mock pattern. These don't affect test execution — Jest uses ts-jest which is more lenient.
 - **No rate limiting per-endpoint** — only global throttle (100/60s).
-- **PayFast refunds are sandbox-impossible** — PayFast's API rejects refunds in test mode. End-to-end refund flow only verifiable in production. Signature/payload structure is fixture-tested.
-- **PayFast end-to-end smoke test pending** — Phase 3+4 sandbox checkout (form submit → PayFast page → return → ITN delivered → order CONFIRMED) requires manual verification with ngrok.
-- **Refund-ITN field detection is heuristic** — we detect refund ITNs via `transaction_type === 'refund'`. If PayFast uses a different field name, refund ITNs are processed as initial-payment ITNs and rejected. First production refund will reveal the actual field.
+- **Paystack end-to-end verified in TEST MODE (2026-07-21)** — full checkout (multi-store), webhook → CONFIRMED, fees recorded, refunds incl. refund webhooks. Remaining production firsts: live-key activation (business KYC) + first live transaction. `refund.*` webhook delivery can lag minutes-to-hours in test mode — it is confirmation-only by design.
+- **Live-mode Paystack activation pending** — the dashboard business activation (company docs + bank account) is required before a live key exists; config refuses test keys when NODE_ENV=production.
 - **ShipLogic sandbox doesn't deliver webhooks** (empirical, unconfirmed by support yet). Production webhook delivery + signing is essentially untested. Plan a careful first-real-shipment smoke test in production.
 - **ShipLogic webhook auth model is unknown** (Q24 in foundation doc). v1 uses path-embedded secret + optional IP allowlist; signature verification slot reserved. Pending TCG support answer.
 - **Notifications module SHIPPED (2026-06-22, Phase A+B)** — `src/notifications/`. Buyers now get order-confirmed / payment-failed / shipped / delivered / cancelled / refund notifications (inbox row + Resend email + Expo push). See "Notifications module patterns" above. Push *delivery* still needs a physical-device dev build to verify (Expo Go has no APNs); emails + inbox are verified.
@@ -440,7 +472,7 @@ The order module is built in 10 phases. All decisions documented in `docs/order-
 | 1 | Foundation (schema, stubs, scaffolding) | Complete |
 | 2 | Address Management | Complete |
 | 3 | Cart (CRUD, stock reservation) | Complete |
-| 4 | Checkout (quote, commit, guest, PayFast) | Complete |
+| 4 | Checkout (quote, commit, guest, payment init) | Complete |
 | 5 | Merchant Order Management | Complete |
 | 6 | Buyer Order Views + Guest Claim | Complete |
 | 7 | Admin Order Views | Complete |
@@ -450,16 +482,21 @@ The order module is built in 10 phases. All decisions documented in `docs/order-
 
 ## Payments module phase status
 
-The payments module is built in 6 phases. All decisions documented in `docs/payments-module/payments-module-foundation.md`.
+**Provider: Paystack** (migrated from PayFast 2026-07-21; the PayFast code was
+deleted at cutover). Migration decisions + phase history:
+`docs/payments-module/paystack-migration-foundation.md`. The original PayFast
+build history remains in `docs/payments-module/payments-module-foundation.md`
+(schema + architecture sections still apply — the PaymentGroup/Payment/
+PaymentEvent model and CAS state machine survived the migration unchanged).
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1 | Foundation (schema, scaffold, env config) | Complete |
-| 2 | Signature primitives (phpUrlencode, signing service) | Complete |
-| 3 | Real `initializePayment` + frontend contract change | Complete |
-| 4 | ITN webhook (allowlist, notify, controller, trust-proxy) | Complete |
-| 5 | Refund API (REST client, admin wiring, refund-ITN handling) | Complete |
-| 6 | Reconciliation tooling + cleanup-cron summary | Complete |
+| 1 | Foundation (PaystackConfig env fail-fast, typed REST client) | Complete |
+| 2 | Contract v3 (provider-neutral redirect) + PaystackService + maya WebView | Complete |
+| 3 | Webhook pipeline (HMAC-SHA512, PaymentEvent idempotency, CAS) | Complete |
+| 4 | Refunds (test-mode verified) + Paystack reconcile tooling | Complete |
+| 5 | Cutover: PAYMENT_SERVICE rebind + PayFast deletion | Complete |
+| 6 | Split payments (subaccounts, per-merchant settlement) | Post-launch (see foundation §8) |
 
 ## Shipping module phase status
 
@@ -485,83 +522,73 @@ npx prisma migrate dev              # Apply pending migrations
 npm run start:dev                   # Dev server with hot reload
 ```
 
-## PayFast sandbox smoke test
+## Paystack test-mode smoke test
 
-Manual end-to-end verification of Phases 3 + 4. Run this once before starting any module that depends on Payments (Notifications, Shipping), or after any change to signature/notify code. Catches wire-format bugs that unit tests can't reach.
+End-to-end verification of the payment chain. Run after any change to
+checkout/webhook/refund code. Everything works in TEST MODE — including
+refunds (verified 2026-07-21; PayFast never allowed this).
 
 ### Prerequisites
 
-- PayFast public sandbox creds (also documented in `.env.example`):
-  ```
-  PAYFAST_MERCHANT_ID=10000100
-  PAYFAST_MERCHANT_KEY=46f0cd694581a
-  PAYFAST_PASSPHRASE=jt7NOE43FZPn
-  PAYFAST_SANDBOX=true
-  ```
-- ngrok or equivalent tunnel exposing local API publicly
-- Local dev DB with at least one merchant + product seeded
+- A Paystack test secret key (`sk_test_…`) in `.env` (`PAYSTACK_SECRET_KEY`)
+- A public tunnel to the local API. Note: Paystack's dashboard URL validator
+  rejected ngrok's `.ngrok-free.dev` domain — `cloudflared tunnel --url
+  http://localhost:<port>` (`*.trycloudflare.com`) works.
+- Local DB with at least one merchant + product seeded
 
 ### Setup
 
-In `.env`:
-```
-PAYFAST_NOTIFY_URL=https://<your-ngrok-id>.ngrok.io/payments/notify
-PAYFAST_SKIP_IP_CHECK=true   # ngrok rewrites the source IP
-```
-
-Start tunnel and dev server:
-```bash
-ngrok http 3000
-npm run start:dev
-```
+1. Start the tunnel; copy the https URL.
+2. Paystack dashboard → Settings → API Keys & Webhooks → **Test Webhook URL**
+   = `https://<tunnel>/payments/webhook`.
 
 ### Steps
 
-1. Run a checkout via the frontend (or curl-simulate `POST /checkout/commit` with a valid cart).
-2. Confirm the response payload has shape `{ payfast: { actionUrl, fields }, paymentGroupId, mPaymentId, orderNumbers }`.
-3. Build an HTML form from `payfast.fields` (or use the frontend's auto-submit page) and POST it to `actionUrl`.
-4. Complete the checkout on PayFast's hosted page using the sandbox card flow.
-5. PayFast redirects the buyer to `PAYFAST_RETURN_URL` AND posts an ITN to `PAYFAST_NOTIFY_URL`.
+1. Checkout via maya (or curl `POST /api/orders`) → response carries
+   `payment.redirect.url` (Paystack hosted page).
+2. Open the URL; pay with the test card `4084 0840 8408 4081`, any future
+   expiry, CVV `408`.
+3. Paystack redirects the buyer to the callback sentinel AND posts
+   `charge.success` to the webhook.
 
 ### Verify
 
-In the dev server logs, confirm:
-- One `payment_cleanup_summary` line per cron tick (`pendingCount` should drop after the ITN)
-- No "ITN rejected" warnings (signature, IP, amount, postback)
-
-In the database:
 ```sql
-SELECT id, status, "pfPaymentId", "paidAt" FROM payment_groups
-  WHERE "mPaymentId" = '<the m_payment_id from the response>';
--- Expect: status=COMPLETED, pfPaymentId set, paidAt populated
+SELECT status, "pfPaymentId", "paidAt", "amountFeeInCents" FROM payment_groups
+  WHERE "mPaymentId" = '<reference from the commit response>';
+-- Expect: COMPLETED, provider tx id set, paidAt + fees populated
 
-SELECT id, status FROM orders
-  WHERE id = ANY ((SELECT array_agg("orderId") FROM payments WHERE "paymentGroupId" = '<pg-id>'));
--- Expect: all status=CONFIRMED
+SELECT status, "confirmedAt" FROM orders WHERE id IN
+  (SELECT "orderId" FROM payments WHERE "paymentGroupId" = '<pg-id>');
+-- Expect: all CONFIRMED with confirmedAt set
 
 SELECT "transactionType", status, processed, "processError" FROM payment_events
   WHERE "paymentGroupId" = '<pg-id>';
--- Expect: one row, transactionType=PAYMENT, status=COMPLETED, processed=true, processError=null
+-- Expect: PAYMENT / COMPLETED / processed=true / null
 ```
+
+Also expect: shipment rows booked per child order, an ORDER_CONFIRMED
+notification, and (log) no webhook warnings.
+
+### Refunds (also test-mode)
+
+1. `POST /admin/orders/:orderId/refund` with `{ amountInCents, reason }` —
+   no bank-account type needed (that was PayFast).
+2. Expect 200 with `{ refundId, status, cumulativeRefundedInCents }` and the
+   Order → REFUND_REQUESTED (partial) immediately.
+3. `refund.*` webhooks arrive asynchronously (minutes-to-hours in test mode);
+   `refund.processed` flips the PaymentGroup to PARTIALLY_REFUNDED/REFUNDED.
+   The webhook is confirmation-only — local accounting is already correct.
 
 ### Common failure modes
 
 | Symptom | Likely cause |
 |---|---|
-| All ITNs rejected, "source IP not in allowlist" | `PAYFAST_SKIP_IP_CHECK` not set, or `TRUST_PROXY` mismatch |
-| All ITNs rejected, "invalid signature" | Passphrase mismatch, or `phpUrlencode` regression |
-| Postback returns INVALID | Body reconstruction lost a field — verify `buildPostbackBody` against received payload |
-| `Required env var PAYFAST_*` at boot | Missing variable — see `.env.example` |
-| No ITN ever arrives | ngrok URL incorrect, or PayFast notify URL not set |
-
-### Refund flow (production-only)
-
-PayFast's REST refund API rejects sandbox calls — `PayfastClient.createRefund` logs a warning and the call returns 400-shaped errors. Refund flow is verifiable only against real merchant credentials in production. Do this manually on the first real refund:
-
-1. `POST /admin/orders/:orderId/refund` with `{ amountInCents, reason, accType: 'savings' | 'current' }`.
-2. Confirm 200 response with `{ refundId, status: 'PROCESSING', cumulativeRefundedInCents }`.
-3. Watch for the refund ITN — verify it arrives and the assumed field name (`transaction_type === 'refund'`) actually matches PayFast's payload. If not, adjust `PaymentsNotifyService.handle()` accordingly.
-4. Verify `PaymentGroup.status` transitions COMPLETED → PARTIALLY_REFUNDED or REFUNDED based on cumulative.
+| Webhook never arrives | Tunnel died (quick-tunnel URLs change per restart) or dashboard URL not saved for the ACTIVE mode (test vs live have separate URLs) |
+| 400 on every webhook | Wrong secret key for the mode, or a body-parsing layer re-serialized the payload (HMAC needs raw bytes) |
+| "CRITICAL: unknown reference" | Charge was created outside checkout (fine for delivery tests) or the DB was wiped after init |
+| `Required env var PAYSTACK_*` at boot | Missing variable — see `.env.example` |
+| Boot refuses test key | `NODE_ENV=production` guard working as designed |
 
 ## Session Protocol
 

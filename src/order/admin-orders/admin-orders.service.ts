@@ -458,12 +458,12 @@ export class AdminOrdersService {
       );
     }
 
-    // Call PayFast (synchronous). Throws on network/API failure → admin sees 500.
+    // Call the payment provider (synchronous). Throws on network/API failure
+    // → admin sees 500. Paystack confirms asynchronously via refund.* webhooks.
     const refundResponse = await this.paymentService.refundPayment({
-      pfPaymentId: payment.paymentGroup.pfPaymentId,
+      providerPaymentId: payment.paymentGroup.pfPaymentId,
       amountInCents: dto.amountInCents,
       reason: dto.reason,
-      accType: dto.accType,
       notifyBuyer: dto.notifyBuyer,
     });
 

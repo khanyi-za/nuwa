@@ -1,6 +1,8 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
+  IsArray,
+  IsIn,
   IsOptional,
   IsString,
   MaxLength,
@@ -37,11 +39,26 @@ export class CheckoutCommitDto {
   @MaxLength(500)
   notes?: string;
 
-  /** Where PayFast redirects the buyer after successful payment. */
+  /** Where the payment provider redirects the buyer after successful payment. */
   @IsString()
   returnUrl: string;
 
-  /** Where PayFast redirects the buyer if they cancel. */
+  /**
+   * Accepted for client compat but unused: Paystack's hosted page has no
+   * cancel URL — abandonment is handled by the WebView intercept + the
+   * pending-order cron.
+   */
+  @IsOptional()
   @IsString()
-  cancelUrl: string;
+  cancelUrl?: string;
+
+  /**
+   * Optional: restrict the provider's hosted page to specific channels
+   * (Paystack: card | eft | qr). Set by the mobile Payment step's method
+   * selector; omit → all active channels.
+   */
+  @IsOptional()
+  @IsArray()
+  @IsIn(['card', 'eft', 'qr'], { each: true })
+  paymentChannels?: string[];
 }

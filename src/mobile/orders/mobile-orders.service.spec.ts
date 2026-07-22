@@ -15,7 +15,14 @@ const commitResult = {
   orderNumbers: ['YV-2026-000142'],
   paymentGroupId: 'pg1',
   mPaymentId: 'm1',
-  payfast: { actionUrl: 'https://sandbox.payfast.co.za/eng/process', fields: { merchant_id: '1' } },
+  // Contract v3 GET-redirect shape (Paystack hosted checkout).
+  payment: {
+    redirect: {
+      url: 'https://checkout.paystack.com/stub-access',
+      method: 'GET' as const,
+    },
+    providerRef: 'stub-access',
+  },
 };
 
 const groupRow = {
@@ -144,7 +151,7 @@ describe('MobileOrdersService', () => {
   });
 
   describe('placeOrder', () => {
-    it('commits via CheckoutService and returns the PayFast redirect payload', async () => {
+    it('commits via CheckoutService and returns the payment redirect payload', async () => {
       mockCheckout.commit.mockResolvedValue(commitResult);
       mockPrisma.paymentGroup.findUnique.mockResolvedValue({
         amountGrossInCents: 226400,
@@ -161,18 +168,47 @@ describe('MobileOrdersService', () => {
         returnUrl: 'yiivaapp://payment-return',
         cancelUrl: 'yiivaapp://payment-cancel',
       });
+      // No paymentMethod given → no channel restriction key at all.
+      expect(
+        'paymentChannels' in mockCheckout.commit.mock.calls[0][1],
+      ).toBe(false);
       expect(result.order).toEqual({
         id: 'pg1',
         status: 'PENDING_PAYMENT',
         total: 226400,
         currency: 'ZAR',
       });
-      expect(result.payment).toMatchObject({
+      expect(result.payment).toEqual({
         type: 'redirect',
-        actionUrl: commitResult.payfast.actionUrl,
-        fields: commitResult.payfast.fields,
+        redirect: commitResult.payment.redirect,
         returnUrl: 'yiivaapp://payment-return',
       });
+    });
+
+    it('maps a valid paymentMethod to a Paystack channel restriction', async () => {
+      mockCheckout.commit.mockResolvedValue(commitResult);
+      mockPrisma.paymentGroup.findUnique.mockResolvedValue({
+        amountGrossInCents: 226400,
+      });
+
+      await service.placeOrder('u1', {
+        addressId: 'a1',
+        returnUrl: 'r',
+        cancelUrl: 'c',
+        paymentMethod: 'eft',
+      });
+      expect(mockCheckout.commit.mock.calls[0][1].paymentChannels).toEqual(['eft']);
+
+      // Unknown method → ignored (all channels).
+      await service.placeOrder('u1', {
+        addressId: 'a1',
+        returnUrl: 'r',
+        cancelUrl: 'c',
+        paymentMethod: 'bitcoin',
+      });
+      expect(
+        'paymentChannels' in mockCheckout.commit.mock.calls[1][1],
+      ).toBe(false);
     });
 
     it('maps a stock conflict to STOCK_DRIFT', async () => {

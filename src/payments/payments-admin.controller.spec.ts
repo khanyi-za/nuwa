@@ -2,7 +2,7 @@ import { Test } from '@nestjs/testing';
 import { Reflector } from '@nestjs/core';
 import { UserRole } from '@prisma/client';
 import { PaymentsAdminController } from './payments-admin.controller';
-import { PaymentsReconcileService } from './payments-reconcile.service';
+import { PaystackReconcileService } from './paystack-reconcile.service';
 
 describe('PaymentsAdminController', () => {
   let controller: PaymentsAdminController;
@@ -12,21 +12,21 @@ describe('PaymentsAdminController', () => {
     const module = await Test.createTestingModule({
       controllers: [PaymentsAdminController],
       providers: [
-        { provide: PaymentsReconcileService, useValue: { reconcile } },
+        { provide: PaystackReconcileService, useValue: { reconcile } },
       ],
     }).compile();
     controller = module.get(PaymentsAdminController);
     jest.clearAllMocks();
   });
 
-  it('delegates the path :id to the reconcile service', async () => {
+  it('delegates the path :id to the Paystack reconcile service', async () => {
     reconcile.mockResolvedValue({ verdict: 'MATCH' });
     await controller.reconcile('pg-1');
     expect(reconcile).toHaveBeenCalledWith('pg-1');
   });
 
   it('returns whatever the service returns', async () => {
-    const expected = { verdict: 'NOT_FOUND', payfast: { found: false } };
+    const expected = { verdict: 'NOT_FOUND', paystack: { found: false } };
     reconcile.mockResolvedValue(expected);
     const result = await controller.reconcile('pg-1');
     expect(result).toBe(expected);

@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { StoreModule } from '../store/store.module';
 import { ProductModule } from '../product/product.module';
 import { PaymentsModule } from '../payments/payments.module';
-import { PaymentsService } from '../payments/payments.service';
+import { PaystackService } from '../payments/paystack.service';
 import { ShippingModule } from '../shipping/shipping.module';
 
 import { OrderController } from './order.controller';
@@ -42,11 +42,13 @@ import { PAYMENT_SERVICE } from './contracts/payment-contract';
  * Payments and Shipping are consumed via injection-token contracts
  * (`PAYMENT_SERVICE`, `SHIPPING_SERVICE`).
  *
- * - PAYMENT_SERVICE: bound to the real `PaymentsService` (Phase 3 onward).
- *   PaymentsModule is imported so PaymentsService's deps (PayfastConfig,
- *   PayfastSignatureService, PayfastClient) resolve from PaymentsModule's
- *   exports. All three must stay exported — `useClass` constructs a fresh
- *   PaymentsService here, so every constructor dep must be visible.
+ * - PAYMENT_SERVICE: bound to `PaystackService` (Paystack migration Phase 5
+ *   cutover switch — docs/payments-module/paystack-migration-foundation.md).
+ *   PaymentsModule is imported so PaystackService's deps (PaystackConfig,
+ *   PaystackClient) resolve from PaymentsModule's exports — `useClass`
+ *   constructs the service here, so every constructor dep must be visible.
+ *   Rollback: import `PaymentsService` and rebind (PayFast code remains
+ *   until the migration's cleanup step).
  * - SHIPPING_SERVICE: bound to the real `ShippingService` (shipping-module
  *   Phase 4). ShippingModule is imported and exports the token; OrderModule
  *   gets the real implementation by importing the module.
@@ -75,7 +77,7 @@ import { PAYMENT_SERVICE } from './contracts/payment-contract';
     OrderCleanupService,
     WishlistService,
     ReturnsService,
-    { provide: PAYMENT_SERVICE, useClass: PaymentsService },
+    { provide: PAYMENT_SERVICE, useClass: PaystackService },
   ],
   // AddressService + CheckoutService + BuyerOrdersService + ReturnsService are
   // exported for reuse by the mobile/buyer API surface (MobileModule). The web

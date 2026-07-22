@@ -4,14 +4,12 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { useContainer } from 'class-validator';
 import { AppModule } from './app.module';
-import { PayfastConfig } from './payments/payfast/payfast-config';
 import { buildCorsOptions } from './cors.config';
 
 async function bootstrap() {
-  // `rawBody: true` captures req.rawBody as a Buffer. Needed for the ShipLogic
-  // webhook handler which hashes the exact request bytes for idempotency.
-  // PayFast's webhook works fine with parsed body (form-urlencoded); ShipLogic
-  // is JSON and we want byte-identical hashing across retries.
+  // `rawBody: true` captures req.rawBody as a Buffer. Required by BOTH
+  // webhook handlers: Paystack signs HMAC-SHA512 over the exact request
+  // bytes, and ShipLogic's handler hashes them for idempotency.
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     rawBody: true,
   });
@@ -22,11 +20,21 @@ async function bootstrap() {
   useContainer(app.select(AppModule), { fallbackOnErrors: true });
 
   // Express trust-proxy config drives req.ip resolution. Required for the
-  // PayFast ITN webhook source-IP allowlist check. Defaults to 1 (Railway's
-  // single edge proxy hop); override via TRUST_PROXY env var if topology
-  // changes (e.g., Cloudflare added in front).
-  const payfastConfig = app.get(PayfastConfig);
-  app.set('trust proxy', payfastConfig.trustProxy);
+  // Correct req.ip resolution behind the load balancer (webhook audit rows
+  // record source IPs). Defaults to 1 (Railway's single edge proxy hop);
+  // override via TRUST_PROXY env var if topology changes (e.g., Cloudflare
+  // added in front).
+  const trustProxyRaw = process.env.TRUST_PROXY;
+  const trustProxy =
+    trustProxyRaw === undefined || trustProxyRaw === ''
+      ? 1
+      : Number.parseInt(trustProxyRaw, 10);
+  if (Number.isNaN(trustProxy) || trustProxy < 0) {
+    throw new Error(
+      `TRUST_PROXY must be a non-negative integer, got '${trustProxyRaw}'`,
+    );
+  }
+  app.set('trust proxy', trustProxy);
 
   // CORS is app-wide. Without it, the browser blocks every cross-origin
   // request from the Next.js frontend. The PayFast ITN webhook is server-to-

@@ -10,11 +10,17 @@
  * shipping cost is collected from the buyer but not paid out to merchants;
  * the commission math runs on subtotal only.
  *
- * The 5.5% commission is applied to subtotal only — shipping is not
+ * The commission is applied to subtotal only — shipping is not
  * commissionable.
+ *
+ * RATE HISTORY: launched at 5.5%; dropped to 2.5% on 2026-07-22 (owner call —
+ * early-adopter acquisition strategy). Historical Payment rows keep the rate
+ * they were locked with at order time. ⚠ At 2.5%, card processing fees
+ * (~2.9% + R1 + VAT) EXCEED the commission — fee bearing on split payouts is
+ * a live business decision (see paystack-migration-foundation.md §8/PS-8).
  */
 
-const COMMISSION_RATE = 0.055;
+const COMMISSION_RATE = 0.025;
 
 // ─── Input shape ────────────────────────────────────────────────────────────
 
@@ -40,7 +46,7 @@ export interface CheckoutStoreGroup {
   items: CheckoutStoreItem[];
   subtotalInCents: number;
   shippingInCents: number;       // per-store quote (ShipLogic per-store rate)
-  commissionInCents: number;     // 5.5% of subtotal only — shipping not commissionable
+  commissionInCents: number;     // COMMISSION_RATE × subtotal only — shipping not commissionable
   totalInCents: number;          // = subtotalInCents + shippingInCents
 }
 

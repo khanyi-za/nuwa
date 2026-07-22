@@ -33,7 +33,7 @@ describe('computeCheckoutTotals', () => {
       subtotalInCents: 20_000,
       shippingInCents: 11_000,
       totalInCents: 31_000, // subtotal + shipping
-      commissionInCents: 1_100, // 20000 * 0.055 = 1100 — shipping is NOT commissionable
+      commissionInCents: 500, // 20000 * 0.025 = 500 — shipping is NOT commissionable
     });
     expect(result.grandSubtotalInCents).toBe(20_000);
     expect(result.grandShippingInCents).toBe(11_000);
@@ -82,7 +82,7 @@ describe('computeCheckoutTotals', () => {
     ];
     const result = computeCheckoutTotals(items, shipping({ 'store-1': 11_000 }));
 
-    expect(result.stores[0].commissionInCents).toBe(5_500); // 100000 * 0.055
+    expect(result.stores[0].commissionInCents).toBe(2_500); // 100000 * 0.025
   });
 
   it('returns line totals per item', () => {
@@ -110,13 +110,13 @@ describe('computeCheckoutTotals', () => {
   });
 
   it('rounds commission correctly with fractional cents', () => {
-    // 10_001 * 0.055 = 550.055 → rounds to 550
+    // 10_001 * 0.025 = 250.025 → rounds to 250
     const items = [
       makeItem({ unitPriceInCents: 10_001, quantity: 1 }),
     ];
     const result = computeCheckoutTotals(items, shipping({ 'store-1': 11_000 }));
 
-    expect(result.stores[0].commissionInCents).toBe(550);
+    expect(result.stores[0].commissionInCents).toBe(250);
     expect(result.stores[0].subtotalInCents).toBe(10_001);
   });
 

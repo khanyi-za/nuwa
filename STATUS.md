@@ -1,6 +1,87 @@
-# STATUS.md — Last updated 2026-07-09 (session close)
+# STATUS.md — Last updated 2026-07-21
 
 > 🟢 **HANDOFF — next session start here.**
+>
+> ## 2026-07-21 — PAYSTACK MIGRATION COMPLETE (Phases 1–5, PayFast deleted)
+>
+> **The platform's payment provider is now Paystack, end-to-end verified in
+> test mode.** All six build phases from the foundation doc are done except
+> splits (Phase 6, post-launch by design). **UNCOMMITTED in nuwa + maya +
+> athena.**
+>
+> **What shipped (nuwa):** PaystackConfig (mode from key prefix, prod guard) ·
+> typed PaystackClient (initialize/verify/refund) · PaystackService behind
+> contract v3 (provider-neutral `redirect`, `reference`, channels) · webhook
+> pipeline `POST /payments/webhook` (HMAC-SHA512 raw-body, PaymentEvent
+> idempotency, CAS, CANCELLED-stays-CANCELLED, fees→amountFee/NetInCents) ·
+> refunds (admin flow, no accType) · Paystack reconcile (verify-by-reference)
+> · **cutover**: PAYMENT_SERVICE→PaystackService, `src/payments/payfast/` +
+> ITN pipeline DELETED (~225 tests went with it — suite now 669/53 green),
+> TRUST_PROXY read directly in main.ts, .env.example + CLAUDE.md rewritten
+> (new "Paystack integration patterns" + test-mode smoke-test sections).
+>
+> **Verified against the real test account:** key live-checked · webhook
+> delivery + signature on real traffic (charge.success AND refund.pending)
+> · **full 3-store maya checkout** → group COMPLETED (fees recorded R217.07
+> on R6,474), 3 orders CONFIRMED+confirmedAt, 3 ShipLogic waybills booked,
+> notification sent · admin partial refund R100 accepted (PS-1: refunds WORK
+> in test mode). ⚠ refund.processed webhook for the real order not yet
+> observed (test-mode lag; confirmation-only by design — books already
+> correct). Tunnel gotcha: Paystack's dashboard REJECTS ngrok's
+> .ngrok-free.dev URLs — use cloudflared (*.trycloudflare.com).
+>
+> **maya:** payment step REDESIGNED (real method selector: Add card/Pay with
+> card default + Pay by bank (Ozow) + SnapScan, each mapping to a live
+> Paystack channel end-to-end via dto.paymentMethod→channels; Payflex = the
+> one Soon row; apple_pay dropped — channel inactive on the account, re-add
+> when enabled) · `app/payfast.tsx`→`app/payment.tsx` (GET-redirect WebView,
+> legacy form-flow fallback removed) · api-client types cleaned.
+>
+> **athena:** refund modal loses the bank-account-type field; reconcile panel
+> + zod schema rewritten for the Paystack response shape (see CHANGELOG top
+> entry).
+>
+> **▶ NEXT:** (a) **COMMIT all three repos**; (b) rest of the production-env
+> map (Railway, prod DB seed, CORS, yiiva-prod Cloudinary, Resend, phalo
+> first commit, maya prod checklist — see 2026-07-17 entry below); (c)
+> Paystack LIVE activation when ready (business KYC → live key; config
+> refuses test keys in prod); (d) parked: splits Phase 6 (kills the Payout
+> backlog item), PS-5 column renames (mPaymentId/pfPaymentId/itnHash are
+> semantic legacies), web frontend (separate repo) still expects the old
+> `payfast` checkout block — must adopt `payment.redirect` before web
+> checkout ships.
+
+---
+
+> ## 2026-07-17 — PRODUCTION PHASE BEGINS + Paystack decision
+>
+> **Owner declaration: demos are done — all work in all four repos now
+> targets the LIVE platform.** Demo env (yiiva_demo/:3005, 28 brands,
+> spotlight tooling) remains a local sales tool only. All demo-era work
+> through 2026-07-17 committed in nuwa/maya/athena (incl. the 07-10→07-17
+> post-handoff additions: spotlight-in-trending, brand-name search via
+> compacted slug, gift-card exclusion + underwear category, gender-aware
+> category covers, brand-diverse new-arrivals, netterose/koikoi logo fixes,
+> reels for 9 more brands — 24/28 video-led).
+>
+> **DECIDED: PayFast → Paystack** for production payments (research-backed;
+> also evaluated Stitch). Full decision record, verified pricing/API facts,
+> contract-v3 design, webhook mapping, 6-phase plan, open questions PS-1…7
+> and the Stitch re-evaluation trigger: **NEW
+> `docs/payments-module/paystack-migration-foundation.md`** — start the
+> build from there (Phase 1: PaystackConfig + PaystackClient; verify PS-1
+> test-mode refunds immediately). Also NEW earlier:
+> `docs/shopify-app/shopify-app-foundation.md` (merchant onboarding asset).
+>
+> **▶ NEXT:** (a) Paystack Phase 1–2; (b) production env plumbing (Railway,
+> prod DB + category seed, CORS_ORIGINS, yiiva-prod Cloudinary, Resend,
+> TRUST_PROXY); (c) phalo first commit (still ZERO commits!) + phalo_rw
+> role; (d) maya prod checklist (NSAllowsArbitraryLoads removal, prod API
+> URL, push on dev build, reels fixtures decision, dead-code cleanup);
+> (e) ShipLogic prod smoke plan. Production-gap map in the
+> `production-phase` memory + CLAUDE.md constraints.
+
+---
 >
 > ## 2026-07-09 — Discovery-feed algorithm + FIELDS demo package + 7 new
 > ## demo brands (15 total)

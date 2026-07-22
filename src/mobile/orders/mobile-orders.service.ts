@@ -130,10 +130,16 @@ export class MobileOrdersService {
   async placeOrder(userId: string, dto: PlaceOrderDto) {
     let result: Awaited<ReturnType<CheckoutService['commit']>>;
     try {
+      // paymentMethod (card | eft | qr) restricts the Paystack hosted page to
+      // the method chosen on maya's Payment step; anything else → all channels.
+      const channel = ['card', 'eft', 'qr'].includes(dto.paymentMethod ?? '')
+        ? dto.paymentMethod!
+        : undefined;
       result = await this.checkout.commit(userId, {
         addressId: dto.addressId,
         returnUrl: dto.returnUrl,
         cancelUrl: dto.cancelUrl,
+        ...(channel ? { paymentChannels: [channel] } : {}),
       });
     } catch (err) {
       if (err instanceof ConflictException) {
@@ -165,9 +171,9 @@ export class MobileOrdersService {
       },
       payment: {
         type: 'redirect',
-        paymentUrl: result.payfast.actionUrl,
-        actionUrl: result.payfast.actionUrl,
-        fields: result.payfast.fields,
+        // Provider-neutral shape (maya's payment WebView: GET → load url;
+        // a POST provider would render fields as a form and submit).
+        redirect: result.payment.redirect,
         returnUrl: dto.returnUrl,
       },
     };
