@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ShopifyConnectionService } from './shopify-connection.service';
 import { ShopifyConfig } from './shopify-config';
 import { ShopifyClient } from './shopify-client.service';
+import { ShopifyWebhookRegistrationService } from './shopify-webhook-registration.service';
 import { decryptToken, encryptToken } from './token-crypto';
 
 const USER_ID = 'user-1';
@@ -19,6 +20,10 @@ const mockPrisma = {
   },
 };
 const mockClient = { fetchShopInfo: jest.fn() };
+const mockRegistration = {
+  registerForConnection: jest.fn(),
+  unregisterForConnection: jest.fn(),
+};
 
 const shopInfo = {
   name: 'FIELDS',
@@ -48,6 +53,10 @@ describe('ShopifyConnectionService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ShopifyConfig, useValue: { tokenKey: KEY } },
         { provide: ShopifyClient, useValue: mockClient },
+        {
+          provide: ShopifyWebhookRegistrationService,
+          useValue: mockRegistration,
+        },
       ],
     }).compile();
     service = module.get(ShopifyConnectionService);
@@ -198,6 +207,10 @@ describe('ShopifyConnectionService', () => {
         where: { id: 'conn-1' },
         data: { status: 'DISCONNECTED' },
       });
+      // Best-effort webhook cleanup fires on disconnect.
+      expect(mockRegistration.unregisterForConnection).toHaveBeenCalledWith(
+        'conn-1',
+      );
     });
   });
 });

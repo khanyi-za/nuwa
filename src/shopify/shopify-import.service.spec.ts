@@ -11,6 +11,10 @@ import { ShopifyClient } from './shopify-client.service';
 import { ShopifyConnectionService } from './shopify-connection.service';
 import { ShopifyCatalogueService } from './shopify-catalogue.service';
 import { ShopifyRehostService } from './shopify-rehost.service';
+// The REAL writer runs in this spec (with mocked prisma/rehost) so the
+// end-to-end write assertions keep exercising the code the import runs.
+import { ShopifyProductWriterService } from './shopify-product-writer.service';
+import { ShopifyWebhookRegistrationService } from './shopify-webhook-registration.service';
 import type { ImportCatalogue, ImportProduct } from './mapping/import-types';
 
 const USER_ID = 'user-1';
@@ -30,17 +34,23 @@ const mockPrisma = {
   storeCollection: { findMany: jest.fn(), create: jest.fn() },
   storeBannerMedia: { count: jest.fn(), create: jest.fn() },
   product: { findMany: jest.fn(), create: jest.fn() },
+  productVariant: { findMany: jest.fn() },
   productImage: { findMany: jest.fn() },
   productCollection: { create: jest.fn() },
   productCategory: { create: jest.fn() },
   category: { findMany: jest.fn() },
   tag: { upsert: jest.fn() },
   productTag: { create: jest.fn() },
+  shopifyProductLink: { createMany: jest.fn() },
 };
 const mockClient = { fetchShopInfo: jest.fn(), fetchShopLogoUrl: jest.fn() };
 const mockConnections = { getActiveWithToken: jest.fn() };
 const mockCatalogue = { getImportCatalogue: jest.fn() };
 const mockRehost = { rehostImage: jest.fn() };
+const mockRegistration = {
+  registerForConnection: jest.fn(),
+  unregisterForConnection: jest.fn(),
+};
 
 const connection = {
   id: 'conn-1',
@@ -91,6 +101,11 @@ function makeCatalogue(): ImportCatalogue {
     isBare: true,
     totalStock: 5,
     stockTracked: true,
+    bareVariant: {
+      sourceGid: 'gid://shopify/ProductVariant/1001',
+      sourceId: '1001',
+      inventoryItemId: '5001',
+    },
     variants: [],
     images: [img(1)],
     suggestedCategorySlug: 'accessories',
@@ -109,9 +124,12 @@ function makeCatalogue(): ImportCatalogue {
     priceInCents: 120000,
     isBare: false,
     totalStock: 0,
+    bareVariant: null,
     variants: [
       {
         sourceGid: 'gid://shopify/ProductVariant/21',
+        sourceId: '21',
+        inventoryItemId: '5021',
         name: 'Black / S',
         sku: 'WD-1',
         color: 'Black',
@@ -124,6 +142,8 @@ function makeCatalogue(): ImportCatalogue {
       },
       {
         sourceGid: 'gid://shopify/ProductVariant/22',
+        sourceId: '22',
+        inventoryItemId: '5022',
         name: 'Black / M',
         sku: 'WD-1', // duplicate SKU within the store — must dedupe to null
         color: 'Black',
@@ -189,7 +209,19 @@ function wireHappyDefaults() {
   mockPrisma.storeBannerMedia.count.mockResolvedValue(0);
   mockPrisma.storeBannerMedia.create.mockResolvedValue({});
   mockPrisma.product.findMany.mockResolvedValue([]);
-  mockPrisma.product.create.mockResolvedValue({ id: 'prod-1' });
+  mockPrisma.productVariant.findMany.mockResolvedValue([]);
+  mockPrisma.product.create.mockResolvedValue({
+    id: 'prod-1',
+    variants: [
+      { id: 'var-1', sortOrder: 1 },
+      { id: 'var-2', sortOrder: 2 },
+    ],
+  });
+  mockPrisma.shopifyProductLink.createMany.mockResolvedValue({ count: 1 });
+  mockRegistration.registerForConnection.mockResolvedValue({
+    registered: true,
+    created: 4,
+  });
   mockPrisma.productImage.findMany.mockResolvedValue([
     { url: CDN },
     { url: CDN },
@@ -216,11 +248,16 @@ describe('ShopifyImportService', () => {
     const module = await Test.createTestingModule({
       providers: [
         ShopifyImportService,
+        ShopifyProductWriterService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ShopifyClient, useValue: mockClient },
         { provide: ShopifyConnectionService, useValue: mockConnections },
         { provide: ShopifyCatalogueService, useValue: mockCatalogue },
         { provide: ShopifyRehostService, useValue: mockRehost },
+        {
+          provide: ShopifyWebhookRegistrationService,
+          useValue: mockRegistration,
+        },
       ],
     }).compile();
     service = module.get(ShopifyImportService);
@@ -308,7 +345,7 @@ describe('ShopifyImportService', () => {
       });
       expect(mockPrisma.shopifyConnection.update).toHaveBeenCalledWith({
         where: { id: 'conn-1' },
-        data: { storeId: 'store-1' },
+        data: { storeId: 'store-1', primaryLocationId: null }, // no locations in fixture
       });
     });
 
@@ -323,9 +360,67 @@ describe('ShopifyImportService', () => {
       expect(mockPrisma.store.create).not.toHaveBeenCalled();
       expect(mockPrisma.shopifyConnection.update).toHaveBeenCalledWith({
         where: { id: 'conn-1' },
-        data: { storeId: 'store-9' },
+        data: { storeId: 'store-9', primaryLocationId: null },
       });
       expect(finalSummary()).toMatchObject({ storeCreated: false });
+    });
+
+    it('records the first ACTIVE location and fires webhook registration', async () => {
+      const cat = makeCatalogue();
+      cat.locations = [
+        {
+          sourceGid: 'gid://shopify/Location/77',
+          name: 'Closed',
+          isActive: false,
+        },
+        {
+          sourceGid: 'gid://shopify/Location/88',
+          name: 'Studio',
+          isActive: true,
+        },
+      ];
+      mockCatalogue.getImportCatalogue.mockResolvedValue(cat);
+
+      await service.runImport(JOB_ID, USER_ID);
+
+      expect(mockPrisma.shopifyConnection.update).toHaveBeenCalledWith({
+        where: { id: 'conn-1' },
+        data: { storeId: 'store-1', primaryLocationId: '88' },
+      });
+      expect(mockRegistration.registerForConnection).toHaveBeenCalledWith(
+        'conn-1',
+      );
+    });
+
+    it('writes sync link rows for bare and variant products', async () => {
+      await service.runImport(JOB_ID, USER_ID);
+
+      const linkCalls = mockPrisma.shopifyProductLink.createMany.mock.calls;
+      // Bare product: one row, variantId null, ids from bareVariant.
+      expect(linkCalls[0][0].data).toEqual([
+        {
+          connectionId: 'conn-1',
+          productId: 'prod-1',
+          variantId: null,
+          shopifyProductId: '100',
+          shopifyVariantId: '1001',
+          inventoryItemId: '5001',
+        },
+      ]);
+      // Variant product: one row per created variant, matched by sortOrder.
+      expect(linkCalls[1][0].data).toEqual([
+        expect.objectContaining({
+          variantId: 'var-1',
+          shopifyProductId: '200',
+          shopifyVariantId: '21',
+          inventoryItemId: '5021',
+        }),
+        expect.objectContaining({
+          variantId: 'var-2',
+          shopifyVariantId: '22',
+          inventoryItemId: '5022',
+        }),
+      ]);
     });
 
     it('rehosts the shop logo onto a newly created store when available', async () => {

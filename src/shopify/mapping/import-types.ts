@@ -20,7 +20,9 @@ export interface ImportImage {
 }
 
 export interface ImportVariant {
-  sourceGid: string; // gid://shopify/ProductVariant/… (webhook correlation later)
+  sourceGid: string; // gid://shopify/ProductVariant/…
+  sourceId: string; // numeric variant id (webhook payloads use this form)
+  inventoryItemId: string | null; // numeric — inventory webhooks/mutations key on it
   name: string; // e.g. "Black / Medium"
   sku: string | null; // RAW — the executor namespaces per store (global @unique)
   color: string | null;
@@ -47,6 +49,13 @@ export interface ImportProduct {
   isBare: boolean; // no real options (just "Title") vs has variants
   totalStock: number; // bare products only (0 when isBare === false)
   stockTracked: boolean; // bare: the single default variant's tracked flag
+  // Bare products only: the Shopify default variant's identities, so the
+  // sync link table can map inventory webhooks onto Product.totalStock.
+  bareVariant: {
+    sourceGid: string;
+    sourceId: string;
+    inventoryItemId: string | null;
+  } | null;
   variants: ImportVariant[]; // empty when isBare
   images: ImportImage[];
   suggestedCategorySlug: string | null;

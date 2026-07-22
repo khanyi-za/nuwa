@@ -41,6 +41,13 @@ function isBareProduct(p: RawProduct): boolean {
   return p.options.filter((o) => o.name.toLowerCase() !== 'title').length === 0;
 }
 
+/** "gid://shopify/InventoryItem/123" → "123" (webhooks use numeric ids). */
+export function numericIdFromGid(gid: string | null | undefined): string | null {
+  if (!gid) return null;
+  const last = gid.split('/').pop();
+  return last && /^\d+$/.test(last) ? last : null;
+}
+
 function buildVariant(
   v: GqlVariantNode,
   index: number,
@@ -61,6 +68,8 @@ function buildVariant(
   const tracked = v.inventoryItem?.tracked ?? true;
   return {
     sourceGid: v.id,
+    sourceId: v.legacyResourceId,
+    inventoryItemId: numericIdFromGid(v.inventoryItem?.id),
     name:
       v.title && v.title !== 'Default Title' ? v.title : `Variant ${index + 1}`,
     sku: v.sku && v.sku.trim() !== '' ? v.sku.trim() : null,
@@ -83,7 +92,8 @@ function buildImages(p: RawProduct): ImportImage[] {
   }));
 }
 
-function buildProduct(
+/** Map one resolved product. Exported for single-product sync (Phase 2). */
+export function mapProduct(
   p: RawProduct,
   collectionSlugs: string[],
 ): ImportProduct {
@@ -130,6 +140,14 @@ function buildProduct(
     stockTracked: bare
       ? bareTracked
       : p.variants.every((v) => v.inventoryItem?.tracked ?? true),
+    bareVariant:
+      bare && defaultVariant
+        ? {
+            sourceGid: defaultVariant.id,
+            sourceId: defaultVariant.legacyResourceId,
+            inventoryItemId: numericIdFromGid(defaultVariant.inventoryItem?.id),
+          }
+        : null,
     variants,
     images: buildImages(p),
     suggestedCategorySlug: suggestCategory({
@@ -163,7 +181,7 @@ export function mapCatalogue(raw: RawCatalogue): ImportCatalogue {
 
   const products = raw.products.map((p) => {
     const pslug = p.handle || slugify(p.title);
-    return buildProduct(p, productCollections.get(pslug) ?? []);
+    return mapProduct(p, productCollections.get(pslug) ?? []);
   });
 
   const collections: ImportCollection[] = raw.collections.map((c, i) => ({

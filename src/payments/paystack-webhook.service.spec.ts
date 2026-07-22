@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PaystackWebhookService } from './paystack-webhook.service';
 import { PaystackConfig } from './paystack/paystack-config';
 import { ShipmentCreationService } from '../shipping/shipment-creation.service';
+import { ShopifyStockDecrementService } from '../shopify/shopify-stock-decrement.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 const SECRET = 'sk_test_webhook_secret';
@@ -18,6 +19,7 @@ const mockPrisma = {
   $transaction: jest.fn(),
 };
 const mockShipments = { createShipmentForOrder: jest.fn() };
+const mockShopifyDecrement = { decrementForOrder: jest.fn() };
 const mockNotifications = {
   orderConfirmed: jest.fn(),
   paymentFailed: jest.fn(),
@@ -68,6 +70,10 @@ describe('PaystackWebhookService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: PaystackConfig, useValue: { secretKey: SECRET } },
         { provide: ShipmentCreationService, useValue: mockShipments },
+        {
+          provide: ShopifyStockDecrementService,
+          useValue: mockShopifyDecrement,
+        },
         { provide: NotificationsService, useValue: mockNotifications },
       ],
     }).compile();
@@ -80,6 +86,7 @@ describe('PaystackWebhookService', () => {
     mockPrisma.paymentEvent.create.mockResolvedValue({ id: 'evt1' });
     mockPrisma.paymentEvent.update.mockResolvedValue({});
     mockShipments.createShipmentForOrder.mockResolvedValue(undefined);
+    mockShopifyDecrement.decrementForOrder.mockResolvedValue(undefined);
     mockNotifications.orderConfirmed.mockResolvedValue(undefined);
   });
 

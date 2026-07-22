@@ -42,6 +42,7 @@ const PAGE_INFO = `pageInfo { hasNextPage endCursor }`;
 
 const VARIANT_FIELDS = `
   id
+  legacyResourceId
   title
   sku
   position
@@ -49,7 +50,7 @@ const VARIANT_FIELDS = `
   compareAtPrice
   inventoryQuantity
   selectedOptions { name value }
-  inventoryItem { tracked measurement { weight { unit value } } }
+  inventoryItem { id tracked measurement { weight { unit value } } }
 `;
 
 const MEDIA_FIELDS = `
@@ -57,24 +58,32 @@ const MEDIA_FIELDS = `
   ... on MediaImage { image { url altText } }
 `;
 
+const PRODUCT_NODE_FIELDS = `
+  id
+  legacyResourceId
+  title
+  handle
+  descriptionHtml
+  vendor
+  productType
+  tags
+  options { name position }
+  variants(first: ${VARIANTS_FIRST}) { ${PAGE_INFO} nodes { ${VARIANT_FIELDS} } }
+  media(first: ${MEDIA_FIRST}) { ${PAGE_INFO} nodes { ${MEDIA_FIELDS} } }
+`;
+
 const PRODUCTS_QUERY = `
   query CataloguePage($cursor: String) {
     products(first: ${PRODUCTS_PAGE}, after: $cursor, query: "status:active") {
       ${PAGE_INFO}
-      nodes {
-        id
-        legacyResourceId
-        title
-        handle
-        descriptionHtml
-        vendor
-        productType
-        tags
-        options { name position }
-        variants(first: ${VARIANTS_FIRST}) { ${PAGE_INFO} nodes { ${VARIANT_FIELDS} } }
-        media(first: ${MEDIA_FIRST}) { ${PAGE_INFO} nodes { ${MEDIA_FIELDS} } }
-      }
+      nodes { ${PRODUCT_NODE_FIELDS} }
     }
+  }
+`;
+
+const SINGLE_PRODUCT_QUERY = `
+  query SingleProduct($id: ID!) {
+    product(id: $id) { ${PRODUCT_NODE_FIELDS} }
   }
 `;
 
@@ -203,6 +212,26 @@ export class ShopifyCatalogueService {
       `Catalogue pulled: ${shopDomain} — ${products.length} products, ${collections.length} collections, ${locations.length} locations`,
     );
     return { products, collections, locations };
+  }
+
+  /**
+   * One product by its numeric id (webhook payload form), with nested
+   * pagination resolved. Null when it doesn't exist / isn't accessible.
+   * Phase 2 sync uses this for products/create so the written product goes
+   * through the exact same shapes as the bulk import.
+   */
+  async fetchProduct(
+    shopDomain: string,
+    accessToken: string,
+    numericProductId: string,
+  ): Promise<RawProduct | null> {
+    const data = await this.client.graphql<{
+      product: GqlProductNode | null;
+    }>(shopDomain, accessToken, SINGLE_PRODUCT_QUERY, {
+      id: `gid://shopify/Product/${numericProductId}`,
+    });
+    if (!data.product) return null;
+    return this.resolveProduct(shopDomain, accessToken, data.product);
   }
 
   private async pullProducts(

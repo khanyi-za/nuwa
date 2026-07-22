@@ -16,15 +16,14 @@ import { ShopifyClient } from './shopify-client.service';
 import { ShopifyConnectionService } from './shopify-connection.service';
 import { ShopifyCatalogueService } from './shopify-catalogue.service';
 import { ShopifyRehostService } from './shopify-rehost.service';
-import { namespaceSku, slugify } from './mapping/heuristics';
-import {
-  ImportCatalogue,
-  ImportProduct,
-} from './mapping/import-types';
+import { ShopifyProductWriterService } from './shopify-product-writer.service';
+import { ShopifyWebhookRegistrationService } from './shopify-webhook-registration.service';
+import { numericIdFromGid } from './mapping/catalogue-mapper';
+import { slugify } from './mapping/heuristics';
+import { ImportCatalogue } from './mapping/import-types';
 import { StartImportDto } from './dto/start-import.dto';
 
 const BANNER_MAX = 5;
-const TAGS_PER_PRODUCT = 10;
 const PROGRESS_EVERY = 10; // products between summary writes while importing
 
 interface ImportSummary {
@@ -80,6 +79,8 @@ export class ShopifyImportService {
     private readonly connections: ShopifyConnectionService,
     private readonly catalogue: ShopifyCatalogueService,
     private readonly rehost: ShopifyRehostService,
+    private readonly writer: ShopifyProductWriterService,
+    private readonly registration: ShopifyWebhookRegistrationService,
   ) {}
 
   async startImport(userId: string, dto: StartImportDto) {
@@ -223,10 +224,16 @@ export class ShopifyImportService {
       );
 
       // Link the connection to the store immediately — even a partial import
-      // should leave the wizard knowing which store it fed.
+      // should leave the wizard knowing which store it fed. The primary
+      // location (first active) is what Phase 2 inventory mutations target.
+      const primaryLocation =
+        cat.locations.find((l) => l.isActive) ?? cat.locations[0];
       await this.prisma.shopifyConnection.update({
         where: { id: connection.id },
-        data: { storeId: store.id },
+        data: {
+          storeId: store.id,
+          primaryLocationId: numericIdFromGid(primaryLocation?.sourceGid),
+        },
       });
 
       const collectionIdBySlug = await this.importCollections(
@@ -244,7 +251,7 @@ export class ShopifyImportService {
           })
         ).map((p) => p.slug),
       );
-      const usedSkus = new Set<string>();
+      const usedSkus = await this.writer.loadUsedSkus(store.id);
 
       let sinceProgress = 0;
       for (const p of cat.products) {
@@ -253,7 +260,8 @@ export class ShopifyImportService {
           continue;
         }
         try {
-          await this.importProduct(
+          await this.writer.writeProduct(
+            connection.id,
             store,
             p,
             collectionIdBySlug,
@@ -287,6 +295,16 @@ export class ShopifyImportService {
       this.logger.log(
         `Shopify import ${jobId} completed: ${summary.productsImported}/${summary.totalProducts} products into store ${store.id}`,
       );
+
+      // Phase 2: subscribe the shop to sync webhooks — best-effort, after
+      // the job is already COMPLETED (registration failure ≠ import failure).
+      void this.registration
+        .registerForConnection(connection.id)
+        .catch((err: Error) =>
+          this.logger.warn(
+            `Webhook registration failed for ${connection.shopDomain}: ${err.message}`,
+          ),
+        );
     } catch (err) {
       const message = (err as Error).message ?? 'Unknown import error';
       this.logger.error(`Shopify import ${jobId} FAILED: ${message}`);
@@ -412,129 +430,6 @@ export class ShopifyImportService {
       select: { id: true, slug: true },
     });
     return new Map(rows.map((c) => [c.slug, c.id]));
-  }
-
-  /** Rehost one product's images (HTTP), then write its rows + links. */
-  private async importProduct(
-    store: { id: string; slug: string },
-    p: ImportProduct,
-    collectionIdBySlug: Map<string, string>,
-    categoryIdBySlug: Map<string, string>,
-    usedSkus: Set<string>,
-    summary: ImportSummary,
-  ): Promise<void> {
-    if (p.images.length === 0) {
-      summary.productsSkippedNoImage++;
-      return;
-    }
-
-    const imageRows: {
-      url: string;
-      altText: string | null;
-      sortOrder: number;
-      isPrimary: boolean;
-    }[] = [];
-    for (const img of p.images) {
-      const hosted = await this.rehost.rehostImage(store.id, img.sourceUrl);
-      if (!hosted) {
-        summary.imagesFailed++;
-        continue;
-      }
-      summary.imagesUploaded++;
-      imageRows.push({
-        url: hosted,
-        altText: img.altText,
-        sortOrder: imageRows.length,
-        isPrimary: imageRows.length === 0,
-      });
-    }
-    if (imageRows.length === 0) {
-      // Every upload failed — an ACTIVE product must be displayable.
-      summary.productsSkippedNoImage++;
-      return;
-    }
-
-    // ProductVariant.sku is globally @unique: namespace per store, then null
-    // any within-store repeats (some brands reuse SKUs across their range).
-    const dedupeSku = (raw: string | null): string | null => {
-      const sku = namespaceSku(store.slug, raw);
-      if (!sku || usedSkus.has(sku)) return null;
-      usedSkus.add(sku);
-      return sku;
-    };
-
-    const created = await this.prisma.product.create({
-      data: {
-        storeId: store.id,
-        title: p.title,
-        slug: p.slug,
-        sku: p.sku,
-        description: p.description,
-        status: 'ACTIVE',
-        genderType: p.genderType,
-        priceInCents: p.priceInCents,
-        comparePriceInCents: p.comparePriceInCents,
-        weightInGrams: p.weightInGrams,
-        totalStock: p.isBare ? p.totalStock : 0,
-        publishedAt: new Date(),
-        images: { create: imageRows },
-        variants: p.isBare
-          ? undefined
-          : {
-              create: p.variants.map((v) => ({
-                name: v.name,
-                sku: dedupeSku(v.sku),
-                color: v.color,
-                size: v.size,
-                material: v.material,
-                priceInCents: v.priceInCents,
-                stock: v.stock,
-                sortOrder: v.sortOrder,
-              })),
-            },
-      },
-      select: { id: true },
-    });
-    summary.productsImported++;
-    summary.variantsImported += p.isBare ? 0 : p.variants.length;
-
-    for (const cslug of p.collectionSlugs) {
-      const cid = collectionIdBySlug.get(cslug);
-      if (cid) {
-        await this.prisma.productCollection.create({
-          data: { productId: created.id, collectionId: cid },
-        });
-      }
-    }
-
-    const catId = p.suggestedCategorySlug
-      ? categoryIdBySlug.get(p.suggestedCategorySlug)
-      : undefined;
-    if (catId) {
-      await this.prisma.productCategory.create({
-        data: { productId: created.id, categoryId: catId },
-      });
-    }
-
-    // Tags are global and shared — key on slug (names can collide after
-    // slugging, and slug is @unique). A bad tag is skipped, never fatal.
-    for (const tagName of p.tags.slice(0, TAGS_PER_PRODUCT)) {
-      const tagSlug = slugify(tagName);
-      if (!tagSlug) continue;
-      try {
-        const tag = await this.prisma.tag.upsert({
-          where: { slug: tagSlug },
-          create: { name: tagName, slug: tagSlug },
-          update: {},
-          select: { id: true },
-        });
-        await this.prisma.productTag
-          .create({ data: { productId: created.id, tagId: tag.id } })
-          .catch(() => undefined);
-      } catch {
-        /* skip a problematic tag */
-      }
-    }
   }
 
   /**

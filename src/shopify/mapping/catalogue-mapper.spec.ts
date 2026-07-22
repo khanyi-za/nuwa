@@ -12,12 +12,14 @@ import type {
 } from '../shopify-catalogue-types';
 
 const trackedItem = (grams: number | null = 450) => ({
+  id: 'gid://shopify/InventoryItem/9001',
   tracked: true,
   measurement: grams ? { weight: { unit: 'GRAMS', value: grams } } : null,
 });
 
 const baseVariant: GqlVariantNode = {
   id: 'gid://shopify/ProductVariant/1',
+  legacyResourceId: '1',
   title: 'Default Title',
   sku: null,
   position: 1,
@@ -62,6 +64,7 @@ const variantProduct: RawProduct = {
     {
       ...baseVariant,
       id: 'gid://shopify/ProductVariant/21',
+      legacyResourceId: '21',
       title: 'Black / S',
       sku: 'WD-BLK-S',
       position: 1,
@@ -76,6 +79,7 @@ const variantProduct: RawProduct = {
     {
       ...baseVariant,
       id: 'gid://shopify/ProductVariant/22',
+      legacyResourceId: '22',
       title: 'Black / M',
       sku: 'WD-BLK-M',
       position: 2,
@@ -195,10 +199,19 @@ describe('catalogue-mapper', () => {
       });
     });
 
-    it('carries source gids for later webhook correlation', () => {
+    it('carries source ids for webhook correlation (Phase 2 sync)', () => {
       expect(dress.sourceGid).toBe('gid://shopify/Product/200');
       expect(dress.sourceId).toBe('200');
       expect(dress.variants[0].sourceGid).toBe('gid://shopify/ProductVariant/21');
+      expect(dress.variants[0].sourceId).toBe('21');
+      expect(dress.variants[0].inventoryItemId).toBe('9001'); // numeric from gid
+      expect(dress.bareVariant).toBeNull();
+      // Bare product: the default variant's identities ride on bareVariant.
+      expect(scarf.bareVariant).toEqual({
+        sourceGid: 'gid://shopify/ProductVariant/1',
+        sourceId: '1',
+        inventoryItemId: '9001',
+      });
     });
 
     it('maps locations', () => {
@@ -216,7 +229,11 @@ describe('catalogue-mapper', () => {
               {
                 ...baseVariant,
                 inventoryQuantity: 0,
-                inventoryItem: { tracked: false, measurement: null },
+                inventoryItem: {
+                  id: 'gid://shopify/InventoryItem/9001',
+                  tracked: false,
+                  measurement: null,
+                },
               },
             ],
           },

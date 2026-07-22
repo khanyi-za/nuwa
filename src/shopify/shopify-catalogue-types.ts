@@ -21,6 +21,7 @@ export interface GqlWeight {
 
 export interface GqlVariantNode {
   id: string; // gid://shopify/ProductVariant/…
+  legacyResourceId: string; // numeric id as string (webhook payloads use this form)
   title: string;
   sku: string | null;
   position: number;
@@ -29,6 +30,7 @@ export interface GqlVariantNode {
   inventoryQuantity: number | null; // aggregate across locations; can be negative
   selectedOptions: { name: string; value: string }[];
   inventoryItem: {
+    id: string; // gid://shopify/InventoryItem/… (inventory webhooks key on this)
     tracked: boolean;
     measurement: { weight: GqlWeight | null } | null;
   } | null;

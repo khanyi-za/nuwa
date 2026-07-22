@@ -16,6 +16,7 @@ const noMore = { hasNextPage: false, endCursor: null };
 function variant(id: string, extra: Partial<GqlVariantNode> = {}): GqlVariantNode {
   return {
     id: `gid://shopify/ProductVariant/${id}`,
+    legacyResourceId: id,
     title: 'Default Title',
     sku: null,
     position: 1,
@@ -23,7 +24,11 @@ function variant(id: string, extra: Partial<GqlVariantNode> = {}): GqlVariantNod
     compareAtPrice: null,
     inventoryQuantity: 4,
     selectedOptions: [{ name: 'Title', value: 'Default Title' }],
-    inventoryItem: { tracked: true, measurement: null },
+    inventoryItem: {
+      id: `gid://shopify/InventoryItem/${id}`,
+      tracked: true,
+      measurement: null,
+    },
     ...extra,
   };
 }

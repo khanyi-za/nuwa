@@ -614,6 +614,7 @@ model Product {
   orderItems      OrderItem[]
   contentProducts ContentPostProduct[]
   saleCampaigns   SaleCampaignProduct[]
+  shopifyLinks    ShopifyProductLink[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -643,9 +644,10 @@ model ProductVariant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
-  cartItems  CartItem[]
-  orderItems OrderItem[]
+  product     Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
+  shopifyLink ShopifyProductLink?
 
   @@index([productId])
   @@map("product_variants")
@@ -1472,10 +1474,24 @@ model ShopifyConnection {
   shopName       String?
   currencyCode   String?
   status         ShopifyConnectionStatus @default(ACTIVE)
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
 
-  importJobs ShopifyImportJob[]
+  // ── Phase 2 sync ──
+  // Optional custom-app API secret key (AES-256-GCM) — when present, webhook
+  // HMAC-SHA256 is verified in addition to the path secret.
+  apiSecretEncrypted   String?
+  // Per-connection path secret for POST /shopify/webhook/:secret. Generated
+  // at first webhook registration.
+  webhookSecret        String?   @unique
+  // Numeric Shopify location id used for inventory reads/mutations (v1:
+  // single-location; first active location at import time).
+  primaryLocationId    String?
+  webhooksRegisteredAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  importJobs   ShopifyImportJob[]
+  productLinks ShopifyProductLink[]
 
   @@index([userId])
   @@map("shopify_connections")
@@ -1497,4 +1513,52 @@ model ShopifyImportJob {
 
   @@index([connectionId, createdAt])
   @@map("shopify_import_jobs")
+}
+
+// Maps an imported YIIVA product/variant to its Shopify identities — the
+// lookup every sync webhook resolves through. One row per Shopify variant;
+// variantId null = bare product (Shopify's default variant). NUMERIC ids
+// (not gids) because webhook payloads carry numeric ids; gids are rebuilt
+// as `gid://shopify/<Type>/<id>` where mutations need them.
+model ShopifyProductLink {
+  id               String            @id @default(cuid())
+  connectionId     String
+  connection       ShopifyConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  productId        String
+  product          Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId        String?           @unique
+  variant          ProductVariant?   @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  shopifyProductId String
+  shopifyVariantId String
+  inventoryItemId  String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@unique([connectionId, shopifyVariantId])
+  @@index([connectionId, shopifyProductId])
+  @@index([connectionId, inventoryItemId])
+  @@index([productId])
+  @@map("shopify_product_links")
+}
+
+// Audit log + idempotency primitive for Shopify webhooks (PaymentEvent /
+// ShipmentEvent precedent). payloadHash = SHA-256 of the raw body; replays
+// hit the unique constraint and are acked 200 as no-ops. connectionId is
+// nullable so orphan deliveries (unknown path secret never reach here, but
+// a disconnect race can) still leave an audit row.
+model ShopifyWebhookEvent {
+  id           String   @id @default(cuid())
+  connectionId String?
+  topic        String
+  shopDomain   String
+  webhookId    String? // X-Shopify-Webhook-Id header (delivery id, audit only)
+  payloadHash  String   @unique
+  payload      Json
+  processed    Boolean  @default(false)
+  processError String?
+  sourceIp     String?
+  createdAt    DateTime @default(now())
+
+  @@index([connectionId, createdAt])
+  @@map("shopify_webhook_events")
 }

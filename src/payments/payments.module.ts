@@ -10,6 +10,7 @@ import { PayoutAccountController } from './payout-account/payout-account.control
 import { PayoutAccountService } from './payout-account/payout-account.service';
 import { ShippingModule } from '../shipping/shipping.module';
 import { StoreModule } from '../store/store.module';
+import { ShopifyModule } from '../shopify/shopify.module';
 
 /**
  * PaymentsModule — owns the Paystack integration (the platform's payment
@@ -28,11 +29,14 @@ import { StoreModule } from '../store/store.module';
  *
  * ShippingModule provides ShipmentCreationService for the post-payment
  * shipment-booking side effect (fired OUTSIDE the webhook's DB transaction).
+ * ShopifyModule provides ShopifyStockDecrementService for the same hook —
+ * Shopify-connected stores get their source stock decremented on paid orders
+ * (double-sell prevention; one-way import, no cycle).
  */
 @Module({
   // StoreModule provides canManageStore for the payout-account surface
   // (same import pattern as ShippingModule's dispatch addresses).
-  imports: [ShippingModule, StoreModule],
+  imports: [ShippingModule, StoreModule, ShopifyModule],
   controllers: [
     PaystackWebhookController,
     PaymentsAdminController,

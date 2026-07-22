@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { ShopifyConfig } from './shopify-config';
 import { ShopifyClient } from './shopify-client.service';
+import { ShopifyWebhookRegistrationService } from './shopify-webhook-registration.service';
 import { decryptToken, encryptToken } from './token-crypto';
 import { ConnectShopifyDto } from './dto/connect-shopify.dto';
 
@@ -31,6 +32,7 @@ export class ShopifyConnectionService {
     private readonly prisma: PrismaService,
     private readonly config: ShopifyConfig,
     private readonly client: ShopifyClient,
+    private readonly registration: ShopifyWebhookRegistrationService,
   ) {}
 
   async connect(userId: string, dto: ConnectShopifyDto) {
@@ -57,6 +59,9 @@ export class ShopifyConnectionService {
     }
 
     const encryptedToken = encryptToken(dto.accessToken, this.config.tokenKey);
+    const apiSecretEncrypted = dto.apiSecret
+      ? encryptToken(dto.apiSecret, this.config.tokenKey)
+      : null;
 
     const connection = await this.prisma.shopifyConnection.upsert({
       where: { shopDomain: canonicalDomain },
@@ -64,12 +69,15 @@ export class ShopifyConnectionService {
         userId,
         shopDomain: canonicalDomain,
         encryptedToken,
+        apiSecretEncrypted,
         shopName: info.name,
         currencyCode: info.currencyCode,
         status: 'ACTIVE',
       },
       update: {
         encryptedToken,
+        // Reconnect without a secret keeps the old one (don't downgrade HMAC).
+        ...(apiSecretEncrypted ? { apiSecretEncrypted } : {}),
         shopName: info.name,
         currencyCode: info.currencyCode,
         status: 'ACTIVE',
@@ -144,6 +152,9 @@ export class ShopifyConnectionService {
       where: { id: connection.id },
       data: { status: 'DISCONNECTED' },
     });
+    // Best-effort: remove our webhook subscriptions from the shop so it
+    // stops delivering to a dead secret. Fire-and-forget by design.
+    void this.registration.unregisterForConnection(connection.id);
     this.logger.log(`Shopify disconnected: ${connection.shopDomain}`);
     return { disconnected: true };
   }

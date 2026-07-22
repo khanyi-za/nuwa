@@ -24,10 +24,41 @@
 > variant SKUs, collection/category/tag links; image-less products skipped;
 > per-product failures counted not fatal; re-run = additive refresh (skips
 > existing slugs); starter banner seeded for import-created stores.
-> SA-4 (products/delete → ARCHIVED) unchanged, Phase 2 concern.
-> ⚠ Not yet verified against a live shop — needs the owner's Partner dev
-> store + shpat_ token (read_products/read_inventory/read_locations).
-> Next: Phase 2 continuous sync (webhooks + reconcile + stock decrement).
+> **Phase 2 = continuous sync, shipped 2026-07-22:** migration
+> `20260722153500_shopify_sync` (ShopifyProductLink one-row-per-variant map
+> incl. inventoryItemId, ShopifyWebhookEvent audit+idempotency table,
+> connection sync columns: webhookSecret/apiSecretEncrypted/
+> primaryLocationId/webhooksRegisteredAt; applied to BOTH DBs).
+> Receiver `POST /shopify/webhook/:secret` — per-connection path secret
+> (404 stealth) + HMAC-SHA256 verified WHEN the merchant supplied their
+> custom app's API secret key at connect (optional `apiSecret` on the
+> connect DTO; without it the path secret is the v1 auth boundary since
+> admin custom-app webhook signing keys aren't otherwise available to us);
+> raw-body SHA-256 idempotency; applier errors recorded on the event row
+> and still acked 200 (no retry storms; payload kept for manual replay).
+> Registration: auto `webhookSubscriptionCreate` (PRODUCTS_CREATE/UPDATE/
+> DELETE + INVENTORY_LEVELS_UPDATE) after each completed import, idempotent,
+> callback = `SHOPIFY_WEBHOOK_BASE_URL/shopify/webhook/<secret>` (env
+> OPTIONAL — unset skips registration, import unaffected); unsubscribe on
+> disconnect (best-effort). Appliers (ShopifySyncService): products/update →
+> title/desc/status/price + per-variant price/stock (unlinked new variants
+> logged, not created — v1); products/create → GraphQL re-fetch → shared
+> ShopifyProductWriterService (same path as bulk import); products/delete →
+> ARCHIVED (SA-4 decided); inventory_levels/update → stock SET, primary
+> location only. Nightly 03:00 reconcile cron: full pull → stock/price
+> drift repair + archive of Shopify-deleted products (missed-webhook safety
+> net — ShipLogic lesson). Double-sell prevention: PaystackWebhookService
+> post-payment hook now also fires ShopifyStockDecrementService
+> (inventoryAdjustQuantities, -qty per linked item at the primary location;
+> best-effort, never blocks the order; PaymentsModule→ShopifyModule one-way
+> import mirroring shipment booking).
+> ⚠ NOTHING verified against a live shop yet — needs the owner's Partner
+> dev store + custom app (read_products/read_inventory/read_locations +
+> write_inventory for the decrement) + shpat_ token, and a tunnel/public
+> URL in SHOPIFY_WEBHOOK_BASE_URL for webhook delivery.
+> Remaining for full capacity: live e2e smoke, athena onboarding UI
+> ("clicks 1–5"), then later OAuth connect / Phase 3 public listing /
+> Phase 4 order push-back (policy-gated).
 > Original research status: This doc captures
 > the feasibility research (verified against shopify.dev, 2026-07-09) and the
 > intended shape so the project can start cold from here.

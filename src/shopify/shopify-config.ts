@@ -19,6 +19,14 @@ export class ShopifyConfig implements OnModuleInit {
   readonly tokenKey: Buffer;
   readonly apiVersion = '2026-07';
 
+  /**
+   * Public https base of THIS API (e.g. https://api.yiiva.co.za) — used to
+   * build webhook callback URLs for Phase 2 sync registration. Optional:
+   * when unset, imports still work but webhook registration is skipped with
+   * a warning (local dev without a tunnel).
+   */
+  readonly webhookBaseUrl: string | null;
+
   constructor(private readonly config: ConfigService) {
     const raw = this.config.get<string>('SHOPIFY_TOKEN_KEY');
     if (!raw || !/^[0-9a-f]{64}$/i.test(raw.trim())) {
@@ -27,6 +35,9 @@ export class ShopifyConfig implements OnModuleInit {
       );
     }
     this.tokenKey = Buffer.from(raw.trim(), 'hex');
+
+    const base = this.config.get<string>('SHOPIFY_WEBHOOK_BASE_URL')?.trim();
+    this.webhookBaseUrl = base ? base.replace(/\/+$/, '') : null;
   }
 
   /** Admin GraphQL endpoint for a shop (canonical *.myshopify.com host). */
@@ -35,6 +46,8 @@ export class ShopifyConfig implements OnModuleInit {
   }
 
   onModuleInit() {
-    this.logger.log(`Shopify configured: apiVersion=${this.apiVersion}`);
+    this.logger.log(
+      `Shopify configured: apiVersion=${this.apiVersion}, webhooks=${this.webhookBaseUrl ?? 'DISABLED (no SHOPIFY_WEBHOOK_BASE_URL)'}`,
+    );
   }
 }

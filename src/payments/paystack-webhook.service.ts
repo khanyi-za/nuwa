@@ -11,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PaystackConfig } from './paystack/paystack-config';
 import { PaystackWebhookEvent } from './paystack/paystack-types';
 import { ShipmentCreationService } from '../shipping/shipment-creation.service';
+import { ShopifyStockDecrementService } from '../shopify/shopify-stock-decrement.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 /**
@@ -82,6 +83,7 @@ export class PaystackWebhookService {
     private readonly prisma: PrismaService,
     private readonly config: PaystackConfig,
     private readonly shipmentCreation: ShipmentCreationService,
+    private readonly shopifyStockDecrement: ShopifyStockDecrementService,
     private readonly notifications: NotificationsService,
   ) {}
 
@@ -272,6 +274,9 @@ export class PaystackWebhookService {
             `Shipment booking failed post-webhook for order ${orderId}: ${(err as Error).message}. Order remains CONFIRMED; ops review required.`,
           );
         }
+        // Shopify-connected stores: decrement source stock (double-sell
+        // prevention). Never throws; no-op for unconnected stores.
+        await this.shopifyStockDecrement.decrementForOrder(orderId);
       }),
     );
     await this.notifications.orderConfirmed(group.id);

@@ -1,4 +1,10 @@
-import { IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 /**
  * ConnectShopifyDto — body of POST /shopify/connection.
@@ -25,4 +31,15 @@ export class ConnectShopifyDto {
       'accessToken must be a Shopify Admin API access token (starts with shpat_)',
   })
   accessToken: string;
+
+  /**
+   * OPTIONAL: the custom app's "API secret key" (shown next to the token in
+   * the merchant's Shopify admin). When provided, sync webhooks are HMAC
+   * verified with it in addition to the path secret. Stored encrypted.
+   */
+  @IsOptional()
+  @IsString()
+  @MinLength(20)
+  @MaxLength(200)
+  apiSecret?: string;
 }
