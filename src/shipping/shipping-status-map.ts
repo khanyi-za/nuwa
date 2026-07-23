@@ -22,6 +22,12 @@ import { OrderStatus, ShipmentStatus } from '@prisma/client';
  *     collection-/delivery-rejected/-exception/-failed-attempt, etc.
  *                                                               → null (no Order transition)
  *
+ * `collection-failed-attempt` and `at-destination-hub` were both OBSERVED in
+ * real production payloads (docs/thecourierguy/TCGTrack_Webhook.txt,
+ * 2026-07-23): at-destination-hub is mapped below; collection-failed-attempt
+ * is deliberately a no-op — the parcel is still pre-collection, the Order
+ * stays CONFIRMED, and the raw status lands on Shipment for ops triage.
+ *
  * The full raw status is always preserved on `Shipment.shiplogicStatus` so
  * the admin tool can surface non-mapped states for ops triage.
  */

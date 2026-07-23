@@ -23,6 +23,7 @@ const orderRow = {
   shippingPhone: '+27821234567',
   shippingAddress1: '10 Midas Avenue',
   shippingAddress2: 'Apt 2',
+  shippingSuburb: 'Olympus AH',
   shippingCity: 'Pretoria',
   shippingProvince: 'Gauteng',
   shippingPostalCode: '0081',
@@ -126,6 +127,8 @@ describe('ShipmentCreationService', () => {
     expect(sentBody.delivery_address.street_address).toBe(
       '10 Midas Avenue, Apt 2',
     );
+    // Suburb snapshot → ShipLogic's geocoding anchor.
+    expect(sentBody.delivery_address.local_area).toBe('Olympus AH');
 
     expect(prisma.shipment.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({

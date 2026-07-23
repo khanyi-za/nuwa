@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ShipLogicConfig } from './shiplogic/shiplogic-config';
 import { ShippingWebhookService } from './shipping-webhook.service';
+import { ShipmentStatusApplyService } from './shipment-status-apply.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 const WAYBILL = 'VD3GLQ';
@@ -64,10 +65,15 @@ describe('ShippingWebhookService', () => {
     prisma = makePrisma();
     // Bind $transaction to use prisma itself as the tx client.
     prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
+    // The REAL apply service runs against the same prisma mock, so all the
+    // state-application assertions below keep exercising the shared pipeline.
     service = new ShippingWebhookService(
       prisma as unknown as PrismaService,
       makeConfig(),
-      notifications,
+      new ShipmentStatusApplyService(
+        prisma as unknown as PrismaService,
+        notifications,
+      ),
     );
   });
 
@@ -83,12 +89,19 @@ describe('ShippingWebhookService', () => {
     expect(prisma.shipmentEvent.create).not.toHaveBeenCalled();
   });
 
-  it('rejects with `unauthenticated` when no secret is configured (webhook disabled)', async () => {
-    service = new ShippingWebhookService(
+  function makeService(configOver: Partial<ShipLogicConfig>) {
+    return new ShippingWebhookService(
       prisma as unknown as PrismaService,
-      makeConfig({ webhookSecret: null } as Partial<ShipLogicConfig>),
-      notifications,
+      makeConfig(configOver),
+      new ShipmentStatusApplyService(
+        prisma as unknown as PrismaService,
+        notifications,
+      ),
     );
+  }
+
+  it('rejects with `unauthenticated` when no secret is configured (webhook disabled)', async () => {
+    service = makeService({ webhookSecret: null } as Partial<ShipLogicConfig>);
     const out = await service.ingest({
       secret: SECRET,
       sourceIp: '1.2.3.4',
@@ -98,13 +111,9 @@ describe('ShippingWebhookService', () => {
   });
 
   it('rejects with `ip_rejected` when sourceIp not in non-empty allowlist', async () => {
-    service = new ShippingWebhookService(
-      prisma as unknown as PrismaService,
-      makeConfig({
-        webhookIpAllowlist: ['10.0.0.1'],
-      } as Partial<ShipLogicConfig>),
-      notifications,
-    );
+    service = makeService({
+      webhookIpAllowlist: ['10.0.0.1'],
+    } as Partial<ShipLogicConfig>);
     const out = await service.ingest({
       secret: SECRET,
       sourceIp: '1.2.3.4',
@@ -114,13 +123,9 @@ describe('ShippingWebhookService', () => {
   });
 
   it('allows the request when sourceIp matches the allowlist (handles IPv4-mapped IPv6)', async () => {
-    service = new ShippingWebhookService(
-      prisma as unknown as PrismaService,
-      makeConfig({
-        webhookIpAllowlist: ['10.0.0.1'],
-      } as Partial<ShipLogicConfig>),
-      notifications,
-    );
+    service = makeService({
+      webhookIpAllowlist: ['10.0.0.1'],
+    } as Partial<ShipLogicConfig>);
     const out = await service.ingest({
       secret: SECRET,
       sourceIp: '::ffff:10.0.0.1',
@@ -331,6 +336,120 @@ describe('ShippingWebhookService', () => {
     expect(prisma.shipmentEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ eventType: 'ADDRESS_CHANGE' }),
+      }),
+    );
+  });
+
+  // ─── Real-payload regression guard ─────────────────────────────────────────
+
+  it('parses a VERBATIM production TCG delivered payload (docs/thecourierguy/TCGTrack_Webhook.txt)', async () => {
+    // Abridged tracking_events (2 of 10) but every field shape is verbatim,
+    // including the production quirks this guards: empty-string hubs at the
+    // top level, no top-level message, location+message inside the events.
+    const realPayload = {
+      provider_id: 7,
+      shipment_id: 26064099,
+      short_tracking_reference: WAYBILL,
+      status: 'delivered',
+      shipment_time_created: '2023-08-23T20:31:00.804538Z',
+      shipment_collected_date: '2023-08-25T16:25:48.392463Z',
+      shipment_delivered_date: '2023-08-30T09:06:25.746161945+02:00',
+      collection_from: '',
+      delivery_to: '',
+      collection_hub: '',
+      delivery_hub: '',
+      service_level_code: 'ECO',
+      service_level_name: '',
+      event_time: '2023-08-30T07:06:23.518Z',
+      update_type: 'shipment',
+      tracking_events: [
+        {
+          id: 628658099,
+          parcel_id: 0,
+          date: '2023-08-30T07:06:23.518Z',
+          status: 'delivered',
+          source: 'rus5',
+          lat: -25.7443016,
+          lng: 27.2728775,
+          message: 'PIN entered successfully',
+        },
+        {
+          id: 628449337,
+          parcel_id: 0,
+          date: '2023-08-30T05:06:11.076197Z',
+          status: 'out-for-delivery',
+          source: 'rus5',
+          location: 'RUS',
+          message: '',
+          data: { hub_scanner_driver: 'rus5' },
+        },
+      ],
+      has_ready_for_pickup_status: false,
+    };
+
+    const out = await service.ingest({
+      secret: SECRET,
+      sourceIp: '1.2.3.4',
+      rawBody: JSON.stringify(realPayload),
+    });
+
+    expect(out).toBe('accepted');
+    // Detected as a tracking event, matched by waybill, status applied.
+    expect(prisma.shipment.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          shiplogicStatus: 'delivered',
+          status: 'DELIVERED',
+          deliveredAt: new Date('2023-08-30T07:06:23.518Z'),
+        }),
+      }),
+    );
+    // Buyer-visible row uses the EVENT's message (no top-level message
+    // exists in production) and no empty-string location.
+    expect(prisma.shipmentTrackingEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'delivered',
+          description: 'PIN entered successfully',
+          location: null,
+        }),
+      }),
+    );
+    expect(prisma.order.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'DELIVERED' }),
+      }),
+    );
+  });
+
+  it('surfaces the newest event location for hub scans (real in-transit shape)', async () => {
+    await service.ingest({
+      secret: SECRET,
+      sourceIp: '1.2.3.4',
+      rawBody: JSON.stringify({
+        short_tracking_reference: WAYBILL,
+        status: 'at-hub',
+        collection_hub: '',
+        delivery_hub: '',
+        event_time: '2023-08-30T07:18:12.347606877+02:00',
+        update_type: 'shipment',
+        tracking_events: [
+          {
+            date: '2023-08-30T07:18:12.347606Z',
+            status: 'at-hub',
+            location: 'SCT Depot ',
+            message: 'At SCT Depot  hub',
+          },
+        ],
+      }),
+    });
+
+    expect(prisma.shipmentTrackingEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          location: 'SCT Depot', // trimmed from the event, not the empty top-level hub
+          description: 'At SCT Depot  hub',
+        }),
       }),
     );
   });

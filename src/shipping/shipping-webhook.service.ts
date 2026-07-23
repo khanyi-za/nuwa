@@ -1,10 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash, timingSafeEqual } from 'crypto';
-import { OrderStatus, Prisma, ShipmentEventType } from '@prisma/client';
+import { Prisma, ShipmentEventType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ShipLogicConfig } from './shiplogic/shiplogic-config';
-import { mapShipLogicStatus } from './shipping-status-map';
-import { NotificationsService } from '../notifications/notifications.service';
+import { ShipmentStatusApplyService } from './shipment-status-apply.service';
 
 export type WebhookOutcome =
   | 'accepted'
@@ -34,10 +33,9 @@ export type WebhookOutcome =
  *
  * State application:
  *   - Match `short_tracking_reference` from payload to `Shipment.waybillNumber`.
- *   - Map raw ShipLogic status to YIIVA OrderStatus via shipping-status-map.
- *   - Update Shipment row + (if mapping is non-null) Order row.
- *   - Append a buyer-visible ShipmentTrackingEvent row for TRACKING_EVENT
- *     types that resulted in a buyer-facing status change.
+ *   - Delegate to ShipmentStatusApplyService (shared with the tracking
+ *     reconcile poller): status map, Shipment update, tracking-event row,
+ *     Order CAS transition, notifications.
  */
 @Injectable()
 export class ShippingWebhookService {
@@ -46,7 +44,7 @@ export class ShippingWebhookService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ShipLogicConfig,
-    private readonly notifications: NotificationsService,
+    private readonly statusApply: ShipmentStatusApplyService,
   ) {}
 
   async ingest(args: {
@@ -111,7 +109,12 @@ export class ShippingWebhookService {
       shipmentId &&
       rawStatus
     ) {
-      await this.applyTrackingEvent(shipmentId, payload, rawStatus, payloadHash);
+      await this.applyTrackingEvent(
+        shipmentId,
+        payload,
+        rawStatus,
+        payloadHash,
+      );
     } else {
       // Mark processed even for audit-only events so we don't keep retrying.
       await this.markProcessed(payloadHash, null);
@@ -128,100 +131,15 @@ export class ShippingWebhookService {
     rawStatus: string,
     payloadHash: string,
   ): Promise<void> {
-    const mapping = mapShipLogicStatus(rawStatus);
-    const eventTime = this.extractEventTime(payload);
-    const hub = this.extractHub(payload);
-
-    // Set inside the TX only when the Order actually transitions (CAS matched);
-    // fired AFTER commit so a no-op (delayed/out-of-order event) doesn't notify.
-    let notify: { orderId: string; stage: 'shipped' | 'delivered' } | null = null;
-
     try {
-      notify = await this.prisma.$transaction(async (tx) => {
-        let transitioned: { orderId: string; stage: 'shipped' | 'delivered' } | null =
-          null;
-        const shipment = await tx.shipment.findUnique({
-          where: { id: shipmentId },
-          select: { id: true, orderId: true, status: true, shiplogicStatus: true },
-        });
-        if (!shipment) {
-          this.logger.warn(
-            `Shipment ${shipmentId} disappeared between event INSERT and apply — skipping`,
-          );
-          return null;
-        }
-
-        // Always update the raw status on Shipment for the admin tool.
-        await tx.shipment.update({
-          where: { id: shipmentId },
-          data: {
-            shiplogicStatus: rawStatus,
-            ...(mapping.shipmentStatus
-              ? { status: mapping.shipmentStatus }
-              : {}),
-            ...(mapping.shipmentStatus === 'COLLECTED'
-              ? { collectedAt: eventTime ?? new Date() }
-              : {}),
-            ...(mapping.shipmentStatus === 'DELIVERED'
-              ? { deliveredAt: eventTime ?? new Date() }
-              : {}),
-          },
-        });
-
-        // Append a buyer-visible tracking row when we got mappable progress.
-        if (mapping.shipmentStatus || mapping.orderStatus) {
-          await tx.shipmentTrackingEvent.create({
-            data: {
-              shipmentId,
-              status: rawStatus,
-              description: this.extractMessage(payload),
-              location: hub,
-              timestamp: eventTime ?? new Date(),
-            },
-          });
-        }
-
-        // Transition the Order — CAS-style: only forward, never backward,
-        // and never overwrite a CANCELLED/REFUNDED terminal state.
-        if (mapping.orderStatus) {
-          const guardStatuses = this.allowedSourceStatusesFor(mapping.orderStatus);
-          const res = await tx.order.updateMany({
-            where: {
-              id: shipment.orderId,
-              status: { in: guardStatuses },
-            },
-            data: {
-              status: mapping.orderStatus,
-              ...(mapping.orderStatus === 'DISPATCHED'
-                ? { dispatchedAt: eventTime ?? new Date() }
-                : {}),
-              ...(mapping.orderStatus === 'DELIVERED'
-                ? { deliveredAt: eventTime ?? new Date() }
-                : {}),
-              ...(mapping.cancelReason
-                ? {
-                    cancelReason: mapping.cancelReason,
-                    cancelledAt: eventTime ?? new Date(),
-                  }
-                : {}),
-            },
-          });
-          // Notify only on a real forward transition (CAS matched a row).
-          if (res.count > 0) {
-            if (mapping.orderStatus === 'DISPATCHED') {
-              transitioned = { orderId: shipment.orderId, stage: 'shipped' };
-            } else if (mapping.orderStatus === 'DELIVERED') {
-              transitioned = { orderId: shipment.orderId, stage: 'delivered' };
-            }
-          }
-        }
-
-        await tx.shipmentEvent.update({
-          where: { payloadHash },
-          data: { processed: true, processError: null },
-        });
-
-        return transitioned;
+      const latest = this.latestTrackingEvent(payload, rawStatus);
+      await this.statusApply.apply({
+        shipmentId,
+        rawStatus,
+        eventTime: this.extractEventTime(payload),
+        hub: latest?.location?.trim() || this.extractHub(payload),
+        message: latest?.message?.trim() || this.extractMessage(payload),
+        markEventPayloadHash: payloadHash,
       });
     } catch (err) {
       const msg = (err as Error).message ?? 'unknown';
@@ -230,12 +148,6 @@ export class ShippingWebhookService {
       );
       await this.markProcessed(payloadHash, msg).catch(() => undefined);
       throw err;
-    }
-
-    // Best-effort, post-commit (the catch above rethrows, so we only reach here
-    // on a successful apply).
-    if (notify) {
-      await this.notifications.orderStatusChanged(notify.orderId, notify.stage);
     }
   }
 
@@ -316,60 +228,36 @@ export class ShippingWebhookService {
     return Number.isNaN(d.getTime()) ? null : d;
   }
 
+  /**
+   * The tracking_events entry for the current status (first match = newest;
+   * real payloads sort the array newest-first). Real TCG deliveries carry
+   * the useful location ("JNB", "RUS") and buyer-facing message ("PIN
+   * entered successfully") HERE — the top-level collection_hub/delivery_hub
+   * are empty strings and there is no top-level message (verified against
+   * production samples in docs/thecourierguy/TCGTrack_Webhook.txt).
+   */
+  private latestTrackingEvent(
+    payload: Record<string, unknown>,
+    rawStatus: string,
+  ): { location?: string; message?: string } | null {
+    const events = payload['tracking_events'];
+    if (!Array.isArray(events)) return null;
+    const typed = events as { status?: string; location?: string; message?: string }[];
+    return typed.find((e) => e.status === rawStatus) ?? typed[0] ?? null;
+  }
+
   private extractHub(payload: Record<string, unknown>): string | null {
     const v =
       payload['collection_hub'] ??
       payload['delivery_hub'] ??
       payload['hub'];
-    return typeof v === 'string' ? v : null;
+    // Production payloads carry "" here — treat as absent.
+    return typeof v === 'string' && v.trim().length > 0 ? v : null;
   }
 
   private extractMessage(payload: Record<string, unknown>): string | null {
     const v = payload['message'];
-    return typeof v === 'string' && v.length > 0 ? v : null;
-  }
-
-  /**
-   * Which Order.status values are valid predecessors for the target. Prevents
-   * out-of-order webhooks from regressing the state machine (e.g. a delayed
-   * 'collected' event after we already saw 'delivered').
-   */
-  private allowedSourceStatusesFor(target: OrderStatus): OrderStatus[] {
-    switch (target) {
-      case OrderStatus.DISPATCHED:
-        return [
-          OrderStatus.CONFIRMED,
-          OrderStatus.PROCESSING,
-          OrderStatus.READY_FOR_DISPATCH,
-        ];
-      case OrderStatus.IN_TRANSIT:
-        return [
-          OrderStatus.CONFIRMED,
-          OrderStatus.PROCESSING,
-          OrderStatus.READY_FOR_DISPATCH,
-          OrderStatus.DISPATCHED,
-        ];
-      case OrderStatus.DELIVERED:
-        return [
-          OrderStatus.CONFIRMED,
-          OrderStatus.PROCESSING,
-          OrderStatus.READY_FOR_DISPATCH,
-          OrderStatus.DISPATCHED,
-          OrderStatus.IN_TRANSIT,
-        ];
-      case OrderStatus.CANCELLED:
-        // ShipLogic cancellations don't override REFUNDED/REFUND_REQUESTED.
-        return [
-          OrderStatus.PENDING,
-          OrderStatus.CONFIRMED,
-          OrderStatus.PROCESSING,
-          OrderStatus.READY_FOR_DISPATCH,
-          OrderStatus.DISPATCHED,
-          OrderStatus.IN_TRANSIT,
-        ];
-      default:
-        return [];
-    }
+    return typeof v === 'string' && v.trim().length > 0 ? v : null;
   }
 
   private isUniqueConstraintViolation(err: unknown): boolean {

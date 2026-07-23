@@ -1,6 +1,74 @@
-# STATUS.md — Last updated 2026-07-23 (session close)
+# STATUS.md — Last updated 2026-07-23 (session close, second entry)
 
 > 🟢 **HANDOFF — next session start here.**
+>
+> ## 2026-07-23 (later) — SHIPPING HARDENING: tracking-reconcile poller ·
+> ## shippingSuburb snapshot · Q24 CLOSED via TCG reply + real payloads
+>
+> Courier-track focus session. nuwa: **824 tests / 67 suites green, tsc
+> clean.** ⚠ **ALL of this is UNCOMMITTED in nuwa** (one coherent batch —
+> suggested msg: "shipping hardening: tracking-reconcile poller (missed-
+> webhook safety net) + admin trigger, Order.shippingSuburb snapshot →
+> ShipLogic local_area, webhook extractors fixed against verbatim production
+> payloads, Q24 closed (no signing), on 23/07/2026").
+>
+> **Tracking reconcile poller (the big one):** webhook delivery being
+> unproven used to mean "missed webhooks freeze orders at CONFIRMED
+> forever". Now: `ShipmentStatusApplyService` (apply pipeline EXTRACTED from
+> the webhook handler — status map, Shipment/tracking-event writes, Order
+> CAS guards, notifications — shared by both paths, so late webhook vs
+> poller races no-op safely) + `ShipmentTrackingReconcileService` (cron
+> :10/:40; polls `GET /shipments?tracking_reference=` for in-flight
+> shipments untouched 45+ min, batch 50, per-shipment error isolation;
+> unchanged rows get updatedAt touched → near-zero steady-state cost) +
+> **`POST /admin/shipping/reconcile-tracking`** (ADMIN, on-demand sweep
+> returning {candidates,updated,unchanged,failed} — the prod-smoke tool).
+> Live-verified on dev (:3000): admin sweep ran clean. Drift now bounded to
+> ~45–75 min even if production webhooks never fire.
+>
+> **Order.shippingSuburb snapshot** (migration `20260723170000_order_
+> shipping_suburb`, BOTH DBs): checkout now snapshots the delivery
+> address's suburb (auth path from Address; guest path — `GuestAddressDto`
+> gained optional suburb → materialized Address) and shipment booking
+> passes it as ShipLogic's `local_area` geocoding anchor (was hardcoded
+> null → misgeocoding risk in outlying SA areas). Pre-migration orders:
+> null, old behaviour. ⚠ maya follow-up: address form should COLLECT
+> suburb (backend accepts it everywhere already). CLAUDE.md constraint
+> updated to FIXED.
+>
+> **Q24 (webhook auth) CLOSED via TCG email reply + attachments** (saved in
+> `docs/thecourierguy/`): (1) sandbox NEVER fires tracking webhooks —
+> driver-scan-driven, no drivers scan test parcels (2026-06-03 zero-delivery
+> mystery solved; reconcile poller = right call). (2) NO signing — support
+> examples + both Postman collections + api-docs all show plain callback
+> URLs; path-embedded secret + optional IP allowlist is the PERMANENT
+> design (verifier slot stays reserved). (3) `TCGTrack_Webhook.txt` = 5
+> VERBATIM production payloads → caught 2 real-shape extractor bugs:
+> top-level hubs are EMPTY STRINGS and there's no top-level message in
+> production — real location/message live in `tracking_events[]`. Extractors
+> now read the newest status-matching event (buyer timeline gets "PIN
+> entered successfully" / "At JNB hub" instead of blanks); verbatim real
+> payload locked in as regression specs. `collection-failed-attempt`
+> observed in the wild — correctly a status-map no-op. (4) the docx
+> attachment is merchant education, nothing technical. Foundation doc §13/
+> §14 updated throughout. **STILL OPEN from Q24 (one-line follow-up email,
+> draft in foundation §14 discussion): outbound source-IP range + retry
+> cadence.**
+>
+> **Run state:** dev nuwa :3000 (watch) + athena :3001 RUNNING (logs
+> /tmp/nuwa-dev-3000.log, /tmp/athena-dev.log); demo nuwa :3005 running
+> detached. athena/.env.local still → :3000 (dev); flip to :3005 for demos.
+>
+> **▶ NEXT:** (a) **COMMIT the shipping batch** (msg above); (b) send the
+> TCG follow-up email (IP range + retry); (c) owner errands outstanding:
+> Shopify Partner dev store + shpat_ token (Shopify e2e), TCG production
+> account (shipping smoke); (d) then the production-env map (Railway,
+> Paystack LIVE, prod DB seed, CORS, yiiva-prod Cloudinary, phalo deploy —
+> see 2026-07-17 entry); (e) parked polish: maya suburb field,
+> webhooksRegisteredAt on the Shopify connection view, genderSource counts
+> in import preview.
+
+---
 >
 > ## 2026-07-23 — SHOPIFY APP CAPACITY COMPLETE: nuwa Phases 1b+1c+2 +
 > ## athena onboarding UI (both surfaces)

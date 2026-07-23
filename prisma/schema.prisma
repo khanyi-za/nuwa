@@ -833,6 +833,10 @@ model Order {
   shippingPhone      String
   shippingAddress1   String
   shippingAddress2   String?
+  // SA suburb — ShipLogic's `local_area` geocoding anchor. Snapshot from the
+  // delivery address at checkout; null on pre-2026-07-23 orders (ShipLogic
+  // geocodes from the remaining fields, less accurately in outlying areas).
+  shippingSuburb     String?
   shippingCity       String
   shippingProvince   String
   shippingPostalCode String

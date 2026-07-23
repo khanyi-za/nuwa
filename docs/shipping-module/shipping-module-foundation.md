@@ -464,20 +464,80 @@ Documented for the record so we don't repeat the test unnecessarily.
 
 **Implication:** production webhook reliability + signing remain unverified. Build the webhook handler defensively (path-embedded secret + IP allowlist), reserve the signature-verification slot for when production confirms.
 
+**Mitigation (added 2026-07-23) — tracking reconcile poller.** Because webhook
+delivery is unproven, a polling safety net now bounds missed-webhook drift to
+~45–75 minutes instead of "forever":
+
+- `ShipmentTrackingReconcileService` (`src/shipping/shipment-tracking-reconcile.service.ts`),
+  cron at **:10/:40 every hour**. Candidates: shipments with a waybill, in an
+  in-flight `ShipmentStatus` (PENDING/COLLECTED/IN_TRANSIT/OUT_FOR_DELIVERY/
+  FAILED_DELIVERY), whose row hasn't been updated in **45+ min**, on orders
+  not already terminal (DELIVERED/CANCELLED/REFUNDED). Batch 50,
+  longest-unrefreshed first.
+- Fetches current state via `GET /shipments?tracking_reference=` (the §9
+  polling fallback; response envelope handled defensively — bare array,
+  `{shipments: []}`, or single object).
+- Drifted statuses are applied through **`ShipmentStatusApplyService`** — the
+  apply pipeline EXTRACTED from the webhook handler (both paths now share it):
+  same status map, same Shipment/tracking-event writes, same Order CAS
+  guards, same shipped/delivered notifications. A webhook arriving late for a
+  state the reconcile already applied no-ops via the CAS guards, and vice
+  versa.
+- Unchanged rows get their `updatedAt` touched so the stale filter skips them
+  for the next cycle (steady-state cost when webhooks work: ~zero calls).
+- Manual trigger for ops/smoke: **`POST /admin/shipping/reconcile-tracking`**
+  (ADMIN) runs the sweep on demand and returns
+  `{candidates, updated, unchanged, failed}` — built for the production
+  webhook smoke test.
+
 ---
 
 ## 14. Open questions for TCG support
 
-Call queued (resolution faster than email per ops preference). Questions, in priority order:
+Questions, in priority order (status updated 2026-07-23 after TCG's email
+reply + a sweep of their published API docs):
 
-1. **Is webhook delivery enabled in the sandbox at all?** Created shipments + cancelled one on 2026-06-03 (IDs 115738667, 115738954); subscription configured for Tracking event; zero deliveries received over ~10 minutes.
-2. **Are production webhooks signed?** If yes — HMAC algorithm, which header carries the signature, what's used as the secret (same API key, or a separate webhook secret)?
-3. **What's included in the signature payload** — whole raw body, or canonical form?
-4. **Source IP range / hostnames for outbound webhook calls** — for allowlist fallback.
-5. **Retry behaviour** on non-2xx responses (cadence, max attempts).
-6. **Timestamp / replay-protection header** if signing exists.
+1. **Is webhook delivery enabled in the sandbox at all?** — **ANSWERED
+   (TCG support email, 2026-07-23):** "There will be no tracking events on
+   sandbox because there are no drivers scanning your test parcel." Tracking
+   events are driver-scan-driven; sandbox will NEVER deliver them. The
+   2026-06-03 zero-delivery result was expected behaviour, not a
+   misconfiguration. Production is the first place webhook delivery can be
+   observed — which is exactly what the tracking-reconcile poller (§13
+   mitigation) insures against.
+2. **Are production webhooks signed?** — **EFFECTIVELY ANSWERED: no.**
+   Support's example webhooks + both Postman collections + the api-docs
+   pages document plain callback-URL subscriptions (Settings → Webhook
+   subscriptions) with no secret field, no signature header, and no signing
+   section anywhere. The v1 design (path-embedded secret + optional IP
+   allowlist) is therefore the PERMANENT design, not a placeholder. The
+   reserved verifier slot stays in the code should this ever change.
+3. **Signature payload form** — moot (no signing).
+4. **Source IP range for outbound webhook calls** — STILL OPEN. Worth a
+   one-line follow-up on the same email thread; feeds
+   `SHIPLOGIC_WEBHOOK_IP_ALLOWLIST`.
+5. **Retry behaviour on non-2xx** — STILL OPEN (same follow-up email).
+6. **Timestamp / replay-protection header** — moot (no signing); our raw-body
+   SHA-256 idempotency handles replays regardless.
 
-The webhook handler code will be written assuming "no signing" as the v1 default. When answers arrive, we wire the verifier in — minimal code change.
+**Support attachments (2026-07-23, saved in `docs/thecourierguy/`):**
+
+- **`TCGTrack_Webhook.txt`** — 5 VERBATIM production tracking-webhook
+  payloads (provider_id 7 = TCG). Findings applied to the handler:
+  - shape matches our parser (short_tracking_reference / status /
+    update_type / tracking_events[] / event_time) ✓
+  - **top-level `collection_hub`/`delivery_hub` are EMPTY STRINGS and there
+    is no top-level `message` in production** — real location ("JNB", "RUS")
+    and buyer-facing text ("PIN entered successfully", "At JNB hub") live in
+    `tracking_events[]`. Extractors updated to read the newest
+    status-matching event first (empty strings treated as absent); verbatim
+    real payload locked in as a regression spec.
+  - `collection-failed-attempt` observed in the wild — correctly a status-map
+    no-op (pre-collection; Order stays CONFIRMED; raw status on Shipment).
+  - No HTTP headers included → no signature evidence either way (consistent
+    with Q2's no-signing conclusion).
+- **`API documentation V2.docx`** — merchant-education content (what an API
+  is, WordPress/Shopify plugins); no webhook/auth/IP/retry information.
 
 ---
 

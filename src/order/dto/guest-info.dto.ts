@@ -6,6 +6,7 @@ import {
   IsString,
   Length,
   Matches,
+  MaxLength,
   ValidateNested,
 } from 'class-validator';
 import { SA_PROVINCES } from './sa-provinces';
@@ -33,6 +34,14 @@ export class GuestAddressDto {
   @IsString()
   @Length(0, 200)
   addressLine2?: string;
+
+  // SA suburb — ShipLogic's `local_area` geocoding anchor (see
+  // CreateAddressDto.suburb). Optional but improves delivery accuracy in
+  // outlying areas.
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  suburb?: string;
 
   @IsString()
   @Length(1, 100)

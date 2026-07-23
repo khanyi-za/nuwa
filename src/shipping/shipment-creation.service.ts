@@ -94,10 +94,9 @@ export class ShipmentCreationService {
           order.shippingAddress1,
           order.shippingAddress2,
         ),
-        // suburb is not stored on Order's address snapshot today; ShipLogic
-        // will geocode from the rest of the fields. Future enhancement: add
-        // shippingSuburb to Order's snapshot fields.
-        suburb: null,
+        // Null on pre-2026-07-23 orders (snapshot predates the field) —
+        // ShipLogic then geocodes from the remaining fields.
+        suburb: order.shippingSuburb,
         city: order.shippingCity,
         province: order.shippingProvince,
         postalCode: order.shippingPostalCode,

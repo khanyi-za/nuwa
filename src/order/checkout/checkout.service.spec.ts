@@ -59,6 +59,7 @@ const baseAddress = {
   phone: '+27821234567',
   addressLine1: '10 Baker St',
   addressLine2: null,
+  suburb: 'Morningside',
   city: 'Durban',
   province: 'KwaZulu-Natal',
   postalCode: '4001',
@@ -400,6 +401,7 @@ describe('CheckoutService', () => {
             shippingQuoteId: 'stub-quote-1',
             shippingServiceTier: 'ECO',
             shippingName: 'Thandi Dlamini',
+            shippingSuburb: 'Morningside', // snapshot → ShipLogic local_area
             shippingCity: 'Durban',
           }),
         }),
@@ -540,6 +542,7 @@ describe('CheckoutService', () => {
           recipientName: 'Guest Buyer',
           phone: '0821234567',
           addressLine1: '1 Main Rd',
+          suburb: ' Umhlanga ', // untrimmed on purpose — commit trims it
           city: 'Durban',
           province: 'KwaZulu-Natal',
           postalCode: '4001',
@@ -624,6 +627,13 @@ describe('CheckoutService', () => {
 
       // Cart NOT cleared (guest had no server cart).
       expect(mockPrisma.cartItem.deleteMany).not.toHaveBeenCalled();
+
+      // Guest address materialized WITH the trimmed suburb (geocoding anchor).
+      expect(mockPrisma.address.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ suburb: 'Umhlanga' }),
+        }),
+      );
     });
 
     it('throws 409 when guest email belongs to a non-guest account', async () => {
