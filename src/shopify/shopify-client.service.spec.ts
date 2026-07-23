@@ -61,6 +61,15 @@ describe('ShopifyClient', () => {
     ).rejects.toThrow(UnauthorizedException);
   });
 
+  it('maps 404 (nonexistent shop subdomain) to SHOP_NOT_FOUND', async () => {
+    fetchSpy.mockResolvedValue(jsonResponse(404, {}));
+    await expect(
+      client.graphql('typo.myshopify.com', 't', 'query {}'),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'SHOP_NOT_FOUND' }),
+    });
+  });
+
   it('retries THROTTLED using the cost extension, then succeeds', async () => {
     fetchSpy
       .mockResolvedValueOnce(

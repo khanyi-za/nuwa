@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -66,6 +67,16 @@ export class ShopifyClient {
           code: 'SHOPIFY_TOKEN_INVALID',
           message:
             'Shopify rejected the access token — it may have been revoked. Reconnect the shop.',
+        });
+      }
+
+      // A nonexistent *.myshopify.com subdomain serves Shopify's HTML 404
+      // page — without this it would fall through as an opaque 500. A typo'd
+      // shop domain is a common merchant mistake; name it.
+      if (res.status === 404) {
+        throw new BadRequestException({
+          code: 'SHOP_NOT_FOUND',
+          message: `No Shopify store exists at ${shopDomain} — check the myshopify.com domain in your Shopify admin URL.`,
         });
       }
 

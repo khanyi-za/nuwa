@@ -1,6 +1,96 @@
-# STATUS.md — Last updated 2026-07-22 (session close)
+# STATUS.md — Last updated 2026-07-23 (session close)
 
 > 🟢 **HANDOFF — next session start here.**
+>
+> ## 2026-07-23 — SHOPIFY APP CAPACITY COMPLETE: nuwa Phases 1b+1c+2 +
+> ## athena onboarding UI (both surfaces)
+>
+> The full Shopify merchant-onboarding capacity is BUILT end-to-end. nuwa:
+> **813 tests / 66 suites green, tsc clean.** Committed in nuwa: Phases
+> 1a–1c (`deae34a`) + Phase 2 (`0833ea5`). **UNCOMMITTED: nuwa 2-file delta
+> (SHOP_NOT_FOUND) + ALL of athena's Shopify UI** (see athena/CHANGELOG.md
+> top entry).
+>
+> **nuwa Phase 1b (catalogue pull + mapping):** `ShopifyCatalogueService` —
+> paginated GraphQL pull (ACTIVE products/variants/images, collections+
+> membership, locations; nested continuations resolved; cost-budgeted pages;
+> sequential on one cost bucket; missing read_locations degrades to []).
+> Importer heuristics ported to `src/shopify/mapping/` (pure; REAL
+> inventoryQuantity w/ oversold clamp + untracked stand-in 20, weight-unit→
+> grams, gender w/ provenance, 19-rule category tree). `GET /shopify/import/
+> preview` (read-only; 400 SHOP_CURRENCY_UNSUPPORTED for non-ZAR).
+>
+> **nuwa Phase 1c (async import executor):** `POST /shopify/import`
+> (optional defaultGenderType → applies ONLY to gender-silent products; 409
+> IMPORT_ALREADY_RUNNING / STORE_NAME_TAKEN precheck) → ShopifyImportJob
+> (CAS-claimed; polled at `GET /shopify/import/latest` + `/:id` 404-not-403).
+> Existing store imported INTO, else DRAFT store created from shop identity
+> (+ best-effort brand logo) → per-product server-side Cloudinary rehost
+> (remote-URL upload, hash public_ids under stores/{id}/import/, resumable
+> via overwrite:false, >10MB Shopify originals retry ?width=2048) → products
+> ACTIVE w/ real stock, per-store-namespaced deduped variant SKUs,
+> collection/category/tag links; image-less skipped; per-product failures
+> counted not fatal; re-run = additive refresh (skips existing slugs);
+> progress → job.summary every 10 products; starter banner for new stores.
+>
+> **nuwa Phase 2 (continuous sync):** migration `20260722153500_shopify_sync`
+> (BOTH DBs): ShopifyProductLink (per-variant map incl. inventoryItemId),
+> ShopifyWebhookEvent (audit+idempotency), connection cols (webhookSecret/
+> apiSecretEncrypted/primaryLocationId/webhooksRegisteredAt). Receiver
+> `POST /shopify/webhook/:secret` (per-connection path secret, 404 stealth;
+> HMAC-SHA256 verified when merchant supplied the custom app's API secret —
+> optional apiSecret on the connect DTO; raw-body SHA-256 idempotency;
+> applier errors recorded + still acked 200). Auto `webhookSubscriptionCreate`
+> (PRODUCTS_CREATE/UPDATE/DELETE + INVENTORY_LEVELS_UPDATE) after each
+> completed import — **needs `SHOPIFY_WEBHOOK_BASE_URL` env (unset = sync
+> disabled w/ warning, imports fine)**; unsubscribe on disconnect. Appliers:
+> update → title/desc/status/price/stock (unlinked new variants logged only);
+> create → GraphQL re-fetch through the shared ShopifyProductWriterService;
+> delete → ARCHIVED (SA-4); inventory_levels → stock SET (primary location
+> only). Nightly 03:00 reconcile cron (drift repair + archive-gone — the
+> missed-webhook safety net). **Double-sell prevention:** PaystackWebhook
+> post-payment hook fires ShopifyStockDecrementService
+> (inventoryAdjustQuantities, best-effort, never blocks; PaymentsModule→
+> ShopifyModule one-way import).
+>
+> **athena UI (UNCOMMITTED, this session — detail in athena/CHANGELOG.md):**
+> (a) onboarding `/onboarding/shopify` + third intent-picker card: connect
+> (custom-app guide accordion) → preview (counts/warnings/sample + default-
+> gender picker) → importing (2.5s poller — athena's FIRST; stops on terminal
+> status) → done → store wizard prefilled. Step DERIVED from server state
+> (no stored step; reload resumes free; guard allows onboarding-intent AND
+> wizard-draft since the import creates the DRAFT store mid-flow).
+> (b) Settings "Shopify sync" section: shop card, latest-import block, inline
+> import flow, Update token, two-step Disconnect. Plumbing: 4 user-scoped BFF
+> routes, schemas/api/hooks, shared components in components/shopify/.
+> **Bug fixed in athena api-client:** unrecognized-401 hard logout — pasting
+> a bad Shopify token LOGGED THE MERCHANT OUT; SHOPIFY_TOKEN_INVALID is now
+> carved out. **nuwa delta (UNCOMMITTED):** typo'd shop domain (Shopify HTML
+> 404) was an opaque 500 → now 400 SHOP_NOT_FOUND (client + spec).
+> **Verified live through the full BFF chain** (dev nuwa :3000 ↔ athena
+> :3001): 401 guard, 404→null codes, INVALID_SHOP_DOMAIN, SHOP_NOT_FOUND,
+> DTO arrays. athena tsc clean; lint errors are pre-existing dashboard-legacy.
+>
+> **Run state:** dev nuwa :3000 (watch) + athena :3001 RUNNING from this
+> session (logs /tmp/nuwa-dev-3000.log, /tmp/athena-dev.log); demo nuwa :3005
+> still running detached (fair feed). ⚠ **athena/.env.local now points at
+> :3000 (dev/ayana)** — was :3005; flip back for sales demos.
+>
+> **▶ NEXT:** (a) **COMMIT athena** (all Shopify UI) **+ nuwa 2-file delta**;
+> (b) browser walkthrough of the wizard (needs a store-less BUYER in ayana —
+> register fresh or use maya-test after deleting its cart-history? simplest:
+> new user); (c) **owner errand (the live-e2e blocker): Shopify Partner dev
+> store + custom app (read_products/read_inventory/read_locations/
+> write_inventory) + shpat_ token**; then full e2e: connect → preview →
+> import → wizard → webhooks (needs cloudflared tunnel in
+> SHOPIFY_WEBHOOK_BASE_URL) → decrement on a test order; (d) backend
+> nice-to-haves flagged during UI build: expose webhooksRegisteredAt on the
+> connection view (settings shows static sync copy for now), genderSource
+> counts in the preview (true "unclassified" number); (e) then the rest of
+> the production-env map (Railway, Paystack LIVE activation, ShipLogic prod
+> smoke, phalo deploy — see 2026-07-17 entry).
+
+---
 >
 > ## 2026-07-22 — Payouts (Phase 6) DONE · commission 2.5% · PayFast purged ·
 > ## Shopify onboarding Phase 1a
