@@ -5,6 +5,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { HealthController } from './health/health.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { EmailModule } from './email/email.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -36,7 +37,7 @@ import { ChatModule } from './chat/chat.module';
     MobileModule,
     ChatModule,
   ],
-  controllers: [AppController],
+  controllers: [AppController, HealthController],
   providers: [
     AppService,
     {
