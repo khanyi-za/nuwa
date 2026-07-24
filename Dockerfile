@@ -14,7 +14,7 @@ RUN npx prisma generate && npm run build
 FROM node:22-slim AS runtime
 WORKDIR /app
 RUN apt-get update -y && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
-ENV NODE_ENV=production
+# NODE_ENV is set per Railway environment (staging/production), not baked in.
 # Prod deps only (excludes @nestjs/cli, jest, eslint, …). prisma + dotenv + ts-node
 # + typescript are production deps so `prisma migrate deploy` and `prisma db seed` work.
 COPY package*.json prisma.config.ts tsconfig.json ./
