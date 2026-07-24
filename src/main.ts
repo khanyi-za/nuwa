@@ -54,6 +54,9 @@ async function bootstrap() {
       transform: true,
     }),
   );
-  await app.listen(process.env.PORT ?? 3000);
+  // Bind to the IPv6 wildcard (also accepts IPv4). Railway's health check and
+  // private networking reach the container over IPv6, so binding 0.0.0.0 (or
+  // relying on Node's default) leaves the probe unable to connect.
+  await app.listen(process.env.PORT ?? 3000, '::');
 }
 bootstrap();
