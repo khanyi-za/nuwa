@@ -30,3 +30,8 @@ export function genderFilterValues(param: GenderParam): GenderType[] {
   if (param === 'unisex') return [GenderType.UNISEX];
   return [PARAM_TO_ENUM[param], GenderType.UNISEX];
 }
+
+/** The single EXACT enum value for a gender param (no UNISEX widening). */
+export function genderExactValue(param: GenderParam): GenderType {
+  return PARAM_TO_ENUM[param];
+}

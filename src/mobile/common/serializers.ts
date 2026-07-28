@@ -139,6 +139,7 @@ interface VariantRow {
   name: string;
   sku: string | null;
   size: string | null;
+  color?: string | null;
   stock: number;
   reservedStock: number;
 }
@@ -161,6 +162,7 @@ interface DetailRow {
     displayName: string;
     logoUrl: string | null;
     description: string | null;
+    returnPolicyText?: string | null;
   };
 }
 
@@ -179,7 +181,13 @@ export function toProductDetail(p: DetailRow, flags?: PersonalFlags) {
     const available = Math.max(0, v.stock - v.reservedStock);
     return {
       id: v.id,
-      size: v.size ?? v.name,
+      // Pure option fields — maya groups the selector by colour, then shows
+      // sizes within the chosen colour. `label` is the legacy display
+      // fallback (the variant's name, e.g. "Black / M") for products whose
+      // variants carry neither field cleanly.
+      size: v.size ?? null,
+      color: v.color ?? null,
+      label: v.size ?? v.name,
       sku: v.sku ?? null,
       available: available > 0,
       stockCount: available,
@@ -228,11 +236,22 @@ export function toProductDetail(p: DetailRow, flags?: PersonalFlags) {
           likeCount: 0,
         }
       : {}),
-    returnPolicy: {
-      windowDays: 30,
-      type: 'free_exchange_or_return',
-      displayText: 'Free exchange or return within 30 days',
-    },
+    // Per-store returns: the brand's own policy (captured from their Shopify
+    // refund policy at import) when present, else honest platform fallback —
+    // no invented windows or guarantees (superseded the hardcoded "free
+    // 30-day" constant, 2026-07-27).
+    returnPolicy: p.store.returnPolicyText
+      ? {
+          source: 'store' as const,
+          displayText: `${p.store.displayName}'s returns policy applies to this item.`,
+          fullText: p.store.returnPolicyText,
+        }
+      : {
+          source: 'platform' as const,
+          displayText:
+            'Easy exchanges & returns — chat with the brand to arrange, or contact YIIVA support.',
+          fullText: null,
+        },
   };
 }
 

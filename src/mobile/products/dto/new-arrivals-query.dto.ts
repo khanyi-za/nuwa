@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import type { GenderParam } from '../../common/gender';
 
@@ -12,4 +12,9 @@ export class NewArrivalsQueryDto {
   @Min(1)
   @Max(20)
   limit?: number = 6;
+
+  /** Offset cursor — the "See All" browse screen pages; the rail never sends it. */
+  @IsOptional()
+  @IsString()
+  cursor?: string;
 }

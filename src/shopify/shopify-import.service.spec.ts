@@ -43,7 +43,11 @@ const mockPrisma = {
   productTag: { create: jest.fn() },
   shopifyProductLink: { createMany: jest.fn() },
 };
-const mockClient = { fetchShopInfo: jest.fn(), fetchShopLogoUrl: jest.fn() };
+const mockClient = {
+  fetchShopInfo: jest.fn(),
+  fetchShopLogoUrl: jest.fn(),
+  fetchRefundPolicyText: jest.fn().mockResolvedValue(null),
+};
 const mockConnections = { getActiveWithToken: jest.fn() };
 const mockCatalogue = { getImportCatalogue: jest.fn() };
 const mockRehost = { rehostImage: jest.fn() };

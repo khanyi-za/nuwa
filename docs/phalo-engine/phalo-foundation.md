@@ -112,13 +112,43 @@ later ("rankings last computed 23 min ago").
 | Job | Cadence | Logic (v1 formulas — tune later) |
 |---|---|---|
 | `trending_stores` | hourly | score per ACTIVE store = views(7d, time-decayed) + 5×follows(7d) + 10×orders(7d); writes ranked rows |
-| `product_popularity` | hourly | per ACTIVE product: views + 5×cart-adds* + 10×purchases (7d, decayed) → `popularity`; `new_arrival` = recency × popularity blend |
+| `product_scores` ✅ | hourly | **SHIPPED 2026-07-27** (job name `product_scores`, was spec'd as `product_popularity`): per ACTIVE product `popularity` = views + **3×bookmarks** + 5×cart-adds + 10×purchased-units (7d, decayed, λ=ln2/3.5). The bookmarks term is an extension over the original formula (WishlistItem — strong intent, already collected). `new_arrival` score type NOT yet computed (open). |
 | `trending_searches` | hourly | normalize `q` (lowercase/trim), count over 7d, min-count threshold ≥3, top 10 |
 | `store_stats_daily` | nightly + intraday refresh of today | per store per day from analytics_events + orders/payments |
 
-\* cart-add events aren't written yet — nuwa adds a one-line
-`AnalyticsEvent('add_to_cart')` write in `MobileCartService.addItem` (small
-follow-up; until then the term is 0).
+The `AnalyticsEvent('add_to_cart')` write in `MobileCartService.addItem`
+SHIPPED with the job (2026-07-27) — the 5× term is live from that date
+forward (fire-and-forget, failure never breaks the add).
+
+### 5a. Feed consumption — "fair rounds, smart slots" (shipped 2026-07-27)
+
+nuwa's `queryDiscoveryPage` (feed + category browse) consumes `popularity`
+scores INSIDE the brand round-robin, keeping the merchant-exposure guarantee:
+
+- **Round assignment:** within each store, products rank by score desc
+  (recency breaks ties / orders unscored), so a brand's best performer
+  represents it in round 0. Every store still appears once per round.
+- **Within-round order:** `effectiveScore = (score + 1.0) × jitter(seed,
+  productId)`, jitter ∈ [0.5, 1.5] from the existing sha1 seed. The +1 prior
+  gives zero-data products real exploration (new-merchant cold-start
+  guarantee); a dominant score can never be jitter-flipped below a zero one.
+- **Fallback (PH-4):** reader filters `score_type='popularity' AND score>0
+  AND computed_at > now()-24h`, any error → empty map → recency rounds +
+  prior×jitter = the original pure seeded shuffle. Phalo down ≠ feed down.
+
+**Step 2 — personalization boosts (shipped 2026-07-27, nuwa-native
+request-time; works with OR without phalo scores):** for authenticated
+buyers, `effectiveScore` gains a multiplier — `×3.5` for products of
+subscribed stores (deliberately > the 3× jitter spread: a subscription
+deterministically leads its round among equal scores, but a high phalo
+score still outranks a followed zero-score) and `×1.25` for products in the
+buyer's affinity categories (top-3 categories from their last 200 product
+views over 30d — a soft nudge inside the jitter band, no filter bubble).
+Affinity also tie-breaks WITHIN-store ranking, so the product representing
+a brand leans toward the buyer's browsed categories. Guests: zero extra
+queries, ordering identical. Round-robin fairness cap untouched — boosts
+only reorder within rounds. Constants + rationale at the top of
+`mobile-products.service.ts`.
 
 ### 5b. Merchant analytics target — the athena dashboard (added 2026-06-12)
 
@@ -213,5 +243,5 @@ recs) slot in here behind the same token, called by nuwa server-side.
 | 1 | Repo scaffold: uv + FastAPI + APScheduler + Alembic (`phalo` schema) + DB roles + `job_runs` + health endpoint + Railway deploy |
 | 2 | `trending_stores` job end-to-end + nuwa reader w/ fallback (first full loop proven) |
 | 3 | `store_stats_daily` + merchant-dashboard analytics endpoints in nuwa (web surface) + admin aggregates |
-| 4 | `product_popularity` + `new_arrival` scores + nuwa readers; `trending_searches` + reader; `add_to_cart` event write in nuwa |
+| 4 | ~~`product_popularity`~~ ✅ `product_scores` popularity + feed reader + `add_to_cart` write (2026-07-27, §5a); STILL OPEN: `new_arrival` score + its readers, `trending_searches` + reader |
 | 5+ | search relevance blend, similar products, AI tagging (unlock smart categories), personalised recs via the internal API |

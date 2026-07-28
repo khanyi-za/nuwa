@@ -46,6 +46,7 @@ const CART_SELECT = {
       variant: {
         select: {
           size: true,
+          color: true,
           name: true,
           priceInCents: true,
           stock: true,
@@ -171,6 +172,13 @@ export class MobileCartService {
       throw this.mapStockConflict(err);
     }
 
+    // Ranking signal for phalo's product_popularity score (foundation §5 —
+    // the 5× cart-add term). Fire-and-forget: an analytics failure must never
+    // break the add. FK-less by design (AnalyticsEvent precedent).
+    this.prisma.analyticsEvent
+      .create({ data: { eventType: 'add_to_cart', productId, userId } })
+      .catch(() => undefined);
+
     return this.fullCart(userId);
   }
 
@@ -271,7 +279,13 @@ export class MobileCartService {
       variantId: it.variantId,
       name: it.product.title,
       image: it.product.images[0]?.url ?? null,
-      size: it.variant?.size ?? it.variant?.name ?? null,
+      // Composite label for colour variants ("Black / M") so multi-colour
+      // cart lines are distinguishable; plain size (or name) otherwise.
+      size: it.variant
+        ? it.variant.color && it.variant.size
+          ? `${it.variant.color} / ${it.variant.size}`
+          : (it.variant.size ?? it.variant.color ?? it.variant.name)
+        : null,
       quantity: it.quantity,
       unitPrice,
       lineTotal: unitPrice * it.quantity,

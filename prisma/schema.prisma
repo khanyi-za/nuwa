@@ -311,6 +311,10 @@ model Store {
   story           String? // Brand story for discovery/community
   websiteUrl      String? // Brand's external website. Optional throughout entire lifecycle.
   logoUrl         String?
+  // The store's own returns policy (plain text, HTML stripped). Populated
+  // best-effort from Shopify's refund policy at import (read_legal_policies
+  // scope); null → buyer surfaces show the platform fallback copy.
+  returnPolicyText String?
   status          StoreStatus @default(DRAFT)
   rejectionReason String? // Set by admin on rejection. Cleared on edit or resubmission.
 

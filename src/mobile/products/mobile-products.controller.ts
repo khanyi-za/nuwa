@@ -33,11 +33,16 @@ export class MobileProductsController {
     return this.service.feed(dto, userId);
   }
 
-  // Auth: optional (no personalised fields consumed by the carousel).
+  // Auth: optional — personalised fields included when a token is present
+  // (the "See All" browse screen renders full feed cards incl. bookmarks).
   @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Get('new-arrivals')
-  newArrivals(@Query() dto: NewArrivalsQueryDto) {
-    return this.service.newArrivals(dto);
+  newArrivals(
+    @Query() dto: NewArrivalsQueryDto,
+    @CurrentUser('id') userId?: string,
+  ) {
+    return this.service.newArrivals(dto, userId);
   }
 
   // Declared after the literal routes above so they don't shadow :productId.

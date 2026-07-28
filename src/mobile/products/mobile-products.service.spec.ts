@@ -4,6 +4,7 @@ import { GenderType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MobileProductsService } from './mobile-products.service';
 import { Paginated } from '../common/paginated';
+import { encodeDiscoveryCursor } from '../common/cursor';
 
 const USER_ID = 'user-1';
 
@@ -57,7 +58,14 @@ const mockPrisma = {
   storeFollower: { findMany: jest.fn(), findUnique: jest.fn() },
   category: { findUnique: jest.fn(), findMany: jest.fn() },
   store: { findUnique: jest.fn() },
-  analyticsEvent: { create: jest.fn() },
+  // findMany feeds personalAffinity (category affinity from recent views) —
+  // empty by default so pre-personalization tests keep legacy ordering.
+  analyticsEvent: { create: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+  productCategory: { findMany: jest.fn().mockResolvedValue([]) },
+  // Phalo product_scores reader — rejecting by default exercises the
+  // fallback path (empty score map = legacy seeded-shuffle ordering), which
+  // is what every pre-scores test asserts against.
+  $queryRaw: jest.fn().mockRejectedValue(new Error('phalo schema absent')),
 };
 
 describe('MobileProductsService', () => {
@@ -208,6 +216,158 @@ describe('MobileProductsService', () => {
         service.feed({ genderType: 'women', cursor: 'not-a-cursor' }),
       ).rejects.toThrow(BadRequestException);
     });
+
+    // ── Phalo scores: "fair rounds, smart slots" ────────────────────────────
+    describe('with phalo product_scores', () => {
+      it("a store's top-scored product represents it in round 0; unscored keep recency; round sets stay fair", async () => {
+        mockPrisma.product.findMany
+          .mockResolvedValueOnce(clusteredCandidates)
+          .mockResolvedValueOnce(hydrated);
+        // a3 is store-a's OLDEST but best-scoring product.
+        mockPrisma.$queryRaw.mockResolvedValueOnce([
+          { product_id: 'a3', score: 50 },
+        ]);
+
+        const result = await service.feed({ genderType: 'women', limit: 6 });
+        const ids = (result.data as { products: any[] }).products.map(
+          (p) => p.id,
+        );
+
+        // store-a's within-store order becomes [a3, a1, a2] (score, then
+        // recency); rounds stay one-per-store-per-round.
+        expect(new Set(ids.slice(0, 3))).toEqual(new Set(['a3', 'b1', 'c1']));
+        expect(new Set(ids.slice(3, 5))).toEqual(new Set(['a1', 'b2']));
+        expect(ids[5]).toBe('a2');
+      });
+
+      it('a dominant score always leads its round — jitter cannot flip it', async () => {
+        mockPrisma.product.findMany
+          .mockResolvedValueOnce(clusteredCandidates)
+          .mockResolvedValueOnce(hydrated);
+        // c1 at 100: min effective (101×0.5) far exceeds an unscored max (1×1.5).
+        mockPrisma.$queryRaw.mockResolvedValueOnce([
+          { product_id: 'c1', score: 100 },
+        ]);
+
+        const result = await service.feed({ genderType: 'women', limit: 6 });
+        const ids = (result.data as { products: any[] }).products.map(
+          (p) => p.id,
+        );
+        expect(ids[0]).toBe('c1');
+      });
+
+      it('a failing phalo read orders identically to an empty score set (fallback = legacy shuffle)', async () => {
+        const fixedCursor = encodeDiscoveryCursor('deadbeef', 0);
+        const run = async () => {
+          mockPrisma.product.findMany
+            .mockResolvedValueOnce(clusteredCandidates)
+            .mockResolvedValueOnce(hydrated);
+          const result = await service.feed({
+            genderType: 'women',
+            limit: 6,
+            cursor: fixedCursor,
+          });
+          return (result.data as { products: any[] }).products.map((p) => p.id);
+        };
+
+        mockPrisma.$queryRaw.mockRejectedValueOnce(new Error('phalo down'));
+        const failingRead = await run();
+        mockPrisma.$queryRaw.mockResolvedValueOnce([]);
+        const emptyRead = await run();
+
+        expect(failingRead).toEqual(emptyRead);
+      });
+
+      it('a followed store leads its round; engagement still outranks the boost', async () => {
+        mockPrisma.product.findMany
+          .mockResolvedValueOnce(clusteredCandidates)
+          .mockResolvedValueOnce(hydrated);
+        mockPrisma.$queryRaw.mockResolvedValueOnce([
+          { product_id: 'a1', score: 100 },
+        ]);
+        mockPrisma.storeFollower.findMany.mockResolvedValue([
+          { storeId: 'store-c' },
+        ]);
+        mockPrisma.wishlistItem.findMany.mockResolvedValue([]);
+
+        const result = await service.feed(
+          { genderType: 'women', limit: 6 },
+          USER_ID,
+        );
+        const ids = (result.data as { products: any[] }).products.map(
+          (p) => p.id,
+        );
+
+        // a1 at score 100 beats followed-but-unscored c1 (engagement > boost);
+        // c1's 3.5× boost beats plain jitter, so it precedes b1.
+        expect(ids.slice(0, 3)).toEqual(['a1', 'c1', 'b1']);
+        // Fairness unchanged: still one product per store per round.
+        expect(new Set(ids.slice(3, 5))).toEqual(new Set(['a2', 'b2']));
+      });
+
+      it("category affinity picks which product represents a brand (buyer's browsed category wins the tie)", async () => {
+        const withCats = [
+          { id: 'a1', storeId: 'store-a', categories: [{ categoryId: 'cat-x' }] },
+          { id: 'a2', storeId: 'store-a', categories: [{ categoryId: 'cat-y' }] },
+          { id: 'a3', storeId: 'store-a', categories: [{ categoryId: 'cat-x' }] },
+          { id: 'b1', storeId: 'store-b', categories: [{ categoryId: 'cat-x' }] },
+          { id: 'b2', storeId: 'store-b', categories: [{ categoryId: 'cat-x' }] },
+          { id: 'c1', storeId: 'store-c', categories: [{ categoryId: 'cat-x' }] },
+        ];
+        mockPrisma.product.findMany
+          .mockResolvedValueOnce(withCats)
+          .mockResolvedValueOnce(hydrated);
+        mockPrisma.$queryRaw.mockResolvedValueOnce([]);
+        mockPrisma.storeFollower.findMany.mockResolvedValue([]);
+        mockPrisma.wishlistItem.findMany.mockResolvedValue([]);
+        // Buyer's recent views resolve to cat-y.
+        mockPrisma.analyticsEvent.findMany.mockResolvedValueOnce([
+          { productId: 'seen-1' },
+          { productId: 'seen-1' },
+        ]);
+        mockPrisma.productCategory.findMany.mockResolvedValueOnce([
+          { productId: 'seen-1', categoryId: 'cat-y' },
+        ]);
+
+        const result = await service.feed(
+          { genderType: 'women', limit: 6 },
+          USER_ID,
+        );
+        const ids = (result.data as { products: any[] }).products.map(
+          (p) => p.id,
+        );
+
+        // store-a's round-0 representative is a2 (cat-y affinity), not the
+        // newer a1.
+        expect(new Set(ids.slice(0, 3))).toEqual(new Set(['a2', 'b1', 'c1']));
+      });
+
+      it('guests trigger no personalization queries and keep legacy ordering', async () => {
+        mockPrisma.product.findMany.mockResolvedValue([]);
+        mockPrisma.$queryRaw.mockResolvedValueOnce([]);
+
+        await service.feed({ genderType: 'women' });
+
+        expect(mockPrisma.storeFollower.findMany).not.toHaveBeenCalled();
+        expect(mockPrisma.analyticsEvent.findMany).not.toHaveBeenCalled();
+        expect(mockPrisma.productCategory.findMany).not.toHaveBeenCalled();
+      });
+
+      it('queries only fresh popularity rows with positive scores', async () => {
+        mockPrisma.product.findMany.mockResolvedValue([]);
+        mockPrisma.$queryRaw.mockResolvedValueOnce([]);
+
+        await service.feed({ genderType: 'women' });
+
+        const sql = (mockPrisma.$queryRaw.mock.calls[0] ?? [])
+          .flat()
+          .join(' ');
+        expect(sql).toContain('phalo.product_scores');
+        expect(sql).toContain("score_type = 'popularity'");
+        expect(sql).toContain('score > 0');
+        expect(sql).toContain("interval '24 hours'");
+      });
+    });
   });
 
   describe('feed — spotlight mode (FEED_SPOTLIGHT_STORE)', () => {
@@ -285,35 +445,35 @@ describe('MobileProductsService', () => {
   });
 
   describe('newArrivals', () => {
-    it('maps rows to carousel shape', async () => {
+    const naHydrated = (ids: string[]) =>
+      ids.map((id) => ({ ...feedRow, id }));
+
+    it('maps rows to feed-card shape incl. merchant.username (brand links)', async () => {
       mockPrisma.product.findMany
         .mockResolvedValueOnce([{ id: 'p9', storeId: 's1' }])
-        .mockResolvedValueOnce([
-          {
-            id: 'p9',
-            title: 'Knit Golfer',
-            priceInCents: 65000,
-            images: [{ url: 'https://cdn.yiiva.co.za/p9.jpg' }],
-            store: { displayName: 'SUHU' },
-          },
-        ]);
+        .mockResolvedValueOnce(naHydrated(['p9']));
 
-      const { products } = await service.newArrivals({
+      const result = await service.newArrivals({
         genderType: 'men',
         limit: 6,
       });
 
-      expect(products[0]).toEqual({
+      const products = (result.data as { products: any[] }).products;
+      expect(products[0]).toMatchObject({
         id: 'p9',
-        name: 'Knit Golfer',
-        price: 65000,
-        currency: 'ZAR',
-        image: 'https://cdn.yiiva.co.za/p9.jpg',
-        merchant: { displayName: 'SUHU' },
+        name: 'Mosadi Kimono',
+        price: 89900,
+        primaryImage: 'https://cdn.yiiva.co.za/p1.jpg',
+        merchant: { username: 'tol_thema', displayName: "Tol'thema" },
+      });
+      expect(result.pagination).toEqual({
+        limit: 6,
+        nextCursor: null,
+        hasMore: false,
       });
     });
 
-    it('takes each brand\'s newest first — no single-brand rail', async () => {
+    it("takes each brand's newest first — no single-brand rail", async () => {
       // Recency order: brand A's entire fresh drop, then B's, then C's.
       mockPrisma.product.findMany
         .mockResolvedValueOnce([
@@ -323,23 +483,47 @@ describe('MobileProductsService', () => {
           { id: 'b1', storeId: 'store-b' },
           { id: 'c1', storeId: 'store-c' },
         ])
-        .mockResolvedValueOnce(
-          ['a1', 'a2', 'b1', 'c1'].map((id) => ({
-            id,
-            title: id,
-            priceInCents: 1000,
-            images: [],
-            store: { displayName: id[0] },
-          })),
-        );
+        .mockResolvedValueOnce(naHydrated(['a1', 'a2', 'b1', 'c1']));
 
-      const { products } = await service.newArrivals({
+      const result = await service.newArrivals({
         genderType: 'women',
         limit: 4,
       });
 
       // Round 0 in recency order (a1, b1, c1), then round 1 begins (a2).
-      expect(products.map((p) => p.id)).toEqual(['a1', 'b1', 'c1', 'a2']);
+      expect(
+        (result.data as { products: any[] }).products.map((p) => p.id),
+      ).toEqual(['a1', 'b1', 'c1', 'a2']);
+      expect(result.pagination.hasMore).toBe(true);
+    });
+
+    it('the offset cursor continues the deterministic ordering without duplicates', async () => {
+      const candidates = [
+        { id: 'a1', storeId: 'store-a' },
+        { id: 'a2', storeId: 'store-a' },
+        { id: 'a3', storeId: 'store-a' },
+        { id: 'b1', storeId: 'store-b' },
+        { id: 'c1', storeId: 'store-c' },
+      ];
+      mockPrisma.product.findMany
+        .mockResolvedValueOnce(candidates)
+        .mockResolvedValueOnce(naHydrated(['a1', 'b1', 'c1']))
+        .mockResolvedValueOnce(candidates)
+        .mockResolvedValueOnce(naHydrated(['a2', 'a3']));
+
+      const page1 = await service.newArrivals({ genderType: 'women', limit: 3 });
+      const page2 = await service.newArrivals({
+        genderType: 'women',
+        limit: 3,
+        cursor: page1.pagination.nextCursor!,
+      });
+
+      const ids1 = (page1.data as { products: any[] }).products.map((p) => p.id);
+      const ids2 = (page2.data as { products: any[] }).products.map((p) => p.id);
+      expect(ids1).toEqual(['a1', 'b1', 'c1']);
+      expect(ids2).toEqual(['a2', 'a3']);
+      expect(page2.pagination.hasMore).toBe(false);
+      expect(page2.pagination.nextCursor).toBeNull();
     });
   });
 
@@ -361,9 +545,17 @@ describe('MobileProductsService', () => {
         merchant: { username: 'tol_thema', bio: 'Heritage textiles.' },
       });
       expect(product.variants).toEqual([
-        { id: 'v1', size: 'XS', sku: 'K-XS', available: true, stockCount: 3 },
-        { id: 'v2', size: 'S', sku: 'K-S', available: false, stockCount: 0 },
+        { id: 'v1', size: 'XS', color: null, label: 'XS', sku: 'K-XS', available: true, stockCount: 3 },
+        { id: 'v2', size: 'S', color: null, label: 'S', sku: 'K-S', available: false, stockCount: 0 },
       ]);
+      // No store policy on the fixture → honest platform fallback (no
+      // invented windows/guarantees).
+      expect(product.returnPolicy).toEqual({
+        source: 'platform',
+        displayText:
+          'Easy exchanges & returns — chat with the brand to arrange, or contact YIIVA support.',
+        fullText: null,
+      });
       expect(product.media).toEqual([
         { type: 'image', url: 'https://cdn.yiiva.co.za/1.jpg' },
         { type: 'video', url: 'https://cdn.yiiva.co.za/hero.mp4' },
@@ -371,6 +563,24 @@ describe('MobileProductsService', () => {
       expect(product).not.toHaveProperty('inventoryType');
       expect(product).not.toHaveProperty('isBookmarkedByMe');
       expect(product.merchant).not.toHaveProperty('isFollowedByMe');
+    });
+
+    it("serves the store's own returns policy when captured from Shopify", async () => {
+      mockPrisma.product.findUnique.mockResolvedValue({
+        ...detailRow,
+        store: {
+          ...detailRow.store,
+          returnPolicyText: 'Returns accepted within 14 days of delivery.',
+        },
+      });
+
+      const { product } = await service.detail('p1');
+
+      expect(product.returnPolicy).toEqual({
+        source: 'store',
+        displayText: "Tol'thema's returns policy applies to this item.",
+        fullText: 'Returns accepted within 14 days of delivery.',
+      });
     });
 
     it('includes personalised fields for authenticated buyers', async () => {

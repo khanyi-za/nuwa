@@ -109,6 +109,10 @@ const CATEGORY_RULES: { slug: string; re: RegExp }[] = [
   { slug: 'activewear', re: /\b(active|gym|sports?|leggings?|tights?|training|yoga|workout|performance)\b/i },
   { slug: 'eyewear', re: /\b(eyewear|sunglasses|shades|optical)\b/i },
   { slug: 'headwear', re: /\b(caps?|hats?|beanies?|bucket hat|headwear|visors?)\b/i },
+  // Key hardware BEFORE jewellery: a "key chain"/"keychain" tag would
+  // otherwise hit jewellery's \bchains?\b (real case: aliverti's leather
+  // keychain, 2026-07-27).
+  { slug: 'accessories', re: /\b(key ?chains?|key ?rings?|key ?holders?|carabiners?)\b/i },
   { slug: 'jewellery', re: /\b(jewell?ery|earrings?|necklaces?|bracelets?|rings?|pendants?|chains?)\b/i },
   { slug: 'bags', re: /\b(bags?|totes?|backpacks?|slings?|pouch|clutch|purses?|wallets?)\b/i },
   { slug: 'footwear', re: /\b(shoes?|sneakers?|footwear|sandals?|slides?|boots?|slippers?|vell?ies?)\b/i },

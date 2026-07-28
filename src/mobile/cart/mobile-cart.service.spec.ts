@@ -28,6 +28,9 @@ const mockPrisma = {
     deleteMany: jest.fn(),
   },
   $transaction: jest.fn(),
+  // Fire-and-forget ranking signal on addItem — must return a promise so the
+  // service's .catch() attaches.
+  analyticsEvent: { create: jest.fn().mockResolvedValue({}) },
 };
 
 const cartRow = {
@@ -150,6 +153,45 @@ describe('MobileCartService', () => {
         service.addItem('user-1', { productId: 'p1' }),
       ).rejects.toThrow(BadRequestException);
       expect(mockReserveStock).not.toHaveBeenCalled();
+    });
+
+    it('records an add_to_cart analytics event (phalo ranking signal)', async () => {
+      mockPrisma.product.findUnique.mockResolvedValue({
+        id: 'p1',
+        status: 'ACTIVE',
+        _count: { variants: 2 },
+      });
+      mockPrisma.productVariant.findUnique.mockResolvedValue({ productId: 'p1' });
+      mockPrisma.cart.upsert.mockResolvedValue({ id: 'c1' });
+      mockPrisma.cartItem.findFirst.mockResolvedValue(null);
+      mockPrisma.cart.findUnique.mockResolvedValue(cartRow);
+
+      await service.addItem('user-1', { productId: 'p1', variantId: 'v1' });
+
+      expect(mockPrisma.analyticsEvent.create).toHaveBeenCalledWith({
+        data: { eventType: 'add_to_cart', productId: 'p1', userId: 'user-1' },
+      });
+    });
+
+    it('a failing analytics write does not break the add', async () => {
+      mockPrisma.product.findUnique.mockResolvedValue({
+        id: 'p1',
+        status: 'ACTIVE',
+        _count: { variants: 2 },
+      });
+      mockPrisma.productVariant.findUnique.mockResolvedValue({ productId: 'p1' });
+      mockPrisma.cart.upsert.mockResolvedValue({ id: 'c1' });
+      mockPrisma.cartItem.findFirst.mockResolvedValue(null);
+      mockPrisma.cart.findUnique.mockResolvedValue(cartRow);
+      mockPrisma.analyticsEvent.create.mockRejectedValueOnce(
+        new Error('analytics down'),
+      );
+
+      const result = await service.addItem('user-1', {
+        productId: 'p1',
+        variantId: 'v1',
+      });
+      expect(result.cart.id).toBe('c1');
     });
 
     it('throws 404 when the product is missing or inactive', async () => {

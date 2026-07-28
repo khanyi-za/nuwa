@@ -149,6 +149,13 @@ const CATEGORY_RULES: { slug: string; re: RegExp }[] = [
   },
   { slug: 'eyewear', re: /\b(eyewear|sunglasses|shades|optical)\b/i },
   { slug: 'headwear', re: /\b(caps?|hats?|beanies?|bucket hat|headwear|visors?)\b/i },
+  // Key hardware BEFORE jewellery: a "key chain"/"keychain" tag would
+  // otherwise hit jewellery's \bchains?\b (real case: a leather keychain
+  // tagged "key chain" landed in Jewellery, 2026-07-27).
+  {
+    slug: 'accessories',
+    re: /\b(key ?chains?|key ?rings?|key ?holders?|carabiners?)\b/i,
+  },
   {
     slug: 'jewellery',
     re: /\b(jewell?ery|earrings?|necklaces?|bracelets?|rings?|pendants?|chains?)\b/i,

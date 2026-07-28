@@ -6,6 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ShopifyConfig } from './shopify-config';
+import { stripHtml } from './mapping/heuristics';
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_THROTTLE_RETRIES = 3;
@@ -178,6 +179,37 @@ export class ShopifyClient {
         `query ShopLogo { shop { brand { logo { image { url } } } } }`,
       );
       return data.shop.brand?.logo?.image?.url ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The shop's refund/returns policy as plain text, if set and readable.
+   * Best-effort — needs the OPTIONAL `read_legal_policies` scope on the
+   * merchant's custom app; a missing scope, absent policy, or any error
+   * degrades to null (buyer surfaces then show the platform fallback copy).
+   */
+  async fetchRefundPolicyText(
+    shopDomain: string,
+    accessToken: string,
+  ): Promise<string | null> {
+    try {
+      const data = await this.graphql<{
+        shop: { shopPolicies: { type: string; body: string | null }[] };
+      }>(
+        shopDomain,
+        accessToken,
+        `query ShopRefundPolicy { shop { shopPolicies { type body } } }`,
+      );
+      const refund = data.shop.shopPolicies.find(
+        (p) => p.type === 'REFUND_POLICY',
+      );
+      const text = stripHtml(refund?.body ?? null);
+      if (!text) return null;
+      // Policies can be essays — cap for storage sanity; the buyer UI shows
+      // a collapsible snippet anyway.
+      return text.length > 5000 ? `${text.slice(0, 5000)}…` : text;
     } catch {
       return null;
     }

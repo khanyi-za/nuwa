@@ -223,6 +223,21 @@ export class ShopifyImportService {
         summary,
       );
 
+      // Best-effort per-store returns policy from the shop's Shopify refund
+      // policy (optional read_legal_policies scope). Refreshed on every
+      // import run; null keeps whatever the store already has, so a missing
+      // scope never wipes a previously-captured policy.
+      const returnPolicyText = await this.client.fetchRefundPolicyText(
+        connection.shopDomain,
+        connection.accessToken,
+      );
+      if (returnPolicyText) {
+        await this.prisma.store.update({
+          where: { id: store.id },
+          data: { returnPolicyText },
+        });
+      }
+
       // Link the connection to the store immediately — even a partial import
       // should leave the wizard knowing which store it fed. The primary
       // location (first active) is what Phase 2 inventory mutations target.

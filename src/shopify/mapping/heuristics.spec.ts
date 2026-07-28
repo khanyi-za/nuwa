@@ -172,6 +172,25 @@ describe('shopify mapping heuristics', () => {
       ).toBe('jewellery');
     });
 
+    it('key hardware is accessories, not jewellery (keychain ≠ chain)', () => {
+      // Real case: a leather keychain tagged "key chain" hit jewellery's
+      // \bchains?\b before the accessories rule was consulted.
+      expect(
+        suggestCategory({
+          tags: ['key chain'],
+          productType: '',
+          title: 'Italian Leather Cactus Keychain',
+        }),
+      ).toBe('accessories');
+      expect(suggestCategory({ ...noCtx, title: 'Brass Key Ring' })).toBe(
+        'accessories',
+      );
+      // Actual chains stay jewellery.
+      expect(suggestCategory({ ...noCtx, title: 'Cuban Link Chain' })).toBe(
+        'jewellery',
+      );
+    });
+
     it('returns null when nothing matches', () => {
       expect(suggestCategory({ ...noCtx, title: 'Gift Voucher' })).toBeNull();
     });

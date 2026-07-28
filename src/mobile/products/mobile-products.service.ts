@@ -7,8 +7,10 @@ import type { GenderParam } from '../common/gender';
 import {
   decodeCursor,
   decodeDiscoveryCursor,
+  decodeOffsetCursor,
   encodeCursor,
   encodeDiscoveryCursor,
+  encodeOffsetCursor,
 } from '../common/cursor';
 import { Paginated } from '../common/paginated';
 import {
@@ -49,6 +51,64 @@ const FEED_SELECT = {
 function compactForSlugMatch(q: string): string {
   const compact = q.toLowerCase().replace(/[^a-z0-9]/g, '');
   return compact.length >= 3 ? compact : '';
+}
+
+// ─── Feed scoring (phalo product_scores consumption) ─────────────────────────
+// "Fair rounds, smart slots": the brand round-robin stays (the exposure
+// guarantee — every ACTIVE brand appears once per round), but WITHIN the
+// structure phalo's engagement scores decide (a) which product represents a
+// brand each round (best-performing first) and (b) the order inside a round.
+//
+// effectiveScore = (score + SCORE_PRIOR) * jitter(seed, productId)
+//
+// The prior lifts zero-data products off the floor so the seeded jitter gives
+// them real exploration — a brand-new product can outrank a mid-scorer on some
+// visits (the new-merchant cold-start guarantee) but can never displace a
+// dominant one (score 100 can't lose to score 0 at jitter 0.5–1.5×). With no
+// scores at all the key degrades to prior×jitter — a pure seeded shuffle,
+// today's exact semantics.
+const SCORE_PRIOR = 1.0;
+const JITTER_MIN = 0.5;
+const JITTER_MAX = 1.5;
+
+// ─── Personalization boosts (step 2 — request-time, nuwa-native) ─────────────
+// Multipliers on effectiveScore for authenticated buyers. They compose with
+// (and work without) phalo scores; guests get no boosts and the round-robin
+// fairness cap is untouched either way — boosts only reorder WITHIN rounds.
+//
+// FOLLOWED_STORE_BOOST > JITTER_MAX/JITTER_MIN (3×) on purpose: among
+// equal-score products, a subscribed brand's product deterministically leads
+// its round — jitter can never bury a subscription. Engagement still
+// dominates the boost (a high phalo score outranks a followed zero-score).
+// AFFINITY_CATEGORY_BOOST is a soft nudge inside the jitter band: categories
+// the buyer has been browsing tend to surface earlier, without locking the
+// feed into a filter bubble. Affinity also breaks within-store ties, so the
+// product representing a brand in round 0 leans toward the buyer's browsed
+// categories.
+const FOLLOWED_STORE_BOOST = 3.5;
+const AFFINITY_CATEGORY_BOOST = 1.25;
+const AFFINITY_VIEW_WINDOW_DAYS = 30;
+const AFFINITY_RECENT_VIEWS = 200;
+const AFFINITY_TOP_CATEGORIES = 3;
+
+interface PersonalAffinity {
+  followedStoreIds: Set<string>;
+  affinityCategoryIds: Set<string>;
+}
+
+const EMPTY_AFFINITY: PersonalAffinity = {
+  followedStoreIds: new Set(),
+  affinityCategoryIds: new Set(),
+};
+
+/** Deterministic per-(seed, product) jitter in [JITTER_MIN, JITTER_MAX]. */
+function scoreJitter(seed: string, productId: string): number {
+  const hex = createHash('sha1')
+    .update(`${seed}:${productId}`)
+    .digest('hex')
+    .slice(0, 8);
+  const unit = parseInt(hex, 16) / 0xffffffff;
+  return JITTER_MIN + unit * (JITTER_MAX - JITTER_MIN);
 }
 
 /** ACTIVE-product + ACTIVE-store base filter, with optional gender narrowing. */
@@ -318,14 +378,19 @@ export class MobileProductsService {
   }
 
   /**
-   * "Smart dynamic" new-arrivals carousel. v1 heuristic = brand-diverse
-   * recency: each store's newest ACTIVE product first (round-robin by store,
-   * recency order within rounds, no shuffle) — plain newest-N read as one
-   * batch-loaded brand's entire drop. The future Phalo engine replaces the
+   * "Smart dynamic" new arrivals: brand-diverse recency — each store's newest
+   * ACTIVE product first (round-robin by store, recency order within rounds,
+   * NO shuffle) — plain newest-N read as one batch-loaded brand's entire
+   * drop. Serves BOTH the Home rail (default limit 6, no cursor) and the
+   * "See All" browse screen (cursor-paginated). The ordering is fully
+   * deterministic, so a plain offset cursor pages it stably. Products are
+   * feed-card-shaped (incl. merchant.username for brand links + personalised
+   * flags when authed). The future Phalo `new_arrival` score replaces the
    * ranking without changing this shape (see phalo-smart-engine memory).
    */
-  async newArrivals(dto: NewArrivalsQueryDto) {
+  async newArrivals(dto: NewArrivalsQueryDto, userId?: string) {
     const limit = dto.limit ?? 6;
+    const offset = dto.cursor ? decodeOffsetCursor(dto.cursor) : 0;
 
     const candidates = await this.prisma.product.findMany({
       where: {
@@ -339,30 +404,36 @@ export class MobileProductsService {
 
     // Stable sort: rounds ascend, recency order preserved within a round.
     const seqByStore = new Map<string, number>();
-    const pageIds = candidates
+    const orderedIds = candidates
       .map((p) => {
         const round = seqByStore.get(p.storeId) ?? 0;
         seqByStore.set(p.storeId, round + 1);
         return { id: p.id, round };
       })
       .sort((a, b) => a.round - b.round)
-      .slice(0, limit)
       .map((p) => p.id);
+
+    const hasMore = orderedIds.length > offset + limit;
+    const pageIds = orderedIds.slice(offset, offset + limit);
 
     const rows = await this.prisma.product.findMany({
       where: { id: { in: pageIds } },
-      select: {
-        id: true,
-        title: true,
-        priceInCents: true,
-        images: PRIMARY_IMAGE,
-        store: { select: { displayName: true } },
-      },
+      select: FEED_SELECT,
     });
     const byId = new Map(rows.map((r) => [r.id, r]));
     const page = pageIds.flatMap((id) => byId.get(id) ?? []);
 
-    return { products: page.map(toCarouselProduct) };
+    const flags = await this.personalFlags(page, userId);
+    const products = page.map((p) => toFeedProduct(p, flags.get(p.id)));
+
+    return new Paginated(
+      { products },
+      {
+        limit,
+        nextCursor: hasMore ? encodeOffsetCursor(offset + limit) : null,
+        hasMore,
+      },
+    );
   }
 
   /**
@@ -392,6 +463,7 @@ export class MobileProductsService {
             name: true,
             sku: true,
             size: true,
+            color: true,
             stock: true,
             reservedStock: true,
           },
@@ -408,6 +480,7 @@ export class MobileProductsService {
             displayName: true,
             logoUrl: true,
             description: true,
+            returnPolicyText: true,
             status: true,
           },
         },
@@ -623,17 +696,22 @@ export class MobileProductsService {
   }
 
   /**
-   * Discovery-grid query: brand round-robin with a seeded shuffle. Products are
-   * ranked within their store by recency (round 0 = each store's newest), then
-   * ordered by (round, sha1(seed:productId)) — so every store appears once per
-   * round before any store repeats, and the order within a round is a stable
-   * pseudo-random arrangement per seed. A fresh load (no cursor) draws a new
-   * seed → new arrangement; the cursor carries {seed, offset} so infinite
-   * scroll stays consistent within one session.
+   * Discovery-grid query: brand round-robin ("fair rounds") with phalo
+   * engagement scores deciding the order inside the structure ("smart slots").
    *
-   * v1 heuristic — the ordering is Phalo's seam (product scores later replace
-   * the round key without changing the response shape). The id-scan per page is
-   * fine at current catalogue scale; move to precomputed ordering when it grows.
+   * Round assignment: within each store, products rank by phalo popularity
+   * score (best first; recency breaks ties and orders unscored products), and
+   * a store's n-th ranked product joins round n — so every store appears once
+   * per round before any store repeats (the merchant-exposure guarantee).
+   * Within a round, order is effectiveScore = (score + prior) × seeded jitter,
+   * descending — see the scoring constants above for the exploration rationale.
+   *
+   * Phalo absent/stale/down → empty score map → recency round assignment +
+   * prior×jitter ordering = the original pure seeded shuffle (PH-4: a broken
+   * ranking source must never break the feed). A fresh load (no cursor) draws
+   * a new seed → new arrangement; the cursor carries {seed, offset} so
+   * infinite scroll stays consistent within one session. The id-scan per page
+   * is fine at current catalogue scale; precompute when it grows.
    */
   private async queryDiscoveryPage(
     where: Prisma.ProductWhereInput,
@@ -644,27 +722,74 @@ export class MobileProductsService {
       ? decodeDiscoveryCursor(opts.cursor)
       : { seed: randomBytes(4).toString('hex'), offset: 0 };
 
-    // Recency order doubles as the within-store ranking: the n-th time a store
-    // appears is that product's round n.
-    const candidates = await this.prisma.product.findMany({
-      where,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: { id: true, storeId: true },
-    });
+    // Recency order is the baseline within-store ranking (and the tie-break
+    // when scores exist): the n-th product of a store is that store's round n.
+    // Candidates, phalo scores, and the buyer's affinity are independent reads.
+    const [candidates, scores, affinity] = await Promise.all([
+      this.prisma.product.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: {
+          id: true,
+          storeId: true,
+          categories: { take: 1, select: { categoryId: true } },
+        },
+      }),
+      this.phaloProductScores(),
+      this.personalAffinity(userId),
+    ]);
 
-    const roundByStore = new Map<string, number>();
-    const ordered = candidates
-      .map((p) => {
-        const round = roundByStore.get(p.storeId) ?? 0;
-        roundByStore.set(p.storeId, round + 1);
-        return {
-          id: p.id,
-          round,
-          shuffleKey: createHash('sha1').update(`${seed}:${p.id}`).digest('hex'),
-        };
-      })
+    const inAffinityCategory = (p: {
+      categories?: { categoryId: string }[];
+    }): boolean => {
+      const categoryId = p.categories?.[0]?.categoryId;
+      return !!categoryId && affinity.affinityCategoryIds.has(categoryId);
+    };
+
+    // Group per store (recency order preserved), then — when scores or
+    // affinity exist — stable-sort each store's list so the store's best
+    // product (score first, buyer's browsed category as tie-break) represents
+    // it in the earliest round.
+    const byStore = new Map<string, (typeof candidates)[number][]>();
+    for (const p of candidates) {
+      const list = byStore.get(p.storeId);
+      if (list) list.push(p);
+      else byStore.set(p.storeId, [p]);
+    }
+    if (scores.size > 0 || affinity.affinityCategoryIds.size > 0) {
+      for (const list of byStore.values()) {
+        const recencyRank = new Map(list.map((p, i) => [p.id, i]));
+        list.sort(
+          (a, b) =>
+            (scores.get(b.id) ?? 0) - (scores.get(a.id) ?? 0) ||
+            Number(inAffinityCategory(b)) - Number(inAffinityCategory(a)) ||
+            recencyRank.get(a.id)! - recencyRank.get(b.id)!,
+        );
+      }
+    }
+
+    const ordered = [...byStore.values()]
+      .flatMap((list) =>
+        list.map((p, round) => {
+          const boost =
+            (affinity.followedStoreIds.has(p.storeId)
+              ? FOLLOWED_STORE_BOOST
+              : 1) * (inAffinityCategory(p) ? AFFINITY_CATEGORY_BOOST : 1);
+          return {
+            id: p.id,
+            round,
+            effectiveScore:
+              ((scores.get(p.id) ?? 0) + SCORE_PRIOR) *
+              scoreJitter(seed, p.id) *
+              boost,
+          };
+        }),
+      )
       .sort(
-        (a, b) => a.round - b.round || a.shuffleKey.localeCompare(b.shuffleKey),
+        (a, b) =>
+          a.round - b.round ||
+          b.effectiveScore - a.effectiveScore ||
+          a.id.localeCompare(b.id),
       );
 
     const hasMore = ordered.length > offset + opts.limit;
@@ -684,6 +809,94 @@ export class MobileProductsService {
       : null;
 
     return new Paginated({ products }, { limit: opts.limit, nextCursor, hasMore });
+  }
+
+  /**
+   * The buyer's personalization context: stores they subscribe to + the
+   * categories they've been browsing (recent product views → primary
+   * categories → top N by view count). Guests get the empty affinity —
+   * zero extra queries, ordering identical to today.
+   */
+  private async personalAffinity(userId?: string): Promise<PersonalAffinity> {
+    if (!userId) return EMPTY_AFFINITY;
+
+    const windowStart = new Date(
+      Date.now() - AFFINITY_VIEW_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    );
+    const [follows, recentViews] = await Promise.all([
+      this.prisma.storeFollower.findMany({
+        where: { userId },
+        select: { storeId: true },
+      }),
+      this.prisma.analyticsEvent.findMany({
+        where: {
+          userId,
+          eventType: 'product_view',
+          productId: { not: null },
+          createdAt: { gt: windowStart },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: AFFINITY_RECENT_VIEWS,
+        select: { productId: true },
+      }),
+    ]);
+
+    const viewsPerProduct = new Map<string, number>();
+    for (const v of recentViews) {
+      viewsPerProduct.set(
+        v.productId!,
+        (viewsPerProduct.get(v.productId!) ?? 0) + 1,
+      );
+    }
+
+    const affinityCategoryIds = new Set<string>();
+    if (viewsPerProduct.size > 0) {
+      const links = await this.prisma.productCategory.findMany({
+        where: { productId: { in: [...viewsPerProduct.keys()] } },
+        select: { productId: true, categoryId: true },
+      });
+      const weightPerCategory = new Map<string, number>();
+      for (const link of links) {
+        weightPerCategory.set(
+          link.categoryId,
+          (weightPerCategory.get(link.categoryId) ?? 0) +
+            (viewsPerProduct.get(link.productId) ?? 0),
+        );
+      }
+      [...weightPerCategory.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, AFFINITY_TOP_CATEGORIES)
+        .forEach(([categoryId]) => affinityCategoryIds.add(categoryId));
+    }
+
+    return {
+      followedStoreIds: new Set(follows.map((f) => f.storeId)),
+      affinityCategoryIds,
+    };
+  }
+
+  /**
+   * Phalo popularity scores, product_id → score. Same contract as the
+   * trending_stores reader in MobileMerchantsService: rows must be fresher
+   * than 24h, and ANY error (schema missing, phalo down, stale) returns an
+   * empty map so the seeded-shuffle fallback always wins over a broken
+   * ranking source (PH-4).
+   */
+  private async phaloProductScores(): Promise<Map<string, number>> {
+    try {
+      const rows = await this.prisma.$queryRaw<
+        { product_id: string; score: number }[]
+      >`
+        SELECT product_id, score
+        FROM phalo.product_scores
+        WHERE score_type = 'popularity'
+          AND score > 0
+          AND computed_at > now() - interval '24 hours'
+      `;
+      return new Map(rows.map((r) => [r.product_id, Number(r.score)]));
+    } catch {
+      return new Map();
+    }
   }
 
   private async personalFlags(
