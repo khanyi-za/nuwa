@@ -28,6 +28,8 @@ export interface ImportVariant {
   color: string | null;
   size: string | null;
   material: string | null;
+  /** Shopify CDN URL of the variant's assigned image (pre-rehost). */
+  imageSourceUrl: string | null;
   priceInCents: number | null; // set only when it overrides the product price
   stock: number; // REAL inventoryQuantity (clamped ≥ 0), or the untracked stand-in
   stockTracked: boolean; // false → stock is the UNTRACKED_STOCK stand-in

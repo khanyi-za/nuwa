@@ -464,6 +464,7 @@ export class MobileProductsService {
             sku: true,
             size: true,
             color: true,
+            imageUrl: true,
             stock: true,
             reservedStock: true,
           },

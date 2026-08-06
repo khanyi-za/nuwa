@@ -9,6 +9,7 @@ import {
   slugify,
   stockFromInventory,
   stripHtml,
+  stripQuery,
   suggestCategory,
   weightToGrams,
 } from './heuristics';
@@ -193,6 +194,17 @@ describe('shopify mapping heuristics', () => {
 
     it('returns null when nothing matches', () => {
       expect(suggestCategory({ ...noCtx, title: 'Gift Voucher' })).toBeNull();
+    });
+  });
+
+  describe('stripQuery', () => {
+    it('drops cache params for image-URL matching; bare URLs pass through', () => {
+      expect(stripQuery('https://cdn.shopify.com/a.jpg?v=123&width=2048')).toBe(
+        'https://cdn.shopify.com/a.jpg',
+      );
+      expect(stripQuery('https://cdn.shopify.com/a.jpg')).toBe(
+        'https://cdn.shopify.com/a.jpg',
+      );
     });
   });
 

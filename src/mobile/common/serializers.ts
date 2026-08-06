@@ -140,6 +140,7 @@ interface VariantRow {
   sku: string | null;
   size: string | null;
   color?: string | null;
+  imageUrl?: string | null;
   stock: number;
   reservedStock: number;
 }
@@ -188,6 +189,9 @@ export function toProductDetail(p: DetailRow, flags?: PersonalFlags) {
       size: v.size ?? null,
       color: v.color ?? null,
       label: v.size ?? v.name,
+      // Same string as a sibling media[].url — clients jump the gallery to
+      // this image on colour selection (null = no jump).
+      image: v.imageUrl ?? null,
       sku: v.sku ?? null,
       available: available > 0,
       stockCount: available,

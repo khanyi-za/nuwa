@@ -7,7 +7,11 @@
     "**/*spec.ts"
   ],
   "compilerOptions": {
-    "rootDir": "./src"
+    "rootDir": "./src",
+    // Keep the incremental cache INSIDE dist so nest's deleteOutDir clears
+    // them together — a root-level .tsbuildinfo surviving a dist wipe makes
+    // tsc believe outputs exist and emit nothing (dist/main not found).
+    "tsBuildInfoFile": "./dist/tsconfig.build.tsbuildinfo"
   },
   "include": [
     "src/**/*"

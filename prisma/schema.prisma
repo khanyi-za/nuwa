@@ -644,6 +644,11 @@ model ProductVariant {
   color    String?
   size     String?
   material String?
+  // Hosted URL of this variant's image — the SAME string as the matching
+  // sibling ProductImage.url, so clients can find the gallery index by URL
+  // equality (colour-selector jump). Snapshot, not an FK: a replaced image
+  // degrades to no-jump. Populated by the Shopify import writer.
+  imageUrl String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -139,6 +139,9 @@ function makeCatalogue(): ImportCatalogue {
         color: 'Black',
         size: 'S',
         material: null,
+        // Same asset as the product image (query param varies) — the writer
+        // must snapshot the REHOSTED url onto the variant.
+        imageSourceUrl: 'https://cdn.shopify.com/p2.jpg?v=99',
         priceInCents: null,
         stock: 3,
         stockTracked: true,
@@ -153,6 +156,7 @@ function makeCatalogue(): ImportCatalogue {
         color: 'Black',
         size: 'M',
         material: null,
+        imageSourceUrl: null, // no assigned image → variant.imageUrl null
         priceInCents: 135000,
         stock: 2,
         stockTracked: true,
@@ -465,8 +469,10 @@ describe('ShopifyImportService', () => {
       const variantCall = mockPrisma.product.create.mock.calls[1][0].data;
       expect(variantCall.totalStock).toBe(0);
       expect(variantCall.variants.create).toEqual([
-        expect.objectContaining({ sku: 'fields-WD-1', stock: 3 }),
-        expect.objectContaining({ sku: null, stock: 2 }), // in-store dupe nulled
+        // Variant image snapshots the REHOSTED url (query-stripped source
+        // match against the product image), null when no image assigned.
+        expect.objectContaining({ sku: 'fields-WD-1', stock: 3, imageUrl: CDN }),
+        expect.objectContaining({ sku: null, stock: 2, imageUrl: null }), // in-store dupe nulled
       ]);
     });
 

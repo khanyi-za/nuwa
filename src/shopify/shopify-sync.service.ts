@@ -52,7 +52,10 @@ export type SyncOutcome =
  * resolved through the ShopifyProductLink table. Shopify is the source of
  * truth for merchants on the app (foundation §3): price, stock, title,
  * description and status sync DOWN; images/options/collections do NOT sync
- * in v1 (re-import or Phase 3 refinement).
+ * in v1 (re-import or Phase 3 refinement). Variant images
+ * (ProductVariant.imageUrl, the colour-selector gallery jump) are captured
+ * at import/create time only — a variant image changed on Shopify won't
+ * refresh until a re-import.
  *
  *   products/update          → title/description/status + per-variant
  *                              price/stock (unknown new variants are logged,

@@ -32,6 +32,7 @@ import {
   slugify,
   stockFromInventory,
   stripHtml,
+  stripQuery,
   suggestCategory,
   weightToGrams,
 } from './heuristics';
@@ -76,6 +77,7 @@ function buildVariant(
     color,
     size,
     material,
+    imageSourceUrl: v.image?.url ?? null,
     priceInCents: cents != null && cents !== productPriceCents ? cents : null,
     stock: stockFromInventory(v.inventoryQuantity, tracked),
     stockTracked: tracked,
@@ -83,13 +85,32 @@ function buildVariant(
   };
 }
 
-function buildImages(p: RawProduct): ImportImage[] {
-  return p.images.map((img, i) => ({
+function buildImages(p: RawProduct, variants: ImportVariant[]): ImportImage[] {
+  const images: ImportImage[] = p.images.map((img, i) => ({
     sourceUrl: img.url,
     altText: img.altText ?? p.title,
     sortOrder: i,
     isPrimary: i === 0,
   }));
+
+  // Union safety-net: every colour's image must land in the gallery. Variant
+  // images are normally drawn from product media, but if one isn't (or the
+  // media pull missed it), append it as a non-primary image. Query-stripped
+  // compare — Shopify CDN URLs vary by `?v=` cache params.
+  const seen = new Set(images.map((img) => stripQuery(img.sourceUrl)));
+  for (const v of variants) {
+    if (!v.imageSourceUrl) continue;
+    const key = stripQuery(v.imageSourceUrl);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    images.push({
+      sourceUrl: v.imageSourceUrl,
+      altText: p.title,
+      sortOrder: images.length,
+      isPrimary: false,
+    });
+  }
+  return images;
 }
 
 /** Map one resolved product. Exported for single-product sync (Phase 2). */
@@ -149,7 +170,7 @@ export function mapProduct(
           }
         : null,
     variants,
-    images: buildImages(p),
+    images: buildImages(p, variants),
     suggestedCategorySlug: suggestCategory({
       tags: p.tags,
       productType: p.productType,

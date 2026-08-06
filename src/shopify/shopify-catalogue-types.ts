@@ -29,6 +29,8 @@ export interface GqlVariantNode {
   compareAtPrice: string | null;
   inventoryQuantity: number | null; // aggregate across locations; can be negative
   selectedOptions: { name: string; value: string }[];
+  /** The variant's assigned image (always one of the product's media). */
+  image?: { url: string } | null;
   inventoryItem: {
     id: string; // gid://shopify/InventoryItem/… (inventory webhooks key on this)
     tracked: boolean;

@@ -545,8 +545,8 @@ describe('MobileProductsService', () => {
         merchant: { username: 'tol_thema', bio: 'Heritage textiles.' },
       });
       expect(product.variants).toEqual([
-        { id: 'v1', size: 'XS', color: null, label: 'XS', sku: 'K-XS', available: true, stockCount: 3 },
-        { id: 'v2', size: 'S', color: null, label: 'S', sku: 'K-S', available: false, stockCount: 0 },
+        { id: 'v1', size: 'XS', color: null, label: 'XS', image: null, sku: 'K-XS', available: true, stockCount: 3 },
+        { id: 'v2', size: 'S', color: null, label: 'S', image: null, sku: 'K-S', available: false, stockCount: 0 },
       ]);
       // No store policy on the fixture → honest platform fallback (no
       // invented windows/guarantees).

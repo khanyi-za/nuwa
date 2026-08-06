@@ -116,6 +116,16 @@ export function inferGender(opts: {
   return { gender: GenderType.UNISEX, source: 'default' };
 }
 
+/**
+ * URL without its query string. Shopify CDN URLs for the same asset vary
+ * only by cache params (`?v=…`) — strip before comparing/matching image URLs
+ * (variant image ↔ product media, rehost map keys).
+ */
+export function stripQuery(url: string): string {
+  const i = url.indexOf('?');
+  return i === -1 ? url : url.slice(0, i);
+}
+
 /** Map a Shopify option name to a YIIVA variant field by its content. */
 export function optionField(
   name: string,

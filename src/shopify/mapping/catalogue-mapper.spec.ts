@@ -1,6 +1,7 @@
 import { GenderType } from '@prisma/client';
 import {
   mapCatalogue,
+  mapProduct,
   productStock,
   summarizeCatalogue,
 } from './catalogue-mapper';
@@ -175,6 +176,46 @@ describe('catalogue-mapper', () => {
           isPrimary: false,
         },
       ]);
+    });
+
+    it('captures variant images and unions missing colour images into the gallery', () => {
+      const p: RawProduct = {
+        ...variantProduct,
+        variants: [
+          {
+            ...variantProduct.variants[0],
+            // Same asset as the product image, differing only by ?v= —
+            // must NOT be duplicated into images.
+            image: { url: 'https://cdn.shopify.com/dress.jpg?v=2' },
+          },
+          {
+            ...variantProduct.variants[1],
+            // A colour image the media list missed — must be appended.
+            image: { url: 'https://cdn.shopify.com/dress-burgundy.jpg?v=9' },
+          },
+        ],
+      };
+
+      const mapped = mapProduct(p, []);
+
+      expect(mapped.variants[0].imageSourceUrl).toBe(
+        'https://cdn.shopify.com/dress.jpg?v=2',
+      );
+      expect(mapped.images).toEqual([
+        expect.objectContaining({
+          sourceUrl: 'https://cdn.shopify.com/dress.jpg',
+          isPrimary: true,
+        }),
+        expect.objectContaining({
+          sourceUrl: 'https://cdn.shopify.com/dress-burgundy.jpg?v=9',
+          sortOrder: 1,
+          isPrimary: false,
+        }),
+      ]);
+    });
+
+    it('a variant without an assigned image maps imageSourceUrl null', () => {
+      expect(dress.variants[0].imageSourceUrl).toBeNull();
     });
 
     it('strips HTML from descriptions', () => {

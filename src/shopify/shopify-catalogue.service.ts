@@ -50,6 +50,7 @@ const VARIANT_FIELDS = `
   compareAtPrice
   inventoryQuantity
   selectedOptions { name value }
+  image { url }
   inventoryItem { id tracked measurement { weight { unit value } } }
 `;
 

@@ -15,6 +15,7 @@ import { runRehost } from './src/stages/rehost';
 import { runLoad } from './src/stages/load';
 import { runSeedDemo } from './src/stages/seed-demo';
 import { runRelinkCategories } from './src/stages/relink-categories';
+import { runRelinkVariantImages } from './src/stages/relink-variant-images';
 import { runRegender } from './src/stages/regender';
 import { runRenav } from './src/stages/renav';
 import { runSeedOrders } from './src/stages/seed-orders';
@@ -68,6 +69,8 @@ Commands:
   load      <brandSlug>                        Write curated catalogue into the demo DB            [Phase 4]
   relink    [brandSlug…]                       Re-derive category links for loaded brands after a
                                                CATEGORY_RULES/seed change (defaults to all brands)
+  relink-variant-images [brandSlug…]           Backfill ProductVariant.imageUrl from the raw
+                                               scrape's variant↔image links (colour gallery jump)
   regender                                     Apply per-brand default genderType to gender-silent
                                                (UNISEX) products so Women/Men feeds diverge
   renav     [brandSlug…]                       Mirror each brand's site nav onto its collections
@@ -132,6 +135,9 @@ async function main(): Promise<void> {
       break;
     case 'relink':
       await runRelinkCategories(positionals);
+      break;
+    case 'relink-variant-images':
+      await runRelinkVariantImages(positionals);
       break;
     case 'regender':
       await runRegender();

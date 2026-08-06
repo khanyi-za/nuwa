@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ShopifyRehostService } from './shopify-rehost.service';
-import { namespaceSku, slugify } from './mapping/heuristics';
+import { namespaceSku, slugify, stripQuery } from './mapping/heuristics';
 import { ImportProduct } from './mapping/import-types';
 
 const TAGS_PER_PRODUCT = 10;
@@ -67,6 +67,10 @@ export class ShopifyProductWriterService {
       sortOrder: number;
       isPrimary: boolean;
     }[] = [];
+    // Query-stripped source URL → hosted URL, so variants can snapshot the
+    // SAME hosted string as their matching ProductImage row (the gallery-jump
+    // contract on ProductVariant.imageUrl).
+    const hostedBySource = new Map<string, string>();
     for (const img of p.images) {
       const hosted = await this.rehost.rehostImage(store.id, img.sourceUrl);
       if (!hosted) {
@@ -74,6 +78,7 @@ export class ShopifyProductWriterService {
         continue;
       }
       counters.imagesUploaded++;
+      hostedBySource.set(stripQuery(img.sourceUrl), hosted);
       imageRows.push({
         url: hosted,
         altText: img.altText,
@@ -120,6 +125,9 @@ export class ShopifyProductWriterService {
                 color: v.color,
                 size: v.size,
                 material: v.material,
+                imageUrl: v.imageSourceUrl
+                  ? (hostedBySource.get(stripQuery(v.imageSourceUrl)) ?? null)
+                  : null,
                 priceInCents: v.priceInCents,
                 stock: v.stock,
                 sortOrder: v.sortOrder,
