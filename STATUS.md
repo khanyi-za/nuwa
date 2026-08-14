@@ -1,6 +1,179 @@
-# STATUS.md — Last updated 2026-07-23 (session close, second entry)
+# STATUS.md — Last updated 2026-08-14
 
 > 🟢 **HANDOFF — next session start here.**
+>
+> ## 2026-08-14 — RAILWAY A0 COMPLETE: nuwa LIVE in production + staging
+>
+> Railway provisioning finished — user executed every step personally
+> (learning contract holds for all deploy/infra work). Both environments
+> GREEN: project `Nuwa`, service `nuwa` + its own Postgres per env
+> (⚠ staging's DB service is named `Postgres-WgSy` — any future variable
+> reference there must use that exact name; production's is `Postgres`).
+> Branch mapping: production env ← `production` branch, staging env ←
+> `staging` branch. Deploy pipeline verified end-to-end: Docker build →
+> pre-deploy `prisma migrate deploy` (all migrations applied to both fresh
+> DBs) → `/health` healthcheck green.
+>
+> **Domains live:** `https://nuwa-production.up.railway.app` (+ staging's
+> own `up.railway.app` domain, see dashboard) — `/health` verified from
+> public internet; `SHOPIFY_WEBHOOK_BASE_URL` set in BOTH envs to each
+> env's own domain. **Admin seeded in BOTH envs** via `railway ssh -- npx
+> prisma db seed` (`created:` confirmed each side; login → accessToken
+> verified against both domains). ⚠ Rotate admin password after first real
+> login; ADMIN_1_PASSWORD var can then be removed from Railway.
+>
+> **Still deliberate:** NODE_ENV UNSET everywhere (guards off until
+> Paystack KYC lands → Phase D). `CORS_ORIGINS` currently the localhost
+> placeholder — MUST be updated in both envs when athena deploys (Phase B).
+> Cloudinary = yiiva-dev values in both envs (Phase D swaps prod cloud).
+>
+> **Gotchas learned (recorded for reruns):** (1) Railway auto-imported
+> `.env.example` placeholder values at project creation — the localhost
+> DATABASE_URL caused P1001 then P1013; fix = delete var, re-add by typing
+> `${{` and picking the reference from autocomplete (cannot dangle).
+> (2) Railway CLI is non-interactive under Claude Code — use explicit
+> flags (`railway link --project Nuwa --environment <env> --service nuwa`).
+> (3) `railway ssh` needs a registered SSH key (`railway ssh keys add`)
+> AND a first interactive connect from a real terminal to accept the host
+> key; after that `railway ssh -- <cmd>` works non-interactively. (4) A
+> seed that prints `updated:` hit the LOCAL db — `created:` is the proof
+> it hit the empty remote one; always check `hostname` after ssh.
+>
+> **Git:** main = staging = production = b29c685 (already in sync).
+> Pending commit on main: this STATUS update + docs/paystack-kyc-responses.md
+> + docs/policy-register.md → then the user's first solo promotion drill
+> (main → staging → production; docs-only, each push triggers that env's
+> redeploy — safe first rep).
+>
+> **▶ NEXT:** (1) commit + promotion drill; (2) Phase B: athena → Vercel,
+> then update `CORS_ORIGINS` in BOTH Railway envs with the Vercel domain;
+> (3) Phase C: Shopify prod e2e — register real merchant on prod via
+> athena, connect `thedopplerstore.myshopify.com`, verify 14 products /
+> 3 collections / variant images / returnPolicyText / webhooksRegisteredAt,
+> then live-sync edit test; (4) Phase D arm-the-guards (checklist in
+> 2026-08-11 entry below) once Paystack KYC approves; (5) Phase E: phalo →
+> Railway. Owner errand still open: paste §1 of
+> docs/paystack-kyc-responses.md into Paystack's KYC form.
+>
+> ## 2026-08-11 (later) — Paystack KYC session: two policies ADOPTED
+> ## (owner-confirmed) + 2 follow-up caveats
+>
+> Answering Paystack's live-mode KYC questionnaire (7 questions on merchant
+> KYC/EDD, fund holding/release, disputes). Owner formally adopted two
+> operating policies — the KYC answers rely on them, so they are REAL
+> procedure from now on:
+> 1. **Manual CIPC-check EDD** at store review: verify the CIPC number
+>    against the public CIPC/BizPortal search (entity exists, name matches);
+>    on mismatch/high-risk require director ID + proof of bank account
+>    before approval, or decline.
+> 2. **Payout-account-before-go-live**: go-live approval requires the
+>    store's Paystack subaccount to be configured
+>    (`Store.paystackSubaccountCode` set) — every trading merchant is on
+>    direct split settlement; YIIVA never holds merchant funds.
+> ⚠ **Caveats / follow-ups:** (a) the admin review UI does NOT yet surface
+> payout-account `configured` status — expose it on the admin store view
+> (small nuwa+athena follow-up); until then the admin checks DB/settings
+> manually. (b) pre-policy ACTIVE stores (demo-era) have no subaccount —
+> grandfather them through the settings payout flow before real traffic;
+> prod DB starts empty, so every real merchant hits the gate from day one.
+>
+> **All 7 answers finalized → `docs/paystack-kyc-responses.md`** (§1 =
+> submission-ready text; §2 = INTERNAL adopted-policies + follow-up
+> checklist incl. public Returns & Refunds page, support@ contact, stale
+> PayFast copy in maya/docs/about_yiiva.md). Owner to paste §1 into
+> Paystack's form. **NEW `docs/policy-register.md`** = the durable policy
+> record (P-1…P-6 incl. the two adopted gates, claim boundaries — no
+> sanctions/PEP claims etc. — parked items, follow-up checklist). Future
+> compliance/product decisions should check it first.
+>
+> **▶ NEXT:** the "urgent unrelated work" from the entry below is DONE (it
+> was this KYC session). (a) Owner errand: paste §1 of
+> docs/paystack-kyc-responses.md into Paystack's KYC form (KYC approval →
+> sk_live_ key → Phase D arm-the-guards); (b) commit nuwa (KYC doc +
+> policy register + this STATUS entry — suggested msg: "Paystack KYC
+> responses + policy register, on 11/08/2026"); (c) RESUME the Railway
+> deployment thread below exactly where it paused (finish staging env →
+> A0.2 vars both envs → A0.3 domains → promotions → A0.5 seed).
+>
+> ## 2026-08-11 — GO-LIVE PIVOT: test everything in PROD · Railway
+> ## provisioning started (A0.1 done) · Doppler Shopify test store READY
+>
+> Sessions 08-03→08-11. **Strategy pivot (user decision): the Shopify app,
+> Paystack live, and TCG live all get tested against PRODUCTION on Railway —
+> NOT localhost.** The tunnel/localhost approach is ABANDONED (detached
+> leftovers from 08-05 may still be running — cloudflared, dev nuwa :3000,
+> athena :3001; kill freely, the quick-tunnel URL is dead-per-restart
+> anyway). User is NEW to multi-env deployment and is deliberately doing
+> every click/command PERSONALLY to learn — walk slowly, give exact
+> commands + expected output, never act on their behalf for deploy steps.
+>
+> **Doppler Shopify test store READY:** `thedopplerstore.myshopify.com` —
+> 14 products / 3 collections verified live via public products.json
+> (Ziggy Collection 5, Winter Essentials 5, user's own "Doppler summer" 4).
+> Built from 3 generated CSVs in `docs/shopify-app/` (all image URLs
+> HEAD-verified at generation): `yiiva-test-products.csv` (sittingpretty:
+> colour+size matrices incl. 16-variant boilersuit, colour-only belt,
+> no-variant bag, per-colour Variant image URLs), `yiiva-test-collection.csv`
+> (netterose Ziggy: Band Size×Cup Size 25-variant bralette — two-option
+> NO-colour shape), `yiiva-test-collection-fields.csv` (fieldsstore:
+> 3-option Size×Colour×Artist jacket, numeric trouser sizes, real source
+> weights incl. 925g sweater, colour value = artist name edge case).
+> ⚠ Store is PUBLICLY readable (password protection off) with Sitting
+> Pretty/Nette Rose/FIELDS imagery — user was advised to re-enable password.
+> ⚠ Unconfirmed user errands: custom-app `shpat_` token created? refund
+> policy set? (needed for connect + returns-capture test).
+>
+> **Deployment plan (taught + agreed), phases:** A) nuwa → Railway
+> (staging+production envs, in progress); B) athena → Vercel + add its
+> domain to `CORS_ORIGINS` on Railway; C) Shopify e2e test in prod (no
+> tunnel — real public URL); D) Paystack live + TCG live + ARM THE GUARDS
+> (see checklist below); E) phalo → Railway (last; nothing blocks on it).
+> Only nuwa has the 3-branch ladder: main("playground") → staging →
+> production; athena/phalo deploy single branches.
+>
+> **Railway provisioning state:** A0.1 DONE — project created from GitHub
+> nuwa, first deploy intentionally failed (no DB/vars), prod service
+> Source branch switched to `production`. User was creating the `staging`
+> environment next (duplicate-from-production; knows it copies nothing
+> while prod vars are empty → variables get pasted twice). STILL TO DO:
+> A0.2 variables paste BOTH envs (full list in .env.example-shaped block in
+> conversation; per-env diffs: DATABASE_URL `${{Postgres.DATABASE_URL}}`
+> reference each, JWT_SECRET, SHOPIFY_TOKEN_KEY, SHIPLOGIC_WEBHOOK_SECRET
+> — fresh `openssl rand -hex 32` each, never shared across envs) + each
+> env its own PostgreSQL service; A0.3 generate public domains → then set
+> `SHOPIFY_WEBHOOK_BASE_URL=<env's own domain>`; A0.5 admin seed via
+> Railway CLI (`railway run --environment <env> -- npx prisma db seed`,
+> ADMIN_1_* vars). **NODE_ENV is DELIBERATELY UNSET everywhere** (user
+> decision): unset = guards off = test Paystack key boots; `CORS_ORIGINS`
+> still set explicitly (unset would default to localhost and silently
+> block Vercel athena in Phase B).
+>
+> **Phase D "arm the guards" checklist (one sitting, when Paystack KYC +
+> TCG account land):** NODE_ENV=production; PAYSTACK_SECRET_KEY=sk_live_…;
+> SHIPLOGIC_BASE_URL=https://api.portal.thecourierguy.co.za + real TCG key;
+> final CORS_ORIGINS; create yiiva-prod Cloudinary cloud + 7 signed presets
+> (prod currently borrows yiiva-dev values) per docs/cloudinary-setup.md;
+> Paystack dashboard LIVE webhook URL → prod domain /payments/webhook.
+>
+> **Git state:** user committed + pushed `b29c685` (colour-variant→gallery
+> batch + tsbuildinfo fix + Doppler CSVs) — working tree CLEAN. staging and
+> production branches both exactly 3 commits behind main (c670cec shipping
+> hardening, be76452 truth pass, b29c685) with nothing of their own →
+> promotions are clean fast-forwards. Promotion ritual taught (checkout
+> receiver → pull → merge → push → back to main; production only ever
+> receives from staging). Sequencing advice given: finish A0.2 first (green
+> deploy of old code), THEN promote (see a code-update deploy separately).
+>
+> **▶ NEXT:** user opens a NEW session for unrelated urgent work first —
+> this deployment thread is PAUSED mid-A0. When resumed: finish staging
+> env creation → A0.2 vars both envs → A0.3 domains → green deploys →
+> branch promotion ritual → A0.5 seed → Phase B (athena→Vercel, user says
+> Vercel; phalo→Railway later). Then Shopify prod test: register real
+> merchant on prod via athena, connect Doppler store, verify 14 products/
+> 3 collections/variant images/returnPolicyText/webhooksRegisteredAt, then
+> live-sync edit test. Paystack KYC application still pending on user side.
+
+---
 >
 > ## 2026-07-23 (later) — SHIPPING HARDENING: tracking-reconcile poller ·
 > ## shippingSuburb snapshot · Q24 CLOSED via TCG reply + real payloads
