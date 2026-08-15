@@ -1,6 +1,6 @@
 export function verificationEmailTemplate(
   firstName: string,
-  verificationUrl: string,
+  code: string,
 ): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -27,30 +27,19 @@ export function verificationEmailTemplate(
             <td style="padding:48px;">
               <p style="margin:0 0 16px 0;font-size:16px;color:#111111;">Hi ${firstName},</p>
               <p style="margin:0 0 28px 0;font-size:16px;color:#333333;line-height:1.7;">
-                Welcome to YIIVA. To activate your account and start discovering South Africa's best creative brands, please verify your email address by clicking the button below.
+                Welcome to YIIVA. Enter this code to verify your email address and activate your account:
               </p>
 
-              <!-- CTA Button -->
-              <table cellpadding="0" cellspacing="0" border="0" style="margin:0 0 32px 0;">
+              <!-- Code -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 28px 0;">
                 <tr>
-                  <td style="background-color:#0a0a0a;border-radius:4px;">
-                    <a href="${verificationUrl}"
-                       style="display:inline-block;padding:14px 36px;color:#ffffff;text-decoration:none;font-size:15px;font-weight:bold;">
-                      Verify my email
-                    </a>
+                  <td align="center" style="background-color:#f5f5f5;border-radius:6px;padding:24px 0;">
+                    <span style="font-size:36px;font-weight:bold;letter-spacing:12px;color:#0a0a0a;font-family:'Courier New',Courier,monospace;">${code}</span>
                   </td>
                 </tr>
               </table>
 
-              <!-- Fallback URL -->
-              <p style="margin:0 0 6px 0;font-size:13px;color:#777777;">
-                If the button doesn't work, copy and paste this link into your browser:
-              </p>
-              <p style="margin:0 0 28px 0;font-size:13px;color:#0a0a0a;word-break:break-all;">
-                ${verificationUrl}
-              </p>
-
-              <p style="margin:0;font-size:13px;color:#777777;">This link expires in 24 hours.</p>
+              <p style="margin:0;font-size:13px;color:#777777;">This code expires in 10 minutes. Never share it with anyone — YIIVA will never ask you for it.</p>
             </td>
           </tr>
 

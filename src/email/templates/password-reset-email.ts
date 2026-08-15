@@ -1,6 +1,6 @@
 export function passwordResetEmailTemplate(
   firstName: string,
-  resetUrl: string,
+  code: string,
 ): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -27,30 +27,19 @@ export function passwordResetEmailTemplate(
             <td style="padding:48px;">
               <p style="margin:0 0 16px 0;font-size:16px;color:#111111;">Hi ${firstName},</p>
               <p style="margin:0 0 28px 0;font-size:16px;color:#333333;line-height:1.7;">
-                We received a request to reset your YIIVA password. Click the button below to choose a new password.
+                We received a request to reset your YIIVA password. Enter this code to choose a new password:
               </p>
 
-              <!-- CTA Button -->
-              <table cellpadding="0" cellspacing="0" border="0" style="margin:0 0 32px 0;">
+              <!-- Code -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 28px 0;">
                 <tr>
-                  <td style="background-color:#0a0a0a;border-radius:4px;">
-                    <a href="${resetUrl}"
-                       style="display:inline-block;padding:14px 36px;color:#ffffff;text-decoration:none;font-size:15px;font-weight:bold;">
-                      Reset my password
-                    </a>
+                  <td align="center" style="background-color:#f5f5f5;border-radius:6px;padding:24px 0;">
+                    <span style="font-size:36px;font-weight:bold;letter-spacing:12px;color:#0a0a0a;font-family:'Courier New',Courier,monospace;">${code}</span>
                   </td>
                 </tr>
               </table>
 
-              <!-- Fallback URL -->
-              <p style="margin:0 0 6px 0;font-size:13px;color:#777777;">
-                If the button doesn't work, copy and paste this link into your browser:
-              </p>
-              <p style="margin:0 0 28px 0;font-size:13px;color:#0a0a0a;word-break:break-all;">
-                ${resetUrl}
-              </p>
-
-              <p style="margin:0 0 12px 0;font-size:13px;color:#777777;">This link expires in 1 hour.</p>
+              <p style="margin:0 0 12px 0;font-size:13px;color:#777777;">This code expires in 10 minutes. Never share it with anyone — YIIVA will never ask you for it.</p>
               <p style="margin:0;font-size:13px;color:#777777;">
                 If you didn't request a password reset, no action is needed — your password won't change.
               </p>
@@ -61,7 +50,7 @@ export function passwordResetEmailTemplate(
           <tr>
             <td style="padding:24px 48px;border-top:1px solid #eeeeee;">
               <p style="margin:0;font-size:12px;color:#aaaaaa;text-align:center;">
-                For your security, this link can only be used once. Need help? Contact
+                For your security, this code can only be used once. Need help? Contact
                 <a href="mailto:support@yiiva.co.za" style="color:#aaaaaa;">support@yiiva.co.za</a>
               </p>
             </td>

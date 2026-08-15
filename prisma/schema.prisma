@@ -212,11 +212,17 @@ model User {
   lastLoginAt    DateTime?
   isGuestAccount Boolean       @default(false)
 
-  // Auth tokens (hashed before storage)
-  verificationToken  String?
-  verificationExpiry DateTime?
-  resetToken         String?
-  resetExpiry        DateTime?
+  // Auth OTP codes (sha256 of the 6-digit code; never stored raw).
+  // attempts: failed guesses — code invalidated at MAX_OTP_ATTEMPTS.
+  // lastSentAt: resend cooldown anchor.
+  verificationToken      String?
+  verificationExpiry     DateTime?
+  verificationAttempts   Int       @default(0)
+  verificationLastSentAt DateTime?
+  resetToken             String?
+  resetExpiry            DateTime?
+  resetAttempts          Int       @default(0)
+  resetLastSentAt        DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

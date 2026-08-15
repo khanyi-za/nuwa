@@ -11,6 +11,7 @@
 |---|---|---|---|
 | `POST` | `/auth/register` | No | 3 / minute |
 | `POST` | `/auth/verify-email` | No | 5 / minute |
+| `POST` | `/auth/resend-verification` | No | 3 / minute |
 | `POST` | `/auth/login` | No | 5 / minute |
 | `POST` | `/auth/refresh` | No | 10 / minute |
 | `POST` | `/auth/logout` | Yes | 5 / minute |
@@ -111,7 +112,7 @@ The `store` field is `null` if the user has no store. The `rejectionReason` fiel
 
 ### `POST /auth/register`
 
-**Public.** Creates a new account in `PENDING_VERIFICATION` status. Sends a verification email. The user cannot log in until the email is verified.
+**Public.** Creates a new account in `PENDING_VERIFICATION` status. Emails a **6-digit verification code** (expires in 10 minutes). The user cannot log in until the email is verified.
 
 **Request body**
 
@@ -126,7 +127,7 @@ The `store` field is `null` if the user has no store. The `rejectionReason` fiel
 **Success — `201`**
 ```json
 {
-  "message": "Account created. Please check your email to verify your account."
+  "message": "Account created. Enter the 6-digit code we emailed you to verify your account."
 }
 ```
 
@@ -142,19 +143,14 @@ The `store` field is `null` if the user has no store. The `rejectionReason` fiel
 
 ### `POST /auth/verify-email`
 
-**Public.** Activates the account and automatically logs the user in. Called when the user lands on the verification page after clicking the email link.
-
-The link format sent by the backend is:
-```
-https://yiiva.co.za/auth/verify-email?token=<rawToken>
-```
-Extract the `token` query parameter and pass it in the request body.
+**Public.** Activates the account and automatically logs the user in. The user types the 6-digit code from the verification email — **no URL is emailed** (OTP flow since 2026-08-15).
 
 **Request body**
 
-| Field | Type | Required |
-|---|---|---|
-| `token` | string | yes — from `?token=` query param |
+| Field | Type | Required | Rules |
+|---|---|---|---|
+| `email` | string | yes | normalised to lowercase |
+| `code` | string | yes | exactly 6 digits |
 
 **Success — `200`**
 
@@ -164,8 +160,35 @@ Returns an Auth Response. Store the `accessToken` in memory and the `refreshToke
 
 | Status | Message | Cause |
 |---|---|---|
-| `400` | `"Invalid or expired verification token"` | Token not found or older than 24 hours |
+| `400` | `"Invalid or expired verification code"` | Wrong code, unknown email, already verified, expired (10 min), or attempt cap reached — **one message for all cases intentionally** |
 | `429` | rate limit | More than 5 requests/minute |
+
+**Attempt cap:** after 5 wrong guesses the code self-destructs; the user must request a new one via `resend-verification`.
+
+---
+
+### `POST /auth/resend-verification`
+
+**Public.** Issues a fresh verification code for an unverified account (resets the attempt counter). Enumeration-safe: always returns the same generic message. Silent no-op within 60s of the previous send (cooldown).
+
+**Request body**
+
+| Field | Type | Required |
+|---|---|---|
+| `email` | string | yes |
+
+**Success — `200`**
+```json
+{
+  "message": "If an account with that email exists and is unverified, a new code has been sent."
+}
+```
+
+**Errors**
+
+| Status | Message | Cause |
+|---|---|---|
+| `429` | rate limit | More than 3 requests/minute |
 
 ---
 
@@ -276,7 +299,7 @@ Authorization: Bearer <accessToken>
 
 ### `POST /auth/forgot-password`
 
-**Public.** Triggers a password reset email. **Always returns the same success response** regardless of whether the email exists, is verified, or is suspended. Never reveal to the user whether the email is registered.
+**Public.** Emails a **6-digit reset code** (expires in 10 minutes). **Always returns the same success response** regardless of whether the email exists, is verified, or is suspended. Never reveal to the user whether the email is registered. Silent no-op within 60s of the previous send (cooldown).
 
 **Request body**
 
@@ -287,7 +310,7 @@ Authorization: Bearer <accessToken>
 **Success — `200`** *(always, regardless of email existence)*
 ```json
 {
-  "message": "If an account with that email exists, we've sent a password reset link."
+  "message": "If an account with that email exists, we've sent a password reset code."
 }
 ```
 
@@ -304,19 +327,14 @@ Authorization: Bearer <accessToken>
 
 ### `POST /auth/reset-password`
 
-**Public.** Resets the password. On success, **all sessions on all devices are revoked** — the user must log in again. Called when the user submits the new password form on the reset page.
-
-The link format sent by the backend is:
-```
-https://yiiva.co.za/auth/reset-password?token=<rawToken>
-```
-Extract the `token` query parameter, show a new password form, and call this endpoint on submit.
+**Public.** Resets the password using the emailed 6-digit code — **no URL is emailed** (OTP flow since 2026-08-15). On success, **all sessions on all devices are revoked** — the user must log in again. The UI collects email → code + new password in one flow.
 
 **Request body**
 
 | Field | Type | Required | Rules |
 |---|---|---|---|
-| `token` | string | yes — from `?token=` query param | — |
+| `email` | string | yes | normalised to lowercase |
+| `code` | string | yes | exactly 6 digits |
 | `password` | string | yes | min 8 chars, must contain uppercase, lowercase, and a digit |
 
 **Success — `200`**
@@ -330,9 +348,11 @@ Extract the `token` query parameter, show a new password form, and call this end
 
 | Status | Message | Cause |
 |---|---|---|
-| `400` | `"Invalid or expired reset token"` | Token not found or older than 1 hour |
+| `400` | `"Invalid or expired reset code"` | Wrong code, unknown email, expired (10 min), or attempt cap reached — one message for all cases |
 | `400` | array of validation strings | Weak password |
 | `429` | rate limit | More than 5 requests/minute |
+
+**Attempt cap:** after 5 wrong guesses the code self-destructs; the user requests a fresh one via `forgot-password` again (60s cooldown applies).
 
 After success: clear all local auth state, delete the cookie, redirect to `/login`.
 

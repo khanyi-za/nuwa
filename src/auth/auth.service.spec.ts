@@ -8,6 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { AccountStatus, UserRole } from '@prisma/client';
+import { createHash } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -19,6 +20,14 @@ jest.mock('bcrypt', () => ({
   hash: jest.fn(),
   compare: jest.fn(),
 }));
+
+const sha256 = (value: string) =>
+  createHash('sha256').update(value).digest('hex');
+
+// A known OTP + its stored hash, used across verify/reset suites
+const OTP_CODE = '123456';
+const OTP_HASH = sha256(OTP_CODE);
+const FUTURE = () => new Date(Date.now() + 5 * 60 * 1000);
 
 // ─── Shared test data ─────────────────────────────────────────────────────────
 
@@ -127,7 +136,8 @@ describe('AuthService', () => {
       const result = await service.register(dto);
 
       expect(result).toEqual({
-        message: 'Account created. Please check your email to verify your account.',
+        message:
+          'Account created. Enter the 6-digit code we emailed you to verify your account.',
       });
     });
 
@@ -149,7 +159,7 @@ describe('AuthService', () => {
       );
     });
 
-    it('should store the SHA-256 hash of the verification token, not the raw token', async () => {
+    it('should email a 6-digit code and store only its SHA-256 hash', async () => {
       mockPrisma.user.findUnique.mockResolvedValue(null);
       mockPrisma.user.create.mockResolvedValue({
         id: 'new-id',
@@ -161,11 +171,15 @@ describe('AuthService', () => {
 
       const createCall = mockPrisma.user.create.mock.calls[0][0];
       const storedToken: string = createCall.data.verificationToken;
+      const emailedCode: string =
+        mockEmailService.sendVerificationEmail.mock.calls[0][2];
 
-      // SHA-256 hex digest is always 64 chars
-      expect(storedToken).toHaveLength(64);
-      // The stored value must differ from any raw token (raw is also 64 hex but a different value)
-      expect(storedToken).toMatch(/^[a-f0-9]{64}$/);
+      // The email carries the raw 6-digit code; the DB carries its hash
+      expect(emailedCode).toMatch(/^\d{6}$/);
+      expect(storedToken).toBe(sha256(emailedCode));
+      // Expiry + resend-cooldown anchor set at creation
+      expect(createCall.data.verificationExpiry).toBeInstanceOf(Date);
+      expect(createCall.data.verificationLastSentAt).toBeInstanceOf(Date);
     });
 
     it('should send the verification email after creating the user', async () => {
@@ -181,7 +195,7 @@ describe('AuthService', () => {
       expect(mockEmailService.sendVerificationEmail).toHaveBeenCalledWith(
         dto.email,
         dto.firstName,
-        expect.any(String),
+        expect.stringMatching(/^\d{6}$/),
       );
     });
 
@@ -219,15 +233,21 @@ describe('AuthService', () => {
   // ─── verifyEmail ────────────────────────────────────────────────────────────
 
   describe('verifyEmail', () => {
-    const rawToken = 'a'.repeat(64);
+    const pendingUser = {
+      ...mockAuthUser,
+      emailVerified: false,
+      verificationToken: OTP_HASH,
+      verificationExpiry: FUTURE(),
+      verificationAttempts: 0,
+    };
 
     beforeEach(() => {
-      mockPrisma.user.findFirst.mockResolvedValue(mockAuthUser);
+      mockPrisma.user.findUnique.mockResolvedValue({ ...pendingUser });
       mockPrisma.user.update.mockResolvedValue(mockAuthUser);
     });
 
-    it('should activate the account and return auth tokens', async () => {
-      const result = await service.verifyEmail(rawToken);
+    it('should activate the account and return auth tokens on the correct code', async () => {
+      const result = await service.verifyEmail(mockAuthUser.email, OTP_CODE);
 
       expect(result).toMatchObject({
         accessToken: 'mock.access.token',
@@ -236,8 +256,8 @@ describe('AuthService', () => {
       });
     });
 
-    it('should set emailVerified and accountStatus in the update', async () => {
-      await service.verifyEmail(rawToken);
+    it('should set emailVerified and accountStatus and clear OTP state in the update', async () => {
+      await service.verifyEmail(mockAuthUser.email, OTP_CODE);
 
       expect(mockPrisma.user.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -246,26 +266,157 @@ describe('AuthService', () => {
             accountStatus: AccountStatus.ACTIVE,
             verificationToken: null,
             verificationExpiry: null,
+            verificationAttempts: 0,
           }),
         }),
       );
     });
 
-    it('should throw BadRequestException for an invalid token', async () => {
-      mockPrisma.user.findFirst.mockResolvedValue(null);
+    it('should throw BadRequestException and count the attempt on a wrong code', async () => {
+      await expect(
+        service.verifyEmail(mockAuthUser.email, '999999'),
+      ).rejects.toThrow(
+        new BadRequestException('Invalid or expired verification code'),
+      );
 
-      await expect(service.verifyEmail(rawToken)).rejects.toThrow(
-        BadRequestException,
+      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { verificationAttempts: 1 },
+        }),
       );
     });
 
-    it('should throw BadRequestException for an expired token', async () => {
-      // findFirst returns null because expiry check (gt: now) fails in the query
-      mockPrisma.user.findFirst.mockResolvedValue(null);
+    it('should self-destruct the code when the wrong guess hits the attempt cap', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        ...pendingUser,
+        verificationAttempts: 4,
+      });
 
-      await expect(service.verifyEmail(rawToken)).rejects.toThrow(
-        new BadRequestException('Invalid or expired verification token'),
+      await expect(
+        service.verifyEmail(mockAuthUser.email, '999999'),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: {
+            verificationAttempts: 5,
+            verificationToken: null,
+            verificationExpiry: null,
+          },
+        }),
       );
+    });
+
+    it('should reject even the correct code once attempts are exhausted', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        ...pendingUser,
+        verificationAttempts: 5,
+      });
+
+      await expect(
+        service.verifyEmail(mockAuthUser.email, OTP_CODE),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException for an expired code', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        ...pendingUser,
+        verificationExpiry: new Date(Date.now() - 1000),
+      });
+
+      await expect(
+        service.verifyEmail(mockAuthUser.email, OTP_CODE),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException for an unknown email — same message as wrong code', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.verifyEmail('nobody@yiiva.co.za', OTP_CODE),
+      ).rejects.toThrow(
+        new BadRequestException('Invalid or expired verification code'),
+      );
+    });
+
+    it('should throw BadRequestException when the account is already verified', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        ...pendingUser,
+        emailVerified: true,
+      });
+
+      await expect(
+        service.verifyEmail(mockAuthUser.email, OTP_CODE),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  // ─── resendVerification ─────────────────────────────────────────────────────
+
+  describe('resendVerification', () => {
+    const genericResponse = {
+      message:
+        'If an account with that email exists and is unverified, a new code has been sent.',
+    };
+    const pendingUser = {
+      id: mockAuthUser.id,
+      email: mockAuthUser.email,
+      firstName: mockAuthUser.firstName,
+      emailVerified: false,
+      accountStatus: AccountStatus.PENDING_VERIFICATION,
+      verificationLastSentAt: new Date(Date.now() - 5 * 60 * 1000), // outside cooldown
+    };
+
+    it('should issue a fresh code, reset attempts, and email it', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(pendingUser);
+      mockPrisma.user.update.mockResolvedValue(pendingUser);
+
+      const result = await service.resendVerification(mockAuthUser.email);
+
+      expect(result).toEqual(genericResponse);
+      const updateCall = mockPrisma.user.update.mock.calls[0][0];
+      const emailedCode: string =
+        mockEmailService.sendVerificationEmail.mock.calls[0][2];
+      expect(emailedCode).toMatch(/^\d{6}$/);
+      expect(updateCall.data.verificationToken).toBe(sha256(emailedCode));
+      expect(updateCall.data.verificationAttempts).toBe(0);
+      expect(updateCall.data.verificationLastSentAt).toBeInstanceOf(Date);
+    });
+
+    it('should silently no-op inside the resend cooldown window', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        ...pendingUser,
+        verificationLastSentAt: new Date(Date.now() - 10 * 1000), // 10s ago
+      });
+
+      const result = await service.resendVerification(mockAuthUser.email);
+
+      expect(result).toEqual(genericResponse);
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      expect(mockEmailService.sendVerificationEmail).not.toHaveBeenCalled();
+    });
+
+    it('should return the generic message for an unknown email (enumeration prevention)', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+
+      const result = await service.resendVerification('nobody@yiiva.co.za');
+
+      expect(result).toEqual(genericResponse);
+      expect(mockEmailService.sendVerificationEmail).not.toHaveBeenCalled();
+    });
+
+    it('should return the generic message for an already-verified account', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        ...pendingUser,
+        emailVerified: true,
+        accountStatus: AccountStatus.ACTIVE,
+      });
+
+      const result = await service.resendVerification(mockAuthUser.email);
+
+      expect(result).toEqual(genericResponse);
+      expect(mockEmailService.sendVerificationEmail).not.toHaveBeenCalled();
     });
   });
 
@@ -482,7 +633,8 @@ describe('AuthService', () => {
 
   describe('forgotPassword', () => {
     const genericResponse = {
-      message: "If an account with that email exists, we've sent a password reset link.",
+      message:
+        "If an account with that email exists, we've sent a password reset code.",
     };
 
     it('should always return the generic message for a valid ACTIVE user', async () => {
@@ -524,20 +676,33 @@ describe('AuthService', () => {
       expect(result).toEqual(genericResponse);
     });
 
-    it('should store a SHA-256 hashed reset token and set 1-hour expiry', async () => {
+    it('should email a 6-digit code and store only its SHA-256 hash with expiry + cooldown anchor', async () => {
       mockPrisma.user.findUnique.mockResolvedValue(mockDbUser);
       mockPrisma.user.update.mockResolvedValue(mockDbUser);
 
       await service.forgotPassword(mockDbUser.email);
 
-      expect(mockPrisma.user.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            resetToken: expect.stringMatching(/^[a-f0-9]{64}$/),
-            resetExpiry: expect.any(Date),
-          }),
-        }),
-      );
+      const updateCall = mockPrisma.user.update.mock.calls[0][0];
+      const emailedCode: string =
+        mockEmailService.sendPasswordResetEmail.mock.calls[0][2];
+      expect(emailedCode).toMatch(/^\d{6}$/);
+      expect(updateCall.data.resetToken).toBe(sha256(emailedCode));
+      expect(updateCall.data.resetExpiry).toBeInstanceOf(Date);
+      expect(updateCall.data.resetAttempts).toBe(0);
+      expect(updateCall.data.resetLastSentAt).toBeInstanceOf(Date);
+    });
+
+    it('should silently no-op inside the resend cooldown window', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        ...mockDbUser,
+        resetLastSentAt: new Date(Date.now() - 10 * 1000), // 10s ago
+      });
+
+      const result = await service.forgotPassword(mockDbUser.email);
+
+      expect(result).toEqual(genericResponse);
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      expect(mockEmailService.sendPasswordResetEmail).not.toHaveBeenCalled();
     });
 
     it('should send the password reset email', async () => {
@@ -549,7 +714,7 @@ describe('AuthService', () => {
       expect(mockEmailService.sendPasswordResetEmail).toHaveBeenCalledWith(
         mockDbUser.email,
         mockDbUser.firstName,
-        expect.any(String),
+        expect.stringMatching(/^\d{6}$/),
       );
     });
 
@@ -578,17 +743,26 @@ describe('AuthService', () => {
   // ─── resetPassword ──────────────────────────────────────────────────────────
 
   describe('resetPassword', () => {
-    const rawToken = 'd'.repeat(64);
     const newPassword = 'NewPassword123';
+    const resetUser = {
+      id: mockAuthUser.id,
+      resetToken: OTP_HASH,
+      resetExpiry: FUTURE(),
+      resetAttempts: 0,
+    };
 
     beforeEach(() => {
-      mockPrisma.user.findFirst.mockResolvedValue({ id: mockAuthUser.id });
+      mockPrisma.user.findUnique.mockResolvedValue({ ...resetUser });
       mockPrisma.user.update.mockResolvedValue(mockDbUser);
       mockPrisma.refreshToken.updateMany.mockResolvedValue({ count: 2 });
     });
 
-    it('should return success message on valid token', async () => {
-      const result = await service.resetPassword(rawToken, newPassword);
+    it('should return success message on the correct code', async () => {
+      const result = await service.resetPassword(
+        mockAuthUser.email,
+        OTP_CODE,
+        newPassword,
+      );
 
       expect(result).toEqual({
         message: 'Password reset successful. Please log in with your new password.',
@@ -596,13 +770,13 @@ describe('AuthService', () => {
     });
 
     it('should hash the new password with 12 salt rounds', async () => {
-      await service.resetPassword(rawToken, newPassword);
+      await service.resetPassword(mockAuthUser.email, OTP_CODE, newPassword);
 
       expect(bcrypt.hash).toHaveBeenCalledWith(newPassword, 12);
     });
 
-    it('should update the password and clear the reset token fields in one call', async () => {
-      await service.resetPassword(rawToken, newPassword);
+    it('should update the password and clear the reset OTP state in one call', async () => {
+      await service.resetPassword(mockAuthUser.email, OTP_CODE, newPassword);
 
       expect(mockPrisma.user.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -610,13 +784,14 @@ describe('AuthService', () => {
             passwordHash: 'hashed-password',
             resetToken: null,
             resetExpiry: null,
+            resetAttempts: 0,
           }),
         }),
       );
     });
 
     it('should revoke all refresh tokens after password reset', async () => {
-      await service.resetPassword(rawToken, newPassword);
+      await service.resetPassword(mockAuthUser.email, OTP_CODE, newPassword);
 
       expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
         where: { userId: mockAuthUser.id, revoked: false },
@@ -624,21 +799,55 @@ describe('AuthService', () => {
       });
     });
 
-    it('should throw BadRequestException for an invalid token', async () => {
-      mockPrisma.user.findFirst.mockResolvedValue(null);
+    it('should throw BadRequestException and count the attempt on a wrong code', async () => {
+      await expect(
+        service.resetPassword(mockAuthUser.email, '999999', newPassword),
+      ).rejects.toThrow(
+        new BadRequestException('Invalid or expired reset code'),
+      );
 
-      await expect(service.resetPassword(rawToken, newPassword)).rejects.toThrow(
-        new BadRequestException('Invalid or expired reset token'),
+      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { resetAttempts: 1 } }),
+      );
+      expect(bcrypt.hash).not.toHaveBeenCalled();
+    });
+
+    it('should self-destruct the code when the wrong guess hits the attempt cap', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        ...resetUser,
+        resetAttempts: 4,
+      });
+
+      await expect(
+        service.resetPassword(mockAuthUser.email, '999999', newPassword),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { resetAttempts: 5, resetToken: null, resetExpiry: null },
+        }),
       );
     });
 
-    it('should throw BadRequestException for an expired token', async () => {
-      // findFirst returns null because the expiry check in the query fails
-      mockPrisma.user.findFirst.mockResolvedValue(null);
+    it('should throw BadRequestException for an unknown email or missing code', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
 
-      await expect(service.resetPassword(rawToken, newPassword)).rejects.toThrow(
-        BadRequestException,
+      await expect(
+        service.resetPassword('nobody@yiiva.co.za', OTP_CODE, newPassword),
+      ).rejects.toThrow(
+        new BadRequestException('Invalid or expired reset code'),
       );
+    });
+
+    it('should throw BadRequestException for an expired code', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        ...resetUser,
+        resetExpiry: new Date(Date.now() - 1000),
+      });
+
+      await expect(
+        service.resetPassword(mockAuthUser.email, OTP_CODE, newPassword),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 

@@ -31,16 +31,14 @@ export class EmailService {
   async sendVerificationEmail(
     to: string,
     firstName: string,
-    token: string,
+    code: string,
   ): Promise<EmailResult> {
-    const verificationUrl = `${this.frontendUrl}/auth/verify-email?token=${token}`;
-
     try {
       const { data, error } = await this.resend.emails.send({
         from: this.from,
         to,
-        subject: 'Verify your YIIVA account',
-        html: verificationEmailTemplate(firstName, verificationUrl),
+        subject: `${code} is your YIIVA verification code`,
+        html: verificationEmailTemplate(firstName, code),
       });
 
       if (error) {
@@ -226,16 +224,14 @@ export class EmailService {
   async sendPasswordResetEmail(
     to: string,
     firstName: string,
-    token: string,
+    code: string,
   ): Promise<EmailResult> {
-    const resetUrl = `${this.frontendUrl}/auth/reset-password?token=${token}`;
-
     try {
       const { data, error } = await this.resend.emails.send({
         from: this.from,
         to,
-        subject: 'Reset your YIIVA password',
-        html: passwordResetEmailTemplate(firstName, resetUrl),
+        subject: `${code} is your YIIVA password reset code`,
+        html: passwordResetEmailTemplate(firstName, code),
       });
 
       if (error) {

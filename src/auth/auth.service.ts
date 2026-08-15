@@ -9,7 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { AccountStatus, StoreStatus, UserRole } from '@prisma/client';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, randomInt, timingSafeEqual } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
@@ -27,6 +27,12 @@ type AuthUser = {
 };
 
 type AuthResponse = { accessToken: string; refreshToken: string; user: AuthUser };
+
+// OTP policy — applies to both email verification and password reset.
+// 6 digits = 1M combinations; the attempt cap is what makes that space safe.
+const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const MAX_OTP_ATTEMPTS = 5; // code self-destructs after 5 wrong guesses
+const RESEND_COOLDOWN_MS = 60 * 1000; // silent no-op inside the window
 
 type UserProfile = {
   id: string;
@@ -76,10 +82,9 @@ export class AuthService {
     // 2. Hash password (12 salt rounds)
     const passwordHash = await bcrypt.hash(dto.password, 12);
 
-    // 3. Generate verification token — raw goes in the email, hash goes in the DB
-    const rawToken = randomBytes(32).toString('hex');
-    const hashedToken = createHash('sha256').update(rawToken).digest('hex');
-    const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    // 3. Generate verification OTP — raw code goes in the email, hash goes in the DB
+    const code = this.generateOtp();
+    const verificationExpiry = new Date(Date.now() + OTP_TTL_MS);
 
     // 4. Create user — role and accountStatus use schema defaults (BUYER, PENDING_VERIFICATION)
     let user: { id: string; email: string; firstName: string };
@@ -91,8 +96,9 @@ export class AuthService {
           firstName: dto.firstName,
           lastName: dto.lastName,
           phone: dto.phone,
-          verificationToken: hashedToken,
+          verificationToken: this.hashOtp(code),
           verificationExpiry,
+          verificationLastSentAt: new Date(),
         },
         select: { id: true, email: true, firstName: true },
       });
@@ -107,7 +113,7 @@ export class AuthService {
     const emailResult = await this.emailService.sendVerificationEmail(
       user.email,
       user.firstName,
-      rawToken,
+      code,
     );
 
     if (!emailResult.success) {
@@ -117,32 +123,65 @@ export class AuthService {
     }
 
     return {
-      message: 'Account created. Please check your email to verify your account.',
+      message:
+        'Account created. Enter the 6-digit code we emailed you to verify your account.',
     };
   }
 
   // ─── Email Verification ───────────────────────────────────────────────────────
 
-  async verifyEmail(token: string): Promise<AuthResponse> {
-    // 1. Hash incoming token — DB stores the hash, never the raw value
-    const hashedToken = createHash('sha256').update(token).digest('hex');
+  async verifyEmail(email: string, code: string): Promise<AuthResponse> {
+    // One error for every failure mode — never reveals whether the email exists,
+    // whether the code expired, or whether attempts ran out
+    const invalid = () =>
+      new BadRequestException('Invalid or expired verification code');
 
-    // 2. Find user with matching token that hasn't expired
-    //    Single query covers both "wrong token" and "expired token" cases
-    const user = await this.prisma.user.findFirst({
-      where: {
-        verificationToken: hashedToken,
-        verificationExpiry: { gt: new Date() },
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        avatarUrl: true,
+        emailVerified: true,
+        verificationToken: true,
+        verificationExpiry: true,
+        verificationAttempts: true,
       },
-      select: { id: true, email: true, firstName: true, lastName: true, role: true, avatarUrl: true },
     });
 
-    // 3. No match — don't distinguish between invalid and expired (avoids info leak)
-    if (!user) {
-      throw new BadRequestException('Invalid or expired verification token');
+    if (
+      !user ||
+      user.emailVerified ||
+      !user.verificationToken ||
+      !user.verificationExpiry ||
+      user.verificationExpiry <= new Date() ||
+      user.verificationAttempts >= MAX_OTP_ATTEMPTS
+    ) {
+      throw invalid();
     }
 
-    // 4. Activate account and clear token fields in one update
+    if (!this.otpMatches(code, user.verificationToken)) {
+      // Wrong guess — count it; at the cap the code self-destructs so the
+      // remaining keyspace can't be brute-forced
+      const attempts = user.verificationAttempts + 1;
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data:
+          attempts >= MAX_OTP_ATTEMPTS
+            ? {
+                verificationAttempts: attempts,
+                verificationToken: null,
+                verificationExpiry: null,
+              }
+            : { verificationAttempts: attempts },
+      });
+      throw invalid();
+    }
+
+    // Activate account and clear OTP state in one update
     const activatedUser = await this.prisma.user.update({
       where: { id: user.id },
       data: {
@@ -150,14 +189,74 @@ export class AuthService {
         accountStatus: AccountStatus.ACTIVE,
         verificationToken: null,
         verificationExpiry: null,
+        verificationAttempts: 0,
       },
       select: { id: true, email: true, firstName: true, lastName: true, role: true, avatarUrl: true },
     });
 
-    // 5. Auto-login — account is active, issue tokens immediately
+    // Auto-login — account is active, issue tokens immediately
     const tokens = await this.generateTokenPair(activatedUser);
 
     return { ...tokens, user: activatedUser };
+  }
+
+  async resendVerification(email: string): Promise<{ message: string }> {
+    // Generic response on every path — enumeration-safe
+    const genericResponse = {
+      message:
+        'If an account with that email exists and is unverified, a new code has been sent.',
+    };
+
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        emailVerified: true,
+        accountStatus: true,
+        verificationLastSentAt: true,
+      },
+    });
+
+    if (!user || user.emailVerified) return genericResponse;
+    if (user.accountStatus !== AccountStatus.PENDING_VERIFICATION) {
+      return genericResponse;
+    }
+
+    // Cooldown — silent no-op so the response can't be used as a timing oracle
+    if (
+      user.verificationLastSentAt &&
+      Date.now() - user.verificationLastSentAt.getTime() < RESEND_COOLDOWN_MS
+    ) {
+      return genericResponse;
+    }
+
+    // Fresh code replaces the old one; attempts reset with it
+    const code = this.generateOtp();
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        verificationToken: this.hashOtp(code),
+        verificationExpiry: new Date(Date.now() + OTP_TTL_MS),
+        verificationAttempts: 0,
+        verificationLastSentAt: new Date(),
+      },
+    });
+
+    const emailResult = await this.emailService.sendVerificationEmail(
+      user.email,
+      user.firstName,
+      code,
+    );
+
+    if (!emailResult.success) {
+      this.logger.warn(
+        `Verification resend failed for user ${user.id}: ${emailResult.error}`,
+      );
+    }
+
+    return genericResponse;
   }
 
   // ─── Login ────────────────────────────────────────────────────────────────────
@@ -312,13 +411,20 @@ export class AuthService {
   async forgotPassword(email: string): Promise<{ message: string }> {
     // Generic response used in every return path — never reveal whether the email exists
     const genericResponse = {
-      message: "If an account with that email exists, we've sent a password reset link.",
+      message:
+        "If an account with that email exists, we've sent a password reset code.",
     };
 
     // 1. Find user — if not found, return generic success immediately
     const user = await this.prisma.user.findUnique({
       where: { email },
-      select: { id: true, email: true, firstName: true, accountStatus: true },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        accountStatus: true,
+        resetLastSentAt: true,
+      },
     });
 
     if (!user) return genericResponse;
@@ -326,22 +432,33 @@ export class AuthService {
     // 2. Only send resets for ACTIVE accounts — don't reveal other statuses
     if (user.accountStatus !== AccountStatus.ACTIVE) return genericResponse;
 
-    // 3. Generate reset token — raw goes in the email, hash goes in the DB
+    // 3. Cooldown — silent no-op inside the window
+    if (
+      user.resetLastSentAt &&
+      Date.now() - user.resetLastSentAt.getTime() < RESEND_COOLDOWN_MS
+    ) {
+      return genericResponse;
+    }
+
+    // 4. Generate reset OTP — raw code goes in the email, hash goes in the DB
     //    Overwrites any existing pending reset — only the latest request is valid
-    const rawToken = randomBytes(32).toString('hex');
-    const hashedToken = createHash('sha256').update(rawToken).digest('hex');
-    const resetExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    const code = this.generateOtp();
 
     await this.prisma.user.update({
       where: { id: user.id },
-      data: { resetToken: hashedToken, resetExpiry },
+      data: {
+        resetToken: this.hashOtp(code),
+        resetExpiry: new Date(Date.now() + OTP_TTL_MS),
+        resetAttempts: 0,
+        resetLastSentAt: new Date(),
+      },
     });
 
-    // 4. Send reset email — failure is logged but still returns generic success
+    // 5. Send reset email — failure is logged but still returns generic success
     const emailResult = await this.emailService.sendPasswordResetEmail(
       user.email,
       user.firstName,
-      rawToken,
+      code,
     );
 
     if (!emailResult.success) {
@@ -354,39 +471,60 @@ export class AuthService {
   }
 
   async resetPassword(
-    token: string,
+    email: string,
+    code: string,
     password: string,
   ): Promise<{ message: string }> {
-    // 1. Hash incoming token for DB lookup
-    const hashedToken = createHash('sha256').update(token).digest('hex');
+    // One error for every failure mode — same shape as verifyEmail
+    const invalid = () =>
+      new BadRequestException('Invalid or expired reset code');
 
-    // 2. Find user with matching token that hasn't expired
-    const user = await this.prisma.user.findFirst({
-      where: {
-        resetToken: hashedToken,
-        resetExpiry: { gt: new Date() },
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        resetToken: true,
+        resetExpiry: true,
+        resetAttempts: true,
       },
-      select: { id: true },
     });
 
-    if (!user) {
-      throw new BadRequestException('Invalid or expired reset token');
+    if (
+      !user ||
+      !user.resetToken ||
+      !user.resetExpiry ||
+      user.resetExpiry <= new Date() ||
+      user.resetAttempts >= MAX_OTP_ATTEMPTS
+    ) {
+      throw invalid();
     }
 
-    // 3. Hash new password
+    if (!this.otpMatches(code, user.resetToken)) {
+      const attempts = user.resetAttempts + 1;
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data:
+          attempts >= MAX_OTP_ATTEMPTS
+            ? { resetAttempts: attempts, resetToken: null, resetExpiry: null }
+            : { resetAttempts: attempts },
+      });
+      throw invalid();
+    }
+
+    // Hash new password, then update and clear OTP state in one update
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // 4. Update password and clear reset fields in one update
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
         passwordHash,
         resetToken: null,
         resetExpiry: null,
+        resetAttempts: 0,
       },
     });
 
-    // 5. Revoke all active refresh tokens — forces re-login on all devices
+    // Revoke all active refresh tokens — forces re-login on all devices
     await this.revokeAllUserTokens(user.id);
 
     return { message: 'Password reset successful. Please log in with your new password.' };
@@ -430,6 +568,24 @@ export class AuthService {
   }
 
   // ─── Private Helpers ──────────────────────────────────────────────────────────
+
+  /** Cryptographically random 6-digit code, zero-padded ("004217" is valid). */
+  private generateOtp(): string {
+    return randomInt(0, 1_000_000).toString().padStart(6, '0');
+  }
+
+  private hashOtp(code: string): string {
+    return createHash('sha256').update(code).digest('hex');
+  }
+
+  /** Constant-time comparison of a submitted code against the stored hash. */
+  private otpMatches(code: string, storedHash: string): boolean {
+    const submitted = Buffer.from(this.hashOtp(code), 'hex');
+    const stored = Buffer.from(storedHash, 'hex');
+    return (
+      submitted.length === stored.length && timingSafeEqual(submitted, stored)
+    );
+  }
 
   /**
    * Revokes all active refresh tokens for a user.

@@ -7,6 +7,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResendVerificationDto } from './dto/resend-verification.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 
@@ -27,7 +28,15 @@ export class AuthController {
   @Post('verify-email')
   @HttpCode(200)
   verifyEmail(@Body() dto: VerifyEmailDto) {
-    return this.authService.verifyEmail(dto.token);
+    return this.authService.verifyEmail(dto.email, dto.code);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @Post('resend-verification')
+  @HttpCode(200)
+  resendVerification(@Body() dto: ResendVerificationDto) {
+    return this.authService.resendVerification(dto.email);
   }
 
   @Public()
@@ -73,7 +82,7 @@ export class AuthController {
   @Post('reset-password')
   @HttpCode(200)
   resetPassword(@Body() dto: ResetPasswordDto) {
-    return this.authService.resetPassword(dto.token, dto.password);
+    return this.authService.resetPassword(dto.email, dto.code, dto.password);
   }
 
   @Get('me')
