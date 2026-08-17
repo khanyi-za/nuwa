@@ -3,7 +3,7 @@ import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ShopifyConfig } from './shopify-config';
 import { ShopifyClient } from './shopify-client.service';
-import { decryptToken } from './token-crypto';
+import { ShopifyTokenService } from './shopify-token.service';
 
 /** Topics the sync pipeline consumes (GraphQL enum form). */
 export const SYNC_TOPICS = [
@@ -71,6 +71,7 @@ export class ShopifyWebhookRegistrationService {
     private readonly prisma: PrismaService,
     private readonly config: ShopifyConfig,
     private readonly client: ShopifyClient,
+    private readonly tokens: ShopifyTokenService,
   ) {}
 
   async registerForConnection(
@@ -88,15 +89,11 @@ export class ShopifyWebhookRegistrationService {
       select: {
         id: true,
         shopDomain: true,
-        encryptedToken: true,
         webhookSecret: true,
       },
     });
     if (!connection) return { registered: false, created: 0 };
-    const accessToken = decryptToken(
-      connection.encryptedToken,
-      this.config.tokenKey,
-    );
+    const accessToken = await this.tokens.getToken(connection.id);
 
     let secret = connection.webhookSecret;
     if (!secret) {
@@ -161,15 +158,11 @@ export class ShopifyWebhookRegistrationService {
         where: { id: connectionId },
         select: {
           shopDomain: true,
-          encryptedToken: true,
           webhookSecret: true,
         },
       });
       if (!connection?.webhookSecret) return;
-      const accessToken = decryptToken(
-        connection.encryptedToken,
-        this.config.tokenKey,
-      );
+      const accessToken = await this.tokens.getToken(connectionId);
 
       const existing = await this.fetchSubscriptions(
         connection.shopDomain,

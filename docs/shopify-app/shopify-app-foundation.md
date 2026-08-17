@@ -1,5 +1,88 @@
 # Shopify App — Foundation (research + design sketch)
 
+> ⚠ **2026-08-16 — LAUNCH-CRITICAL: Shopify retired in-admin custom apps on
+> 2026-01-01. The SA-2 token model no longer works for new merchants.**
+> **UPDATE 2026-08-17: the replacement flow is VERIFIED LIVE end-to-end by
+> the owner** — Dev Dashboard app `testingYiiva` created (steps below in
+> item 3), 4 read scopes granted at install on thedopplerstore, and the
+> client-credentials curl exchange returned a live access token
+> (expires_in 86399). The store-side half of the design is proven; only
+> the nuwa/athena code work remains.
+> Discovered during the Phase C prod e2e attempt (Doppler store, created
+> June 2026, has no legacy path). Verified against shopify.dev + dev forums:
+> - "Settings → Apps → Develop apps → Create app" is GONE from the store
+>   admin. New apps are created in the **Dev Dashboard** (dev.shopify.com)
+>   or via Shopify CLI. Legacy admin-created custom apps (pre-2026-01-01)
+>   keep their permanent `shpat_` tokens and keep working.
+> - New apps get a **Client ID + Client Secret** instead of a token. Access
+>   tokens come from the **client credentials grant**:
+>   `POST https://{shop}.myshopify.com/admin/oauth/access_token` with
+>   `grant_type=client_credentials&client_id=…&client_secret=…` →
+>   `{ access_token, scope, expires_in: 86399 }`. **Tokens expire every
+>   24h** and must be refreshed (refresh = just run the exchange again).
+>   Usage is unchanged once obtained (`X-Shopify-Access-Token` header), so
+>   ShopifyClient needs no call-site changes — only token acquisition.
+> - Grant constraint: app and store must belong to the same Shopify
+>   organization — true for our merchant-creates-their-own-app model.
+> - Both repos currently REJECT the new tokens at the door: nuwa
+>   `src/shopify/dto/connect-shopify.dto.ts` (`@Matches(/^shpat_/)`), athena
+>   `lib/schemas/shopify.ts` (same regex).
+>
+> **✅ BUILT 2026-08-17 (all four items below).** nuwa: migration
+> `20260817125911_shopify_client_credentials` (ShopifyConnection +clientId/
+> clientSecretEncrypted/tokenExpiresAt), `ShopifyTokenService` (lazy
+> refresh <2min-to-expiry, in-flight dedup, exchange doubles as connect-time
+> validation; legacy rows pass through), all 7 token call sites routed
+> through it, connect DTO accepts either shape (client creds XOR legacy
+> shpat_), client secret auto-fills apiSecretEncrypted (webhook HMAC —
+> item 4 confirmed). athena: connect form + zod schema = Client ID/Secret,
+> guide rewritten to the verified Dev Dashboard steps, settings labels
+> "Update credentials". 866 nuwa tests green (13 new), athena build clean.
+> ⚠ Scope list is FIVE: the 4 read scopes + **write_inventory** (stock
+> decrement pushes YIIVA sales back to Shopify) — the owner's testingYiiva
+> app has only the 4 read scopes and needs write_inventory added (new
+> version → release → reinstall) before a sale-decrement test.
+>
+> **Original work items (for context; decision was pending 2026-08-16):**
+> 1. Connect flow accepts `clientId` + `clientSecret` (encrypt secret with
+>    the existing SHOPIFY_TOKEN_KEY AES-256-GCM machinery; drop or branch
+>    the shpat_ regex — legacy tokens should stay accepted for pre-2026
+>    stores).
+> 2. Token service: exchange on connect (validates credentials), cache
+>    access token + expiry on ShopifyConnection, refresh when <60s from
+>    expiry (lazily on use, or cron). All existing pull/sync code paths get
+>    tokens from this service instead of the stored permanent token.
+> 3. athena wizard: collect Client ID + Secret; rewrite the custom-app
+>    guide copy for the Dev Dashboard flow. **VERIFIED UI steps (2026-08-17,
+>    against the live dashboard + shopify.dev):**
+>    dev.shopify.com/dashboard → Apps → "Create app" → "Start from Dev
+>    Dashboard" → name it. Apps are configured as **versions**: Versions tab
+>    → Create version → (a) UNCHECK "Embed app in Shopify admin"; App URL =
+>    `https://shopify.dev/apps/default-app-home` (Shopify's documented
+>    placeholder for non-embedded apps); (b) Webhooks API version: latest;
+>    (c) **Required scopes** — via the "Select scopes" modal or typed as a
+>    comma list: `read_products,read_inventory,read_locations,
+>    read_legal_policies` (must be REQUIRED, not Optional — with
+>    Shopify-managed installation the released version's required scopes
+>    are what gets granted at install); (d) leave "Use legacy install flow"
+>    UNCHECKED (that's the old app-hosted OAuth install; we want
+>    Shopify-managed installation) and Redirect URLs EMPTY (only used by
+>    authorization-code OAuth); (e) **Release** (top-right) — a version
+>    must be released before install. Then: app **Home → "Install app" →
+>    pick the store → Install**. Credentials: app **Settings → Client ID +
+>    Client secret**. Scope changes later = new version + release + the
+>    merchant re-approves.
+> 4. Bonus: the client secret doubles as the webhook HMAC key — may make
+>    the optional `apiSecret` connect field redundant (verify).
+> Quick-hack alternative (rejected for now): manual curl exchange + relaxed
+> regex gets ONE import done but sync dies in 24h.
+> Sources: shopify.dev/docs/apps/build/authentication-authorization/
+> access-tokens/generate-app-access-tokens-admin ("You can no longer create
+> new custom apps in the Shopify admin"), shopify.dev/docs/apps/build/
+> dev-dashboard/get-api-access-tokens (grant endpoint + 24h expiry),
+> community.shopify.dev thread 29472 (client-credentials same-org
+> constraint; Token Exchange / Authorization Code Grant for cross-org).
+
 > Status: **PHASE 1 COMPLETE (1a + 1b + 1c shipped 2026-07-22) — the one-time
 > import wizard backend is fully built.** SA-1 decided: nuwa module
 > (`src/shopify/`). SA-2 decided: merchant-created custom-app Admin token

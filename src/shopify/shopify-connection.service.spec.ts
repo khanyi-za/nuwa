@@ -6,6 +6,7 @@ import { ShopifyConnectionService } from './shopify-connection.service';
 import { ShopifyConfig } from './shopify-config';
 import { ShopifyClient } from './shopify-client.service';
 import { ShopifyWebhookRegistrationService } from './shopify-webhook-registration.service';
+import { ShopifyTokenService } from './shopify-token.service';
 import { decryptToken, encryptToken } from './token-crypto';
 
 const USER_ID = 'user-1';
@@ -24,6 +25,7 @@ const mockRegistration = {
   registerForConnection: jest.fn(),
   unregisterForConnection: jest.fn(),
 };
+const mockTokens = { exchange: jest.fn(), getTokenFor: jest.fn(), getToken: jest.fn() };
 
 const shopInfo = {
   name: 'FIELDS',
@@ -57,6 +59,7 @@ describe('ShopifyConnectionService', () => {
           provide: ShopifyWebhookRegistrationService,
           useValue: mockRegistration,
         },
+        { provide: ShopifyTokenService, useValue: mockTokens },
       ],
     }).compile();
     service = module.get(ShopifyConnectionService);
@@ -137,6 +140,71 @@ describe('ShopifyConnectionService', () => {
       expect(mockPrisma.shopifyConnection.upsert).not.toHaveBeenCalled();
     });
 
+    it('rejects providing BOTH auth shapes, and providing neither', async () => {
+      await expect(
+        service.connect(USER_ID, {
+          ...dto,
+          clientId: 'client-id-123456',
+          clientSecret: 'secret-'.padEnd(30, 'x'),
+        }),
+      ).rejects.toThrow(/either clientId/);
+
+      await expect(
+        service.connect(USER_ID, { shopDomain: dto.shopDomain }),
+      ).rejects.toThrow(/either clientId/);
+      expect(mockClient.fetchShopInfo).not.toHaveBeenCalled();
+    });
+
+    it('client-credentials shape: exchanges first, stores creds encrypted + token cache + expiry', async () => {
+      const expiresAt = new Date(Date.now() + 86_399_000);
+      mockTokens.exchange.mockResolvedValue({
+        accessToken: 'exchanged-token-abc',
+        expiresAt,
+      });
+      const ccDto = {
+        shopDomain: 'fieldsstore.myshopify.com',
+        clientId: 'client-id-123456',
+        clientSecret: 'super-secret-value-1234567890',
+      };
+
+      await service.connect(USER_ID, ccDto);
+
+      expect(mockTokens.exchange).toHaveBeenCalledWith(
+        'fieldsstore.myshopify.com',
+        ccDto.clientId,
+        ccDto.clientSecret,
+      );
+      // Shop validation uses the freshly exchanged token
+      expect(mockClient.fetchShopInfo).toHaveBeenCalledWith(
+        'fieldsstore.myshopify.com',
+        'exchanged-token-abc',
+      );
+
+      const upsert = mockPrisma.shopifyConnection.upsert.mock.calls[0][0];
+      expect(decryptToken(upsert.create.encryptedToken, KEY)).toBe(
+        'exchanged-token-abc',
+      );
+      expect(upsert.create.clientId).toBe(ccDto.clientId);
+      expect(decryptToken(upsert.create.clientSecretEncrypted, KEY)).toBe(
+        ccDto.clientSecret,
+      );
+      expect(upsert.create.tokenExpiresAt).toEqual(expiresAt);
+      // The client secret doubles as the webhook HMAC key
+      expect(decryptToken(upsert.create.apiSecretEncrypted, KEY)).toBe(
+        ccDto.clientSecret,
+      );
+    });
+
+    it('legacy reconnect clears client-credentials state', async () => {
+      await service.connect(USER_ID, dto);
+
+      const upsert = mockPrisma.shopifyConnection.upsert.mock.calls[0][0];
+      expect(upsert.update.clientId).toBeNull();
+      expect(upsert.update.clientSecretEncrypted).toBeNull();
+      expect(upsert.update.tokenExpiresAt).toBeNull();
+      expect(mockTokens.exchange).not.toHaveBeenCalled();
+    });
+
     it('flags unsupported currencies in the preview', async () => {
       mockClient.fetchShopInfo.mockResolvedValue({
         ...shopInfo,
@@ -153,17 +221,23 @@ describe('ShopifyConnectionService', () => {
   });
 
   describe('getActiveWithToken', () => {
-    it('returns the connection with the token DECRYPTED', async () => {
-      mockPrisma.shopifyConnection.findFirst.mockResolvedValue({
+    it('returns the connection with a token from the token service', async () => {
+      const row = {
         id: 'conn-1',
         shopDomain: 'fieldsstore.myshopify.com',
         encryptedToken: encryptToken('shpat_abcdef0123456789', KEY),
         currencyCode: 'ZAR',
         storeId: null,
-      });
+        clientId: null,
+        clientSecretEncrypted: null,
+        tokenExpiresAt: null,
+      };
+      mockPrisma.shopifyConnection.findFirst.mockResolvedValue(row);
+      mockTokens.getTokenFor.mockResolvedValue('shpat_abcdef0123456789');
 
       const result = await service.getActiveWithToken(USER_ID);
 
+      expect(mockTokens.getTokenFor).toHaveBeenCalledWith(row);
       expect(result).toEqual({
         id: 'conn-1',
         shopDomain: 'fieldsstore.myshopify.com',

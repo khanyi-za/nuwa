@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ShopifyConfig } from './shopify-config';
 import { ShopifyClient } from './shopify-client.service';
 import { ShopifyConnectionService } from './shopify-connection.service';
+import { ShopifyTokenService } from './shopify-token.service';
 import { ShopifyCatalogueService } from './shopify-catalogue.service';
 import { ShopifyRehostService } from './shopify-rehost.service';
 import { ShopifyProductWriterService } from './shopify-product-writer.service';
@@ -41,6 +42,7 @@ import { ShopifyController } from './shopify.controller';
   providers: [
     ShopifyConfig,
     ShopifyClient,
+    ShopifyTokenService,
     ShopifyConnectionService,
     ShopifyCatalogueService,
     ShopifyRehostService,

@@ -1489,10 +1489,19 @@ model ShopifyConnection {
   userId         String // YIIVA user who connected the shop
   storeId        String?                 @unique // set once import creates/links the Store
   shopDomain     String                  @unique // canonical *.myshopify.com host
+  // Legacy connections (clientId null): permanent shpat_ Admin token.
+  // Client-credentials connections: the CACHED ~24h access token, refreshed
+  // by ShopifyTokenService before tokenExpiresAt.
   encryptedToken String // AES-256-GCM: iv.ciphertext.authTag (base64url)
   shopName       String?
   currencyCode   String?
   status         ShopifyConnectionStatus @default(ACTIVE)
+
+  // ── Client-credentials auth (Dev Dashboard apps; Shopify retired in-admin
+  // custom apps 2026-01-01 — see shopify-app-foundation.md top banner) ──
+  clientId              String?
+  clientSecretEncrypted String? // AES-256-GCM, same format as encryptedToken
+  tokenExpiresAt        DateTime? // cached access token expiry (null = legacy permanent token)
 
   // ── Phase 2 sync ──
   // Optional custom-app API secret key (AES-256-GCM) — when present, webhook

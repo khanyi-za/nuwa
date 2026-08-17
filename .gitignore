@@ -6,6 +6,8 @@
 # Logs
 logs
 *.log
+# Railway log dumps pulled locally for debugging
+runtime-logs/
 npm-debug.log*
 pnpm-debug.log*
 yarn-debug.log*

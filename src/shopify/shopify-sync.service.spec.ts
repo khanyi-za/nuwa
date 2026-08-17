@@ -6,7 +6,8 @@ import { ShopifySyncService } from './shopify-sync.service';
 import { ShopifyConfig } from './shopify-config';
 import { ShopifyCatalogueService } from './shopify-catalogue.service';
 import { ShopifyProductWriterService } from './shopify-product-writer.service';
-import { encryptToken } from './token-crypto';
+import { ShopifyTokenService } from './shopify-token.service';
+import { decryptToken, encryptToken } from './token-crypto';
 import type { RawProduct } from './shopify-catalogue-types';
 
 const KEY = randomBytes(32);
@@ -77,6 +78,14 @@ describe('ShopifySyncService', () => {
         { provide: ShopifyConfig, useValue: { tokenKey: KEY } },
         { provide: ShopifyCatalogueService, useValue: mockCatalogue },
         { provide: ShopifyProductWriterService, useValue: mockWriter },
+        {
+          provide: ShopifyTokenService,
+          // Mirrors the legacy path: decrypt the row's stored token.
+          useValue: {
+            getTokenFor: (c: { encryptedToken: string }) =>
+              Promise.resolve(decryptToken(c.encryptedToken, KEY)),
+          },
+        },
       ],
     }).compile();
     service = module.get(ShopifySyncService);

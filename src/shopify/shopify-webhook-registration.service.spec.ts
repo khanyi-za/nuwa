@@ -7,6 +7,7 @@ import {
 } from './shopify-webhook-registration.service';
 import { ShopifyConfig } from './shopify-config';
 import { ShopifyClient } from './shopify-client.service';
+import { ShopifyTokenService } from './shopify-token.service';
 import { encryptToken } from './token-crypto';
 
 const KEY = randomBytes(32);
@@ -63,6 +64,12 @@ describe('ShopifyWebhookRegistrationService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ShopifyConfig, useValue: config },
         { provide: ShopifyClient, useValue: mockClient },
+        {
+          provide: ShopifyTokenService,
+          useValue: {
+            getToken: () => Promise.resolve('shpat_abcdef0123456789'),
+          },
+        },
       ],
     }).compile();
     service = module.get(ShopifyWebhookRegistrationService);

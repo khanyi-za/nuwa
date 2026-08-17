@@ -6,7 +6,7 @@ import { ShopifyCatalogueService } from './shopify-catalogue.service';
 import { ShopifyProductWriterService } from './shopify-product-writer.service';
 import { mapProduct } from './mapping/catalogue-mapper';
 import { priceToCents, stripHtml } from './mapping/heuristics';
-import { decryptToken } from './token-crypto';
+import { ShopifyTokenService } from './shopify-token.service';
 
 /* REST-shaped webhook payloads (products/* topics deliver the REST resource). */
 interface RestVariantPayload {
@@ -79,6 +79,7 @@ export class ShopifySyncService {
     private readonly config: ShopifyConfig,
     private readonly catalogue: ShopifyCatalogueService,
     private readonly writer: ShopifyProductWriterService,
+    private readonly tokens: ShopifyTokenService,
   ) {}
 
   async apply(
@@ -217,10 +218,7 @@ export class ShopifySyncService {
 
     // Re-fetch via GraphQL so the new product flows through the exact same
     // shapes as the bulk import (REST payload shapes stay out of the writer).
-    const accessToken = decryptToken(
-      connection.encryptedToken,
-      this.config.tokenKey,
-    );
+    const accessToken = await this.tokens.getTokenFor(connection);
     const raw = await this.catalogue.fetchProduct(
       connection.shopDomain,
       accessToken,
@@ -354,10 +352,7 @@ export class ShopifySyncService {
     if (!connection || connection.status !== 'ACTIVE' || !connection.storeId) {
       return null;
     }
-    const accessToken = decryptToken(
-      connection.encryptedToken,
-      this.config.tokenKey,
-    );
+    const accessToken = await this.tokens.getTokenFor(connection);
     const raw = await this.catalogue.pull(connection.shopDomain, accessToken);
 
     const links = await this.prisma.shopifyProductLink.findMany({

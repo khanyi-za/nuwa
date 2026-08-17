@@ -1,6 +1,85 @@
-# STATUS.md — Last updated 2026-08-14
+# STATUS.md — Last updated 2026-08-17
 
 > 🟢 **HANDOFF — next session start here.**
+>
+> ## 2026-08-17 — Shopify client-credentials support BUILT (nuwa+athena) ·
+> ## Phase C UNBLOCKED pending deploy
+>
+> The 2026-08-16 blocker below is RESOLVED in code (details + verified
+> Dev Dashboard UI steps: shopify-app-foundation.md top banner). nuwa:
+> migration `20260817125911_shopify_client_credentials`, ShopifyTokenService
+> (lazy 24h-token refresh, exchange-as-validation, legacy shpat_ passthrough),
+> connect accepts Client ID+Secret XOR legacy token, client secret doubles as
+> webhook HMAC key. athena: wizard form + schema + Dev Dashboard guide +
+> settings copy. 866 nuwa tests green / athena build clean — ALL UNCOMMITTED
+> in both repos. Owner already created Dev Dashboard app `testingYiiva`,
+> installed it on thedopplerstore, and verified the curl token exchange live.
+>
+> **▶ NEXT:** (1) commit nuwa (suggested: "shopify client-credentials auth:
+> ShopifyTokenService w/ lazy 24h refresh, connect via Client ID+Secret
+> (legacy shpat_ kept), client secret = webhook HMAC key, migration + docs,
+> on 17/08/2026") + promote main→staging→production (migration rides the
+> pipeline); (2) commit athena ("shopify connect: Client ID+Secret fields +
+> Dev Dashboard guide (custom apps retired by Shopify 2026-01), on
+> 17/08/2026") + push (Vercel auto-deploys); (3) owner errand: add
+> **write_inventory** to testingYiiva's Required scopes (new version →
+> release → reinstall) — needed for sale→Shopify stock decrement; refund
+> policy in Shopify still unconfirmed; (4) THEN Phase C connect test:
+> athena wizard → thedopplerstore + Client ID/Secret → preview 14 products →
+> import → verify (checklist in 2026-08-16 entry below) → live-sync edit
+> test.
+>
+> ## 2026-08-16 — OTP auth SHIPPED + verified in prod · Phase C BLOCKED:
+> ## Shopify killed in-admin custom apps (decision pending)
+>
+> **OTP email verification + password reset LIVE (all 3 repos, deployed
+> 2026-08-15):** 6-digit codes replace emailed links everywhere — sha256 at
+> rest, 10-min expiry, 5-attempt self-destruct, constant-time compare, new
+> `POST /auth/resend-verification` (60s cooldown, enumeration-safe;
+> forgot-password got the same cooldown). verify-email = `{email, code}`
+> (still auto-logs-in), reset-password = `{email, code, password}`. Auth
+> emails carry NO URLs (kills the wrong-host FRONTEND_URL bug class; code
+> is in the subject). Migration `20260815134912_otp_email_verification`
+> applied local + staging + prod via the pipeline. nuwa 853 tests green;
+> athena: register panel → code entry (VerifyCodeForm, invite returnUrl +
+> cookie auto-login preserved), standalone /auth/verify-email?email= page,
+> login 403 → redirects there, forgot-password = 2-step code+password,
+> legacy reset URL redirects; maya: verify-email = code screen (fixes the
+> NEVER-WIRED universal-link landing — emailed links could not open the
+> app), check-email screen deleted, login panel routes to code entry,
+> 2-step reset. Contract doc auth-module-api.md updated. **Verified live
+> end-to-end in prod** (register → 409'd on pre-existing account →
+> login 403 → code page → Resend → email delivered → verified+logged in).
+> Note: resend requires pressing the button — no auto-send by design
+> (abuse + cooldown burn); revisit copy if users trip. `runtime-logs/`
+> gitignored (Railway log dumps for debugging).
+>
+> **⚠ PHASE C BLOCKED — LAUNCH-CRITICAL Shopify platform change
+> (full writeup + sources: shopify-app-foundation.md top banner):**
+> Shopify retired in-admin custom apps on **2026-01-01** — new apps live in
+> the Dev Dashboard (dev.shopify.com) and get **Client ID + Secret** with
+> **24h-expiring tokens** via client-credentials grant (`POST /admin/oauth/
+> access_token`, refresh = re-exchange; usage header unchanged). Permanent
+> `shpat_` tokens exist only for pre-2026 legacy apps. **YIIVA cannot
+> onboard ANY new merchant until nuwa+athena support this** (both repos
+> also regex-reject non-shpat_ tokens at the door). Doppler store (June
+> 2026) has no legacy path. Required work itemized in the foundation-doc
+> banner: encrypted clientId/Secret storage, token exchange+cache+refresh
+> service, athena wizard + guide rewrite. **Owner paused to decide
+> (2026-08-16)**: build properly (~day, recommended — mandatory pre-launch
+> anyway) vs quick-hack one import (manual curl exchange + relaxed regex;
+> sync dies in 24h). Doppler store errand still open either way: distinctive
+> refund policy set in Shopify (needed for returns-capture verification).
+>
+> **▶ NEXT:** (1) decide the Shopify token approach → build it → resume
+> Phase C (connect Doppler via athena wizard, verify 14 products / 3
+> collections / variant images / 925g weight / returnPolicyText /
+> webhooksRegisteredAt, then live-sync edit test); (2) commit the OTP-era
+> follow-ups sitting uncommitted in nuwa (.gitignore runtime-logs, contract
+> doc + STATUS + foundation-doc updates — suggested msg: "docs: Shopify
+> 2026 token-model change (launch-critical, decision pending) + OTP status,
+> on 16/08/2026"); (3) Paystack KYC §1 paste still an open owner errand;
+> (4) Phase D arm-the-guards + Phase E phalo unchanged below.
 >
 > ## 2026-08-14 — RAILWAY A0 COMPLETE: nuwa LIVE in production + staging
 >

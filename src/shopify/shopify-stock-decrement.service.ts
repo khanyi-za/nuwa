@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ShopifyConfig } from './shopify-config';
 import { ShopifyClient } from './shopify-client.service';
-import { decryptToken } from './token-crypto';
+import { ShopifyTokenService } from './shopify-token.service';
 
 const ADJUST_MUTATION = `
   mutation SyncDecrement($input: InventoryAdjustQuantitiesInput!) {
@@ -35,6 +35,7 @@ export class ShopifyStockDecrementService {
     private readonly prisma: PrismaService,
     private readonly config: ShopifyConfig,
     private readonly client: ShopifyClient,
+    private readonly tokens: ShopifyTokenService,
   ) {}
 
   /** Never throws. No-op for stores without an active Shopify connection. */
@@ -88,10 +89,7 @@ export class ShopifyStockDecrementService {
       }
       if (changes.length === 0) return;
 
-      const accessToken = decryptToken(
-        connection.encryptedToken,
-        this.config.tokenKey,
-      );
+      const accessToken = await this.tokens.getTokenFor(connection);
       const res = await this.client.graphql<{
         inventoryAdjustQuantities: {
           userErrors: { field: string[] | null; message: string }[];

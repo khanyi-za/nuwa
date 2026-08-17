@@ -4,7 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ShopifyStockDecrementService } from './shopify-stock-decrement.service';
 import { ShopifyConfig } from './shopify-config';
 import { ShopifyClient } from './shopify-client.service';
-import { encryptToken } from './token-crypto';
+import { ShopifyTokenService } from './shopify-token.service';
+import { decryptToken, encryptToken } from './token-crypto';
 
 const KEY = randomBytes(32);
 const ORDER_ID = 'order-1';
@@ -43,6 +44,13 @@ describe('ShopifyStockDecrementService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ShopifyConfig, useValue: { tokenKey: KEY } },
         { provide: ShopifyClient, useValue: mockClient },
+        {
+          provide: ShopifyTokenService,
+          useValue: {
+            getTokenFor: (c: { encryptedToken: string }) =>
+              Promise.resolve(decryptToken(c.encryptedToken, KEY)),
+          },
+        },
       ],
     }).compile();
     service = module.get(ShopifyStockDecrementService);
