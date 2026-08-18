@@ -135,14 +135,18 @@ export class VariantService {
       throw new NotFoundException('Store not found');
     }
 
+    // PENDING_REVIEW included deliberately (2026-08-18): merchants keep
+    // polishing their catalogue while the store is under review — admin review
+    // targets business identity, not individual products (policy-register P-1).
     const allowedStatuses: StoreStatus[] = [
+      StoreStatus.PENDING_REVIEW,
       StoreStatus.APPROVED,
       StoreStatus.PENDING_GO_LIVE,
       StoreStatus.ACTIVE,
     ];
     if (!allowedStatuses.includes(store.status)) {
       throw new ForbiddenException(
-        `Cannot manage products on a store with status ${store.status}. Store must be approved first.`,
+        `Cannot manage products on a store with status ${store.status}. Submit your store for review first.`,
       );
     }
   }

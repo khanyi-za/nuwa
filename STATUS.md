@@ -5,6 +5,22 @@
 > ## 2026-08-18 — ✅ PHASE C COMPLETE: Shopify prod e2e VERIFIED end-to-end
 > ## (+ 2 prod bugs found & fixed: refresh stampede, bannerMedia contract)
 >
+> **(later) UNDER-REVIEW DASHBOARD SHIPPED (owner-requested, Paystack-style):**
+> PENDING_REVIEW is no longer a dead-end screen — review runs in parallel
+> with setup. nuwa: PENDING_REVIEW added to the manage-allowlists in
+> product/variant/image/collection services (catalogue editable during
+> review; store-profile PATCH stays BLOCKED — that's the reviewed material;
+> public buyer surfaces still ACTIVE-only, unchanged). athena: dashboard
+> layout shows merchant nav (minus Team) for PENDING_REVIEW stores (user is
+> still role BUYER then!) + amber StatusPill in header; under-review-first
+> phase screen rebuilt as a working home (review banner + quick links +
+> SettlementAccountSection w/ go-live-gate nudge + banner media + locations);
+> settings page: reviewed fields collapse into read-only ReviewLockedDetails
+> card (components/review/) w/ PENDING pill, operational sections stay live;
+> both product-page gates admit PENDING_REVIEW (status-based, not role).
+> nuwa 866 green / athena build clean — UNCOMMITTED both repos. Perfect
+> tester exists: the Doppler store IS PENDING_REVIEW right now.
+>
 > **The go-live pivot's target test PASSED in full.** Doppler store connected
 > via the NEW client-credentials flow on production, imported, and verified
 > by direct SQL (via `railway connect` psql): 14 products with every trap
