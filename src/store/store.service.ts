@@ -49,6 +49,10 @@ const storeSelect = {
   followerCount: true,
   createdAt: true,
   updatedAt: true,
+  // The store contract (athena storeSchema) requires bannerMedia on every
+  // store response — omitting it makes athena's zod .parse() throw AFTER a
+  // successful mutation (phantom "Something went wrong" on save/submit).
+  bannerMedia: { orderBy: { sortOrder: 'asc' } },
 } as const;
 
 @Injectable()
