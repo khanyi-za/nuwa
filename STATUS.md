@@ -1,6 +1,56 @@
-# STATUS.md — Last updated 2026-08-17
+# STATUS.md — Last updated 2026-08-18
 
 > 🟢 **HANDOFF — next session start here.**
+>
+> ## 2026-08-18 — ✅ PHASE C COMPLETE: Shopify prod e2e VERIFIED end-to-end
+> ## (+ 2 prod bugs found & fixed: refresh stampede, bannerMedia contract)
+>
+> **The go-live pivot's target test PASSED in full.** Doppler store connected
+> via the NEW client-credentials flow on production, imported, and verified
+> by direct SQL (via `railway connect` psql): 14 products with every trap
+> shape correct (25-var Band×Cup bralette, 16-var boilersuit, 7 numeric
+> trouser sizes, 925g real weight, 0-variant moonbag, 1-var beanie/tote),
+> 3 collections (5/5/4 incl. the hand-made "Doppler summer"), 44/89 variants
+> with colour-linked imageUrl, 81 images rehosted to Cloudinary, Doppler
+> returns policy captured verbatim (read_legal_policies), connection row:
+> client_creds=t + tokenExpiresAt ~24h out + webhooksRegisteredAt stamped.
+> **Live-sync verified**: Tie Belt price edit in Shopify → webhook →
+> priceInCents=99900 in prod DB in seconds. ⚠ Test artifact: Tie Belt price
+> left at R999 in Shopify — revert it. Store submitted → PENDING_REVIEW.
+> Note: connection stores canonical domain `bbw5gt-7n.myshopify.com` (alias
+> of thedopplerstore) — by design.
+>
+> **Two REAL production bugs found by slow human testing, both fixed+shipped:**
+> (1) athena refresh stampede — parallel 401s each raced /auth/refresh whose
+> tokens are single-use → random logout mid-autosave; fixed with
+> single-flight refresh (maya's pattern ported to lib/api-client.ts).
+> (2) nuwa store responses lacked bannerMedia (required by athena's
+> storeSchema since the May redesign) → zod threw AFTER successful
+> save/submit ("phantom" errors); fixed by adding bannerMedia to storeSelect
+> (commit on all 3 branches; note production has 2 extra history-only
+> commits — empty retrigger + a merge commit from the vi-editor incident;
+> content identical, user advised to re-level with merge production→main;
+> `git config --global core.editor nano` set advice + `--no-edit` habit).
+>
+> **Ops learnings this session:** GitHub major outage broke prod deploy at
+> snapshot ("repository forbidden") — Railway's AI diagnosis wrongly blamed
+> the integration; waiting + empty-commit retrigger (`git commit
+> --allow-empty`) was correct (snapshot-failed deploys have no Redeploy
+> option). `railway connect` + brew libpq psql = the prod DB inspection
+> path (Postgres service has NO public-URL env var; internal only).
+> CLI left linked to production/Postgres — RELINK to nuwa before ssh/run.
+>
+> **▶ NEXT:** (1) revert Tie Belt price in Shopify; (2) admin-review the
+> Doppler store (athena admin flow: approve first review → exercises the
+> CIPC-check + payout-account-before-go-live policies from
+> docs/policy-register.md — store has NO paystack subaccount yet, so the
+> go-live gate applies); (3) first-order test needs Phase D (Paystack live
+> key — KYC §1 paste still an owner errand) + will exercise write_inventory
+> stock decrement (scope added to testingYiiva app); (4) Phase E: phalo →
+> Railway (nothing blocks on it); (5) maya repoint to prod when ready
+> (config-only). STATUS/doc edits this entry = uncommitted (suggested msg:
+> "STATUS: Phase C complete — Shopify prod e2e verified end-to-end, on
+> 18/08/2026").
 >
 > ## 2026-08-17 — Shopify client-credentials support BUILT (nuwa+athena) ·
 > ## Phase C UNBLOCKED pending deploy
