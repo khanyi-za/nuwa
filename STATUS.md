@@ -1,6 +1,123 @@
-# STATUS.md — Last updated 2026-08-18
+# STATUS.md — Last updated 2026-09-05
 
 > 🟢 **HANDOFF — next session start here.**
+>
+> ## 2026-09-02→05 — PAYSTACK KYC REVIEW PACKAGE LIVE ON PROD · first prod
+> ## e2e transaction PASSED · fix round · Android emulator rig
+>
+> **1. Fix round (09-02, cross-repo):** landing shopper_hero_poster.jpg
+> regenerated (ffmpeg frame-0; the "Tailwind drops arbitrary classes" gotcha
+> is really an unlayered `img{height:auto}` rule + runtime class strings);
+> public/.claude settings deleted from landing; athena AppShell got a mobile
+> nav drawer below lg (shared NavList/ThemeRow, avatar into right cluster) +
+> apiFetchBlob 401 ladder unified into resolve401; maya merchant Avatar now
+> passes store.logoUrl + broken var()-opacity classes → -subtle tokens;
+> maya/status.md + athena CHANGELOG back-filled (4 missing committed rounds
+> + hash markers).
+>
+> **2. Paystack KYC "test login details" package (09-03/04, ALL ON PROD):**
+> review user `paystack.review@yiiva.co.za` (seeded via railway ssh + prisma
+> db execute; Prisma 7: no --url flag, bare PrismaClient unusable in image)
+> + "Yiiva Demo Store" ACTIVE (Khaziimla CIPC 2026/314534/07, real bank,
+> logo/banner/7 fieldsstore-media products in "Essentials", dispatch addr
+> Ferndale) + payout subaccount ACCT_reqfpz5aqjzt7ql. **Owner skipped manual
+> review — seeded straight to ACTIVE** (Doppler review still pending = first
+> real P-1/P-2 run). Covering note = §3 of docs/paystack-kyc-responses.md.
+> **Found+fixed: prod PAYSTACK_SECRET_KEY was a truncated paste** (owner
+> re-pasted). Gotchas: DRAFT stores can't create products (submit first);
+> activation needs collection membership; manual product CRUD can't set
+> genderType (SQL'd UNISEX or feed-invisible).
+>
+> **3. FIRST PROD E2E TRANSACTION ✅ (09-04):** e2e buyer seeded → cart →
+> real ShipLogic rate (R95) → order YV-2026-KRBG8 → webhook (owner repointed
+> Paystack TEST webhook URL off July's dead tunnel) → COMPLETED w/ fees →
+> CONFIRMED → waybill 3FTVBF → notification → **split verified to the cent**
+> (2.5% commission, all-proportional; merchant net R2,119.50 to subaccount).
+> First attempt died on the dead webhook URL → 30-min cron cancel worked as
+> designed (stranded test charge m-062e… may late-arrive → RECONCILE_REQUIRED
+> is correct). Mobile addr DTO lacks suburb; place-order needs
+> returnUrl+cancelUrl. `yiiva.co.za/payment-return` 404s in browsers (app
+> intercepts; graceful page declined for now).
+>
+> **4. maya Android review build (EAS):** org `yiiva`, projectId
+> `9e6accc9-…` in app.json (RELEASE BLOCKER SOLVED), android.package
+> za.co.yiiva.app, eas.json preview profile bakes prod API URL (blocker
+> solved for builds). Build 70c2ed0a FINISHED — **APK artifact expires
+> 2026-09-17** (rebuild: `npx eas-cli build -p android --profile preview`).
+> Local emulator rig installed (brew openjdk + android-commandlinetools,
+> AVD `yiiva-review`, APK verified against prod). 428MB upload → wants
+> .easignore.
+>
+> **5. Returns & Refunds page** built in landing (`/returns-refunds`,
+> footer-linked; mirrors code rules incl. 30-day window; return-shipping
+> cost deliberately unstated). support@yiiva.co.za published on it —
+> **mailbox creation still an owner errand**. Docs checklists updated.
+> **Queued project:** Google+Meta social login (see memory; Meta blocked on
+> privacy-policy… returns-page-family work).
+>
+> **▶ NEXT:** (1) owner: paste KYC §1 + send §3 covering note (Paystack
+> dashboard accessible again); (2) owner: support@ mailbox; (3) COMMIT ALL
+> FOUR REPOS (this round) + nuwa promotion main→staging→production (deploys
+> merchant surface + topProducts → athena's card goes live); (4) teardown
+> review account after Paystack passes (memory: paystack-review-account);
+> (5) Doppler admin review (real P-1/P-2 rehearsal); (6) prior queue:
+> landing content decisions, backlog #2–#7, Phase D/E, maya blockers
+> (NSAllowsArbitraryLoads + universal links remain).
+>
+> ## 2026-08-27→09-01 — MOBILE MERCHANT DASHBOARD SHIPPED (maya+nuwa) ·
+> ## landing-page rebuild · athena overview redesign · demo screenshot prep
+>
+> **Landing-page sprint sessions.** Everything below is UNCOMMITTED in its
+> repo unless stated. Full durable detail in auto-memory:
+> mobile-merchant-dashboard, landing-page-state, demo-env-state,
+> sales-vocabulary, parked-inconsistency-backlog.
+>
+> **1. Mobile merchant dashboard (nuwa+maya, plan-approved, e2e-verified vs
+> demo :3005):** nuwa `src/mobile/merchant/` — `api/merchant/*` envelope
+> surface (store/overview/orders+status+cancel/low-stock/conversations),
+> `resolveManagedStore` (owner+employee, 404 NO_STORE), error codes
+> INVALID_TRANSITION/CANNOT_CANCEL, overview `actionable` counts;
+> MerchantOrders/StoreAnalytics/Inventory services newly exported. Analytics
+> gained ADDITIVE `topProducts` (athena contract preserved). 884 tests green.
+> maya: `app/merchant/` (gradient-hero dashboard, sales mgmt w/ status
+> actions, stock alerts, chat inbox+thread), role-gated entry in SideMenu +
+> account. v1 limit: BUYER-role store employees see no entry point.
+>
+> **2. athena overview redesign:** sparklines removed (flat/meaningless),
+> Active-products KPI → Avg sale value, "sales" vocabulary sweep (merchant
+> UI copy only — see sales-vocabulary memory), azure #0ea5e9 accents on
+> revenue chart/Add-product/KPI icons (deliberate crossover from maya),
+> compact StatCards, **Top products card is REAL now** (14d best-sellers
+> from the new analytics field). Also inconsistency-audit fix #1: stale 5.5%
+> commission copy (earnings rate-less; admin detail derives locked rate).
+> Note: athena also carries the owner's pre-session floating-chrome redesign
+> (app-shell/globals) uncommitted.
+>
+> **3. Demo env (screenshot prep):** yiiva_demo migrated current; seed-orders
+> rerun (524 orders, fresh dates); all ACTIVE stores got follower/rating
+> seeds; **madebyfade masked as "DopplerStore"** (store+owner rename) with
+> boosted self-consistent numbers: 49 orders, 14d ≈ R117,885 ↑137%, 4,320
+> subscribers, 4.8★, 2 CONFIRMED + 2 PROCESSING queued. Demo :3005 runs the
+> NEW build (rebuild dist before restarting it).
+>
+> **4. yiiva-final-landing:** shopper view — new BrandCarousel (28 demo
+> logos, ink marquee) + Stitch-style scrollytelling FeatureSection (sticky
+> image swap) + AppShowcase images swapped; brand view — new hero image,
+> feature-hand filled, FeatureDeepDives rewritten (Shopify+Woo logos /
+> dashboard+phone overlay / courier+phone overlay / customer-care cutout).
+> `?audience=shoppers` param added. ⚠ Repo gotcha: arbitrary Tailwind
+> classes get silently dropped — inline styles for arbitrary values.
+> Transparent-cutout originals in "YIIVA landing site inspo/".
+>
+> **▶ NEXT:** (1) COMMIT the four repos (nuwa merchant surface + analytics;
+> maya merchant dashboard; athena overview+vocab; landing rebuild — landing
+> also has pre-session uncommitted work to review); (2) take the actual
+> landing screenshots (DopplerStore athena overview + maya shots) and
+> finish landing content (app-store URLs, WooCommerce claim decision,
+> brand-logo permissions, "50+" vs 28); (3) parked inconsistency backlog
+> #2–#7 (memory) — resume at payout-gate enforcement question; (4) Phase D
+> (Paystack live) + Phase E (phalo) unchanged below; (5) maya release
+> blockers unchanged (prod API origin, EAS projectId, NSAllowsArbitraryLoads).
 >
 > ## 2026-08-18 — ✅ PHASE C COMPLETE: Shopify prod e2e VERIFIED end-to-end
 > ## (+ 2 prod bugs found & fixed: refresh stampede, bannerMedia contract)
@@ -18,8 +135,17 @@
 > settings page: reviewed fields collapse into read-only ReviewLockedDetails
 > card (components/review/) w/ PENDING pill, operational sections stay live;
 > both product-page gates admit PENDING_REVIEW (status-based, not role).
-> nuwa 866 green / athena build clean — UNCOMMITTED both repos. Perfect
-> tester exists: the Doppler store IS PENDING_REVIEW right now.
+> nuwa 866 green / athena build clean — **UNCOMMITTED both repos at session
+> close.** Perfect tester exists: the Doppler store IS PENDING_REVIEW right
+> now. Commit msgs: nuwa "under-review dashboard: PENDING_REVIEW added to
+> product/variant/image/collection manage-allowlists (catalogue editable
+> during review; store profile stays review-locked, buyer surfaces
+> unchanged), on 18/08/2026" + promote main→staging→production (no
+> migration); athena "under-review dashboard (Paystack-style): merchant nav
+> + status pill for PENDING_REVIEW stores, dead-end screen becomes working
+> home w/ payout/banner/locations, settings shows read-only review-locked
+> business details, on 18/08/2026" + push (Vercel). Then walk the new
+> dashboard logged in as the Doppler merchant.
 >
 > **The go-live pivot's target test PASSED in full.** Doppler store connected
 > via the NEW client-credentials flow on production, imported, and verified

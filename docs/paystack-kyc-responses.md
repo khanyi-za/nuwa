@@ -181,10 +181,64 @@ Follow-ups created by this submission:
       view (small nuwa + athena change) so policy 2 is checkable in-UI.
 - [ ] Grandfather any pre-policy ACTIVE store through the payout settings
       flow before real traffic (prod DB starts empty — moot for launch).
-- [ ] Public Returns & Refunds policy page (the 30-day window + process exist
-      in code; Q4/Q7 call it "our published returns policy"). Paystack may
-      ask for the URL.
-- [ ] Dedicated public support contact (e.g. support@yiiva.co.za) so Q7's
-      "support team" has an address.
+- [x] Public Returns & Refunds policy page — BUILT 2026-09-04 at
+      `yiiva-final-landing/src/app/returns-refunds/page.tsx` (+ footer link);
+      live at https://yiiva.co.za/returns-refunds once the landing repo's
+      pending work is committed and pushed (Vercel).
+- [ ] Dedicated public support contact — support@yiiva.co.za is now published
+      on the Returns page; the MAILBOX/forwarding still needs to be created
+      at the domain's email host (owner errand) or the address bounces.
 - [ ] Fix stale copy: `maya/docs/about_yiiva.md` still says payments are
       "powered by PayFast".
+
+---
+
+## §3 Test login details — submission-ready reply (prepared 2026-09-04)
+
+> Response to Paystack's request: "Kindly share the test login details for us
+> to review your website." Paste the block below. Consistent with §1's
+> vocabulary. The credentials belong to a dedicated review account that will
+> be deactivated once the review concludes.
+
+Thank you — please find our review access details below.
+
+**Context:** YIIVA is currently in pre-launch. The merchant side of the
+platform runs on the web, and the buyer marketplace is our mobile app
+(currently in internal distribution ahead of its store release). Payments run
+in test mode pending this activation, so the full checkout can be exercised
+end-to-end with Paystack's standard test card.
+
+**1. Merchant platform (web) — https://merchant.yiiva.co.za**
+
+- Email: paystack.review@yiiva.co.za
+- Password: RAE9qjGUaqlhWXD9SJXzPJgR
+
+This account operates "Yiiva Demo Store", a demonstration store owned by our
+own registered entity (Khaziimla Technology (Pty) Ltd). Logging in shows the
+full merchant experience: catalogue and inventory management, sales and
+returns handling, earnings, and — under Settings → Automatic payouts — the
+store's verified Paystack subaccount, which is how every trading merchant on
+YIIVA receives their share via a split defined at time of charge (per our
+earlier answers: standard T+1 settlement, no platform-side payout process).
+
+**2. Buyer marketplace (Android app)**
+
+Install link (open on an Android device, or scan the QR on the page):
+https://expo.dev/accounts/yiiva/projects/yiiva-app/builds/70c2ed0a-513d-4399-8c90-cd4312acc4df
+
+You can register a buyer account in-app with any email address (a 6-digit
+verification code is emailed). Browse the demo store, add to cart, and check
+out — payment is taken through Paystack's hosted checkout in test mode; the
+standard test card 4084 0840 8408 4081 (any future expiry, CVV 408) completes
+the purchase. Refunds and cancellations are likewise live in test mode.
+
+**3. Public site** — https://yiiva.co.za (marketing/landing).
+
+The review login above is a dedicated account created for this review; we
+will deactivate it once your review is complete. If the app install link
+expires before you get to it, let us know and we will refresh it same-day.
+
+> INTERNAL (do not send): the install link's APK artifact expires 2026-09-17
+> — rebuild with `npx eas-cli build -p android --profile preview` in maya if
+> needed. Teardown after review: deactivate the user + archive the store
+> (see auto-memory `paystack-review-account`).

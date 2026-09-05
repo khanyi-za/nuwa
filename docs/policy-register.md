@@ -146,9 +146,15 @@ the submission:
       (nuwa: expose on admin store detail; athena: show in review UI).
 - [ ] Grandfather pre-policy ACTIVE stores through the payout settings flow
       before real traffic.
-- [ ] Public Returns & Refunds policy page (30-day window + process already
-      enforced in code; Q4/Q7 call it "our published returns policy").
-- [ ] Dedicated public support contact (e.g. support@yiiva.co.za).
+- [x] Public Returns & Refunds policy page — BUILT 2026-09-04
+      (`yiiva-final-landing` `/returns-refunds`, footer-linked; live on next
+      landing deploy). Content mirrors the code-enforced rules: cancel before
+      dispatch, 30-day window from delivery, REQUESTED→APPROVED→RECEIVED→
+      refund via Paystack to original method, platform adjudication, CPA
+      rights preserved.
+- [ ] Dedicated public support contact — support@yiiva.co.za published on the
+      Returns page; mailbox/forwarding creation at the email host is still an
+      owner errand.
 - [ ] Fix stale copy: `maya/docs/about_yiiva.md` still says "powered by
       PayFast".
 - [ ] Optional: review-UI checklist item for the P-1 CIPC check.
