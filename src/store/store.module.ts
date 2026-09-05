@@ -23,6 +23,8 @@ import { StoreEarningsService } from './earnings/store-earnings.service';
     StoreAnalyticsService,
     StoreEarningsService,
   ],
-  exports: [StoreService], // Exported for use by Product, Order, and other future modules
+  // StoreService: used by Product, Order, and other modules for canManageStore.
+  // StoreAnalyticsService: reused by the mobile merchant surface (MobileModule).
+  exports: [StoreService, StoreAnalyticsService],
 })
 export class StoreModule {}

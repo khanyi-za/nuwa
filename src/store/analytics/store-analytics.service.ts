@@ -46,6 +46,17 @@ export interface StoreAnalyticsResponse {
   followers: { count: number; trendPct: number; spark: number[] };
   activeProducts: { count: number; trendPct: number; spark: number[] };
   rating: { value: number; trendPct: number; spark: number[] };
+  /**
+   * Best sellers in the current window, by revenue (top 5). ADDITIVE field —
+   * older clients strip unknown keys, so the locked contract above holds.
+   */
+  topProducts: {
+    productId: string;
+    title: string;
+    imageUrl: string | null;
+    unitsSold: number;
+    revenueInCents: number;
+  }[];
 }
 
 @Injectable()
@@ -124,6 +135,41 @@ export class StoreAnalyticsService {
     });
     const activeCount = activeProducts.length;
 
+    // Best sellers in the current window, by revenue. Cancelled orders never
+    // have confirmedAt, so the window filter excludes them for free.
+    const soldItems = await this.prisma.orderItem.groupBy({
+      by: ['productId'],
+      where: {
+        order: { storeId, confirmedAt: { not: null, gte: currentStart } },
+      },
+      _sum: { totalInCents: true, quantity: true },
+      orderBy: { _sum: { totalInCents: 'desc' } },
+      take: 5,
+    });
+    const soldProducts = await this.prisma.product.findMany({
+      where: { id: { in: soldItems.map((s) => s.productId) } },
+      select: {
+        id: true,
+        title: true,
+        images: {
+          where: { isPrimary: true },
+          take: 1,
+          select: { url: true },
+        },
+      },
+    });
+    const productById = new Map(soldProducts.map((p) => [p.id, p]));
+    const topProducts = soldItems.map((s) => {
+      const product = productById.get(s.productId);
+      return {
+        productId: s.productId,
+        title: product?.title ?? 'Removed product',
+        imageUrl: product?.images[0]?.url ?? null,
+        unitsSold: s._sum.quantity ?? 0,
+        revenueInCents: s._sum.totalInCents ?? 0,
+      };
+    });
+
     const followerCount = store.followerCount;
     const rating = Number(store.averageRating);
 
@@ -164,6 +210,7 @@ export class StoreAnalyticsService {
         trendPct: 0,
         spark: dayKeys.map(() => rating),
       },
+      topProducts,
     };
   }
 

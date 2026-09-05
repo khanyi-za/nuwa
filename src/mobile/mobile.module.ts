@@ -20,6 +20,12 @@ import { MobileSearchController } from './search/mobile-search.controller';
 import { MobileSearchService } from './search/mobile-search.service';
 import { MobileNotificationsController } from './notifications/mobile-notifications.controller';
 import { MobileNotificationsService } from './notifications/mobile-notifications.service';
+import { StoreModule } from '../store/store.module';
+import { ProductModule } from '../product/product.module';
+import { ChatModule } from '../chat/chat.module';
+import { MobileMerchantController } from './merchant/mobile-merchant.controller';
+import { MobileMerchantChatController } from './merchant/mobile-merchant-chat.controller';
+import { MobileMerchantService } from './merchant/mobile-merchant.service';
 
 /**
  * Buyer/mobile API surface (maya, Expo/RN). All routes are under the `/api`
@@ -29,12 +35,15 @@ import { MobileNotificationsService } from './notifications/mobile-notifications
  *
  * Imports OrderModule to reuse the delicate, tested AddressService +
  * CheckoutService (Screen 04). Those services' web routes are unaffected.
+ * StoreModule/ProductModule/ChatModule are imported for the merchant surface
+ * (api/merchant — maya's "Manage my store" dashboard), which wraps
+ * MerchantOrdersService, StoreAnalyticsService, InventoryService, ChatService.
  *
  * Screens covered: 01 Home, 02 Product Detail, 03 Cart, 04 Checkout,
- * 05 Order Success, 06 Track Order, 07 Search.
+ * 05 Order Success, 06 Track Order, 07 Search + the merchant dashboard.
  */
 @Module({
-  imports: [OrderModule],
+  imports: [OrderModule, StoreModule, ProductModule, ChatModule],
   controllers: [
     MobileCategoriesController,
     MobileProductsController,
@@ -46,6 +55,8 @@ import { MobileNotificationsService } from './notifications/mobile-notifications
     MobileSearchController,
     MobileMeController,
     MobileNotificationsController,
+    MobileMerchantController,
+    MobileMerchantChatController,
   ],
   providers: [
     MobileCategoriesService,
@@ -58,6 +69,7 @@ import { MobileNotificationsService } from './notifications/mobile-notifications
     MobileOrdersService,
     MobileSearchService,
     MobileNotificationsService,
+    MobileMerchantService,
   ],
 })
 export class MobileModule {}

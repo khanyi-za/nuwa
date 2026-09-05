@@ -79,14 +79,16 @@ import { PAYMENT_SERVICE } from './contracts/payment-contract';
     { provide: PAYMENT_SERVICE, useClass: PaystackService },
   ],
   // AddressService + CheckoutService + BuyerOrdersService + ReturnsService are
-  // exported for reuse by the mobile/buyer API surface (MobileModule). The web
-  // routes that own them are unaffected.
+  // exported for reuse by the mobile/buyer API surface (MobileModule), and
+  // MerchantOrdersService by the mobile merchant surface. The web routes that
+  // own them are unaffected.
   exports: [
     OrderService,
     AddressService,
     CheckoutService,
     BuyerOrdersService,
     ReturnsService,
+    MerchantOrdersService,
   ],
 })
 export class OrderModule {}

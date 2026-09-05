@@ -31,6 +31,7 @@ const mockPrisma: any = {
   store: { findUnique: jest.fn() },
   order: { findMany: jest.fn() },
   product: { findMany: jest.fn() },
+  orderItem: { groupBy: jest.fn() },
 };
 
 const mockStoreService = {
@@ -58,6 +59,50 @@ describe('StoreAnalyticsService', () => {
     mockPrisma.store.findUnique.mockResolvedValue(baseStore);
     mockPrisma.order.findMany.mockResolvedValue([]);
     mockPrisma.product.findMany.mockResolvedValue([]);
+    mockPrisma.orderItem.groupBy.mockResolvedValue([]);
+  });
+
+  describe('topProducts', () => {
+    it('ranks window best-sellers by revenue with product identity resolved', async () => {
+      mockPrisma.orderItem.groupBy.mockResolvedValue([
+        { productId: 'prod-1', _sum: { totalInCents: 250_000, quantity: 5 } },
+        { productId: 'prod-gone', _sum: { totalInCents: 90_000, quantity: 2 } },
+      ]);
+      mockPrisma.product.findMany
+        // First call: activeProducts growth query; second: top-product identities.
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            id: 'prod-1',
+            title: 'Curve Knit',
+            images: [{ url: 'https://res.cloudinary.com/x/knit.jpg' }],
+          },
+        ]);
+
+      const result = await service.getAnalytics('user-1', 'store-1');
+
+      expect(result.topProducts).toEqual([
+        {
+          productId: 'prod-1',
+          title: 'Curve Knit',
+          imageUrl: 'https://res.cloudinary.com/x/knit.jpg',
+          unitsSold: 5,
+          revenueInCents: 250_000,
+        },
+        {
+          productId: 'prod-gone',
+          title: 'Removed product',
+          imageUrl: null,
+          unitsSold: 2,
+          revenueInCents: 90_000,
+        },
+      ]);
+    });
+
+    it('returns an empty list when nothing sold in the window', async () => {
+      const result = await service.getAnalytics('user-1', 'store-1');
+      expect(result.topProducts).toEqual([]);
+    });
   });
 
   describe('getAnalytics', () => {

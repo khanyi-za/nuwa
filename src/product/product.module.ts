@@ -49,6 +49,7 @@ import { SaleCampaignService } from './sale/sale-campaign.service';
     InventoryService,
     SaleCampaignService,
   ],
-  exports: [ProductService],
+  // InventoryService is reused by the mobile merchant surface (MobileModule).
+  exports: [ProductService, InventoryService],
 })
 export class ProductModule {}
