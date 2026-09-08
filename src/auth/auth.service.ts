@@ -8,13 +8,15 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { AccountStatus, StoreStatus, UserRole } from '@prisma/client';
+import { AccountStatus, OrderStatus, StoreStatus, UserRole } from '@prisma/client';
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { releaseStock } from '../order/cart/stock';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { DeleteAccountDto } from './dto/delete-account.dto';
 import type { JwtPayload } from '../common/types/jwt-payload.interface';
 
 type AuthUser = {
@@ -631,5 +633,123 @@ export class AuthService {
     });
 
     return { accessToken, refreshToken: rawRefreshToken };
+  }
+
+  /**
+   * DELETE /auth/account — permanent account deletion (App Store requirement).
+   *
+   * Model: ANONYMIZE, not hard-delete. Orders/payments are financial records
+   * that must survive (and carry their own delivery-address snapshots), so the
+   * user row stays as an anonymized husk and every PII field is scrubbed.
+   *
+   * Refusals (409) rather than partial deletion:
+   * - Store owners: a store is a business relationship with its own money
+   *   flow — deletion goes through support, not a button.
+   * - In-flight orders: money or parcels are still moving; the account must
+   *   see them through (or cancel) first.
+   *
+   * Inside one transaction: release cart stock reservations, delete carts /
+   * wishlist / notifications / push + refresh tokens / store follows,
+   * deactivate employee memberships, soft-delete + scrub addresses (orders
+   * hold an FK to them — display uses the order's own snapshot fields), and
+   * anonymize the user row. Password becomes an unmatchable random hash and
+   * accountStatus DEACTIVATED, which login refuses explicitly.
+   */
+  async deleteAccount(userId: string, dto: DeleteAccountDto): Promise<{ deleted: true }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        passwordHash: true,
+        accountStatus: true,
+        store: { select: { id: true } },
+      },
+    });
+
+    if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
+      throw new UnauthorizedException('Incorrect password');
+    }
+
+    if (user.store) {
+      throw new ConflictException(
+        'Your account owns a store. Contact support@yiiva.co.za to close the store and delete your account.',
+      );
+    }
+
+    const inFlightOrders = await this.prisma.order.count({
+      where: {
+        userId,
+        status: {
+          notIn: [OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.REFUNDED],
+        },
+      },
+    });
+    if (inFlightOrders > 0) {
+      throw new ConflictException(
+        'You have orders that are still in progress. Once they are delivered or cancelled you can delete your account.',
+      );
+    }
+
+    const anonEmail = `deleted-${userId}@deleted.yiiva.co.za`;
+    const unmatchablePassword = await bcrypt.hash(randomBytes(32).toString('hex'), 12);
+
+    await this.prisma.$transaction(async (tx) => {
+      // Release any stock still reserved by the cart before removing it.
+      const cart = await tx.cart.findUnique({
+        where: { userId },
+        select: { id: true, items: { select: { productId: true, variantId: true, quantity: true } } },
+      });
+      if (cart) {
+        for (const item of cart.items) {
+          await releaseStock(tx, item.productId, item.variantId, item.quantity);
+        }
+        await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
+        await tx.cart.delete({ where: { id: cart.id } });
+      }
+
+      await tx.refreshToken.deleteMany({ where: { userId } });
+      await tx.pushToken.deleteMany({ where: { userId } });
+      await tx.wishlistItem.deleteMany({ where: { userId } });
+      await tx.notification.deleteMany({ where: { userId } });
+      await tx.storeFollower.deleteMany({ where: { userId } });
+      await tx.storeEmployee.updateMany({
+        where: { userId },
+        data: { isActive: false },
+      });
+
+      // Orders FK-reference addresses, so scrub PII in place + soft-delete.
+      await tx.address.updateMany({
+        where: { userId },
+        data: {
+          recipientName: 'Deleted',
+          phone: '',
+          addressLine1: 'Deleted',
+          addressLine2: null,
+          deletedAt: new Date(),
+          isDefault: false,
+        },
+      });
+
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          email: anonEmail,
+          firstName: 'Deleted',
+          lastName: 'User',
+          phone: null,
+          avatarUrl: null,
+          passwordHash: unmatchablePassword,
+          emailVerified: false,
+          accountStatus: AccountStatus.DEACTIVATED,
+          verificationToken: null,
+          verificationExpiry: null,
+          resetToken: null,
+          resetExpiry: null,
+        },
+      });
+    });
+
+    this.logger.log(`Account deleted (anonymized): ${userId}`);
+    return { deleted: true };
   }
 }

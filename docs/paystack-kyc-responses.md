@@ -21,14 +21,14 @@ YIIVA is a curated marketplace and we apply significantly more scrutiny to
 merchants (the recipients of funds) than to buyers.
 
 **Merchants:** Before a store can be submitted for approval, our platform
-requires — and enforces at the system level — the following: the registered
+requires, and enforces at the system level, the following: the registered
 legal entity name, the CIPC company registration number, VAT number where
 applicable, the owner's full name, verified email address and phone number, a
 physical contact point, and the business's South African bank account details
 (bank, account number, branch code, account type). Merchant payout accounts
-are created as Paystack subaccounts, so bank account details are additionally
-validated through Paystack's own account-resolution and first-payout
-verification.
+are created as Paystack subaccounts, so the payout bank account is registered
+directly with Paystack and settlement can only ever be made to that
+registered account.
 
 Every merchant application is then **manually reviewed by our admin team**
 before the store is approved, and a second manual review is performed before
@@ -43,34 +43,34 @@ never touches our systems.
 ### Q2 — What type of Enhanced Due Diligence do you carry out on the individuals signing up on your platform?
 
 YIIVA takes a risk-based approach, and our marketplace is deliberately curated
-rather than open — merchant volume is low and every merchant is individually
+rather than open: merchant volume is low and every merchant is individually
 known to us.
 
 **Standard due diligence (all merchants):** the requirements described in our
 previous answer (CIPC registration number, legal entity name, owner identity
 and verified contact details, South African bank account), followed by manual
-review by our team. We only onboard registered South African businesses —
+review by our team. We only onboard registered South African businesses;
 unregistered individuals cannot sell on the platform.
 
 **Enhanced measures:** During review we verify the provided CIPC registration
 number against the CIPC public registry to confirm the entity exists and
 matches the stated legal name. Merchant bank accounts are established as
-Paystack subaccounts, which means every payout account passes Paystack's
-account resolution and first-payout verification — funds can only ever settle
-to a bank account verified as belonging to the merchant. Where we identify
+Paystack subaccounts, so funds can only ever settle to the bank account
+registered on the merchant's subaccount; there is no mechanism on our side
+to redirect a merchant's settlement to any other account. Where we identify
 inconsistencies or elevated risk (e.g. name mismatches, unverifiable
 registration), we require the director's identity document and proof of bank
 account before approval, or decline the application.
 
 **Ongoing monitoring:** every transaction on the platform is reconciled
 against Paystack records, all payment events are retained in an immutable
-audit log, and our admin tooling supports immediate suspension of a merchant —
-including halting their ability to receive orders — where fraud or policy
+audit log, and our admin tooling supports immediate suspension of a merchant,
+including halting their ability to receive orders, where fraud or policy
 violations are suspected.
 
 ### Q3 — How long are funds held?
 
-They are not held — neither by YIIVA nor on behalf of merchants — beyond
+They are not held, either by YIIVA or on behalf of merchants, beyond
 Paystack's standard settlement cycle.
 
 YIIVA is built on Paystack's subaccount and multi-split architecture
@@ -93,13 +93,13 @@ Each transaction is created with a Paystack multi-split that allocates the
 merchant's share to their verified subaccount and the platform's commission to
 YIIVA's account at the moment of charge. Settlement then follows Paystack's
 standard T+1 cycle automatically. There is no delivery-confirmation trigger,
-no buyer approval step, and no platform-side payout approval — no one at YIIVA
+no buyer approval step, and no platform-side payout approval. No one at YIIVA
 can accelerate, delay, or redirect a merchant's settlement, because the
 allocation is fixed within the transaction before settlement occurs.
 
 Where an order is subsequently cancelled or disputed, the remedy is a refund
 through Paystack's refund API (initiated from the platform's admin tooling
-under our published returns policy) — not a withheld release, since no funds
+under our published returns policy), not a withheld release, since no funds
 are ever held pending release.
 
 ### Q5 — Is the release of funds automatic, or does the platform decide?
@@ -107,7 +107,7 @@ are ever held pending release.
 Fully automatic. Settlement is executed by Paystack on its standard T+1
 cycle, according to the split defined within each transaction at the time of
 charge. There is no platform-side payout process, approval queue, or manual
-step of any kind — YIIVA has no mechanism to decide on, initiate, or withhold
+step of any kind. YIIVA has no mechanism to decide on, initiate, or withhold
 the release of merchant funds. The only money movement the platform can
 initiate is a refund to the buyer via Paystack's refund API, governed by our
 returns policy.
@@ -122,7 +122,7 @@ the merchant's own verified bank account, and the platform's commission is
 deposited into YIIVA's account.
 
 The only funds that ever rest in a YIIVA-controlled account are YIIVA's own
-revenue — the platform commission and shipping cost recovery. We maintain no
+revenue: the platform commission and shipping cost recovery. We maintain no
 wallet, stored balance, or ledger of merchant funds, and merchant money never
 passes through an account we control.
 
@@ -131,20 +131,20 @@ passes through an account we control.
 Disputes are handled through a layered, in-platform process designed to
 resolve issues long before they become payment disputes:
 
-1. **Cancellation** — buyers can cancel an order in-app before dispatch;
+1. **Cancellation:** buyers can cancel an order in-app before dispatch;
    cancelled orders are refunded via Paystack.
-2. **Direct resolution** — the platform includes built-in buyer–merchant
+2. **Direct resolution:** the platform includes built-in buyer–merchant
    messaging on every order, keeping resolution (and its record) on-platform.
-3. **Returns** — buyers submit return requests in-app within 30 days of
+3. **Returns:** buyers submit return requests in-app within 30 days of
    delivery; merchants process them through a structured workflow (approve,
    reject with reason, parcel received, settle) with system-enforced windows
    and statuses.
-4. **Platform adjudication** — where a merchant fails to resolve an issue,
+4. **Platform adjudication:** where a merchant fails to resolve an issue,
    YIIVA's support team adjudicates and can execute a full or partial refund
    to the buyer directly through Paystack's refund API, without requiring the
    merchant's cooperation. Refunds are funded from the platform's own balance,
    so the buyer's remedy is never dependent on the merchant.
-5. **Evidence** — every order carries a complete audit trail: payment events,
+5. **Evidence:** every order carries a complete audit trail: payment events,
    stage-by-stage courier tracking (The Courier Guy), and PIN-confirmed
    delivery captured by the courier at handover. This allows us to resolve
    delivery disputes with objective evidence and to respond promptly with
@@ -200,7 +200,7 @@ Follow-ups created by this submission:
 > vocabulary. The credentials belong to a dedicated review account that will
 > be deactivated once the review concludes.
 
-Thank you — please find our review access details below.
+Thank you. Please find our review access details below.
 
 **Context:** YIIVA is currently in pre-launch. The merchant side of the
 platform runs on the web, and the buyer marketplace is our mobile app
@@ -208,7 +208,7 @@ platform runs on the web, and the buyer marketplace is our mobile app
 in test mode pending this activation, so the full checkout can be exercised
 end-to-end with Paystack's standard test card.
 
-**1. Merchant platform (web) — https://merchant.yiiva.co.za**
+**1. Merchant platform (web): https://merchant.yiiva.co.za**
 
 - Email: paystack.review@yiiva.co.za
 - Password: RAE9qjGUaqlhWXD9SJXzPJgR
@@ -216,29 +216,37 @@ end-to-end with Paystack's standard test card.
 This account operates "Yiiva Demo Store", a demonstration store owned by our
 own registered entity (Khaziimla Technology (Pty) Ltd). Logging in shows the
 full merchant experience: catalogue and inventory management, sales and
-returns handling, earnings, and — under Settings → Automatic payouts — the
+returns handling, earnings, and (under Settings → Automatic payouts) the
 store's verified Paystack subaccount, which is how every trading merchant on
 YIIVA receives their share via a split defined at time of charge (per our
 earlier answers: standard T+1 settlement, no platform-side payout process).
 
 **2. Buyer marketplace (Android app)**
 
-Install link (open on an Android device, or scan the QR on the page):
-https://expo.dev/accounts/yiiva/projects/yiiva-app/builds/70c2ed0a-513d-4399-8c90-cd4312acc4df
+Install page (open on an Android device; it has an Install button and QR code):
+https://expo.dev/accounts/yiiva/projects/yiiva-app/builds/eba7a1e9-f76d-453f-a258-7cf08a1d69eb
+
+Direct APK download (no account needed, same build):
+https://expo.dev/artifacts/eas/yaBXJQXLeNxIpYNEUiQFIpbrr9Zm_M4JzZmV91E6cm8.apk
+
+The app installs outside the Play Store (it is in pre-release internal
+distribution), so Android will ask you to allow the install: tap
+"Install anyway" / allow your browser to install unknown apps.
 
 You can register a buyer account in-app with any email address (a 6-digit
 verification code is emailed). Browse the demo store, add to cart, and check
-out — payment is taken through Paystack's hosted checkout in test mode; the
+out. Payment is taken through Paystack's hosted checkout in test mode; the
 standard test card 4084 0840 8408 4081 (any future expiry, CVV 408) completes
 the purchase. Refunds and cancellations are likewise live in test mode.
 
-**3. Public site** — https://yiiva.co.za (marketing/landing).
+**3. Public site:** https://yiiva.co.za (marketing/landing).
 
 The review login above is a dedicated account created for this review; we
 will deactivate it once your review is complete. If the app install link
 expires before you get to it, let us know and we will refresh it same-day.
 
-> INTERNAL (do not send): the install link's APK artifact expires 2026-09-17
-> — rebuild with `npx eas-cli build -p android --profile preview` in maya if
-> needed. Teardown after review: deactivate the user + archive the store
+> INTERNAL (do not send): the install link's APK artifact (build eba7a1e9,
+> branded splash + YIIVA name, 2026-09-05) expires 2026-09-19 — rebuild with
+> `npx eas-cli build -p android --profile preview` in maya if needed.
+> Teardown after review: deactivate the user + archive the store
 > (see auto-memory `paystack-review-account`).

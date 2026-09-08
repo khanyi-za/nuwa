@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './decorators/current-user.decorator';
@@ -10,6 +10,7 @@ import { RegisterDto } from './dto/register.dto';
 import { ResendVerificationDto } from './dto/resend-verification.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
+import { DeleteAccountDto } from './dto/delete-account.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -88,5 +89,14 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser('id') userId: string) {
     return this.authService.me(userId);
+  }
+
+  // Permanent account deletion (App Store requirement). Password re-entry
+  // required — a valid JWT alone must not be able to destroy the account.
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @Delete('account')
+  @HttpCode(200)
+  deleteAccount(@CurrentUser('id') userId: string, @Body() dto: DeleteAccountDto) {
+    return this.authService.deleteAccount(userId, dto);
   }
 }

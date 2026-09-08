@@ -57,7 +57,7 @@ const mockTokenRecord = {
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
-const mockPrisma = {
+const mockPrisma: any = {
   user: {
     findUnique: jest.fn(),
     findFirst: jest.fn(),
@@ -69,7 +69,19 @@ const mockPrisma = {
     create: jest.fn(),
     update: jest.fn(),
     updateMany: jest.fn(),
+    deleteMany: jest.fn(),
   },
+  // deleteAccount cascade surface
+  order: { count: jest.fn() },
+  cart: { findUnique: jest.fn(), delete: jest.fn() },
+  cartItem: { deleteMany: jest.fn() },
+  pushToken: { deleteMany: jest.fn() },
+  wishlistItem: { deleteMany: jest.fn() },
+  notification: { deleteMany: jest.fn() },
+  storeFollower: { deleteMany: jest.fn() },
+  storeEmployee: { updateMany: jest.fn() },
+  address: { updateMany: jest.fn() },
+  $transaction: jest.fn((fn: any) => fn(mockPrisma)),
 };
 
 const mockJwtService = {
@@ -113,6 +125,7 @@ describe('AuthService', () => {
     (bcrypt.compare as jest.Mock).mockResolvedValue(true);
     mockEmailService.sendVerificationEmail.mockResolvedValue({ success: true });
     mockEmailService.sendPasswordResetEmail.mockResolvedValue({ success: true });
+    mockPrisma.$transaction.mockImplementation((fn: any) => fn(mockPrisma));
   });
 
   // ─── register ───────────────────────────────────────────────────────────────
@@ -900,6 +913,100 @@ describe('AuthService', () => {
       await expect(service.me('non-existent-id')).rejects.toThrow(
         new UnauthorizedException('User not found'),
       );
+    });
+  });
+
+  // ─── deleteAccount ──────────────────────────────────────────────────────────
+
+  describe('deleteAccount', () => {
+    const deletableUser = {
+      id: mockAuthUser.id,
+      passwordHash: 'hashed-password',
+      accountStatus: AccountStatus.ACTIVE,
+      store: null,
+    };
+
+    beforeEach(() => {
+      mockPrisma.user.findUnique.mockResolvedValue(deletableUser);
+      mockPrisma.order.count.mockResolvedValue(0);
+      mockPrisma.cart.findUnique.mockResolvedValue(null);
+      mockPrisma.user.update.mockResolvedValue({});
+    });
+
+    it('anonymizes the user and clears auth artifacts on the happy path', async () => {
+      const result = await service.deleteAccount(mockAuthUser.id, {
+        password: 'correct-password',
+      });
+
+      expect(result).toEqual({ deleted: true });
+      expect(mockPrisma.refreshToken.deleteMany).toHaveBeenCalledWith({
+        where: { userId: mockAuthUser.id },
+      });
+      expect(mockPrisma.pushToken.deleteMany).toHaveBeenCalledWith({
+        where: { userId: mockAuthUser.id },
+      });
+      expect(mockPrisma.address.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ recipientName: 'Deleted' }),
+        }),
+      );
+      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: mockAuthUser.id },
+          data: expect.objectContaining({
+            email: `deleted-${mockAuthUser.id}@deleted.yiiva.co.za`,
+            firstName: 'Deleted',
+            lastName: 'User',
+            accountStatus: AccountStatus.DEACTIVATED,
+          }),
+        }),
+      );
+    });
+
+    it('releases cart stock reservations before deleting the cart', async () => {
+      mockPrisma.cart.findUnique.mockResolvedValue({
+        id: 'cart-1',
+        items: [{ productId: 'prod-1', variantId: null, quantity: 2 }],
+      });
+      mockPrisma.$executeRaw = jest.fn().mockResolvedValue(1);
+
+      await service.deleteAccount(mockAuthUser.id, { password: 'pw' });
+
+      expect(mockPrisma.$executeRaw).toHaveBeenCalled();
+      expect(mockPrisma.cartItem.deleteMany).toHaveBeenCalledWith({
+        where: { cartId: 'cart-1' },
+      });
+      expect(mockPrisma.cart.delete).toHaveBeenCalledWith({ where: { id: 'cart-1' } });
+    });
+
+    it('throws UnauthorizedException on a wrong password', async () => {
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+
+      await expect(
+        service.deleteAccount(mockAuthUser.id, { password: 'wrong' }),
+      ).rejects.toThrow(new UnauthorizedException('Incorrect password'));
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('throws ConflictException when the user owns a store', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        ...deletableUser,
+        store: { id: 'store-1' },
+      });
+
+      await expect(
+        service.deleteAccount(mockAuthUser.id, { password: 'pw' }),
+      ).rejects.toThrow(ConflictException);
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('throws ConflictException while orders are in flight', async () => {
+      mockPrisma.order.count.mockResolvedValue(2);
+
+      await expect(
+        service.deleteAccount(mockAuthUser.id, { password: 'pw' }),
+      ).rejects.toThrow(ConflictException);
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
     });
   });
 });

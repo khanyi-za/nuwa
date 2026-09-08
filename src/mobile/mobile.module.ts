@@ -24,6 +24,8 @@ import { StoreModule } from '../store/store.module';
 import { ProductModule } from '../product/product.module';
 import { ChatModule } from '../chat/chat.module';
 import { MobileMerchantController } from './merchant/mobile-merchant.controller';
+import { MobileReelsController } from './reels/mobile-reels.controller';
+import { MobileReelsService } from './reels/mobile-reels.service';
 import { MobileMerchantChatController } from './merchant/mobile-merchant-chat.controller';
 import { MobileMerchantService } from './merchant/mobile-merchant.service';
 
@@ -57,6 +59,7 @@ import { MobileMerchantService } from './merchant/mobile-merchant.service';
     MobileNotificationsController,
     MobileMerchantController,
     MobileMerchantChatController,
+    MobileReelsController,
   ],
   providers: [
     MobileCategoriesService,
@@ -70,6 +73,7 @@ import { MobileMerchantService } from './merchant/mobile-merchant.service';
     MobileSearchService,
     MobileNotificationsService,
     MobileMerchantService,
+    MobileReelsService,
   ],
 })
 export class MobileModule {}
