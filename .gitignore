@@ -59,3 +59,10 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 /generated
 *.tsbuildinfo
+
+# Internal working notes & compliance material — local only (repo is public)
+CLAUDE.md
+STATUS.md
+.claude/
+docs/paystack-kyc-responses.md
+docs/policy-register.md

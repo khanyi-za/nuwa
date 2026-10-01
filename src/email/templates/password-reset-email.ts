@@ -51,7 +51,7 @@ export function passwordResetEmailTemplate(
             <td style="padding:24px 48px;border-top:1px solid #eeeeee;">
               <p style="margin:0;font-size:12px;color:#aaaaaa;text-align:center;">
                 For your security, this code can only be used once. Need help? Contact
-                <a href="mailto:support@yiiva.co.za" style="color:#aaaaaa;">support@yiiva.co.za</a>
+                <a href="mailto:khanyi@yiiva.co.za" style="color:#aaaaaa;">khanyi@yiiva.co.za</a>
               </p>
             </td>
           </tr>

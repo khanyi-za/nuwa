@@ -672,7 +672,7 @@ export class AuthService {
 
     if (user.store) {
       throw new ConflictException(
-        'Your account owns a store. Contact support@yiiva.co.za to close the store and delete your account.',
+        'Your account owns a store. Contact khanyi@yiiva.co.za to close the store and delete your account.',
       );
     }
 

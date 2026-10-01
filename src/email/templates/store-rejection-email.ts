@@ -60,7 +60,7 @@ export function storeRejectionEmailTemplate(
 
               <p style="margin:0;font-size:13px;color:#777777;line-height:1.7;">
                 If you have any questions about this feedback, reach out to us at
-                <a href="mailto:support@yiiva.co.za" style="color:#333333;">support@yiiva.co.za</a>
+                <a href="mailto:khanyi@yiiva.co.za" style="color:#333333;">khanyi@yiiva.co.za</a>
               </p>
             </td>
           </tr>

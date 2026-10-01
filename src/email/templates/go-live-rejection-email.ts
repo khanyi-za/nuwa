@@ -60,7 +60,7 @@ export function goLiveRejectionEmailTemplate(
 
               <p style="margin:0;font-size:14px;color:#777777;line-height:1.7;">
                 If you have questions about this feedback, contact us at
-                <a href="mailto:support@yiiva.co.za" style="color:#555555;">support@yiiva.co.za</a>.
+                <a href="mailto:khanyi@yiiva.co.za" style="color:#555555;">khanyi@yiiva.co.za</a>.
               </p>
             </td>
           </tr>
@@ -69,7 +69,7 @@ export function goLiveRejectionEmailTemplate(
           <tr>
             <td style="padding:24px 48px;border-top:1px solid #eeeeee;">
               <p style="margin:0;font-size:12px;color:#aaaaaa;text-align:center;">
-                Questions? Contact <a href="mailto:support@yiiva.co.za" style="color:#aaaaaa;">support@yiiva.co.za</a>
+                Questions? Contact <a href="mailto:khanyi@yiiva.co.za" style="color:#aaaaaa;">khanyi@yiiva.co.za</a>
               </p>
             </td>
           </tr>
